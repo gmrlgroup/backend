@@ -1,0 +1,56 @@
+﻿@page "/admin/users/{Action?}/{Id?}"
+@using Microsoft.AspNetCore.Identity
+@inject NavigationManager _navigationManager
+@inject IMessageService _messageService
+@inject HttpClient _httpClient
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@attribute [Authorize]
+
+
+<Toolbar Title="Users">
+    <FluentButton Appearance="Appearance.Accent"
+    OnClick="@(() =>_navigationManager.NavigateTo($"data/users/add?c={companyId}"))"
+    IconEnd="@(new Icons.Regular.Size24.AddCircle().WithColor(Color.Fill))">
+        Add
+    </FluentButton>
+</Toolbar>
+
+@{
+    string authorizedRoles = $"{companyId}_ADMIN";
+}
+
+<AuthorizeView Roles="@authorizedRoles">
+    <Authorized>
+        @if (ShowTable())
+        {
+            <UsersList CompanyId="@companyId" />
+        }
+        else
+        {
+            <UserDetail Id="@Id" CompanyId="@companyId" Action="@Action" />
+        }
+    </Authorized>
+    <NotAuthorized>
+        <FluentMessageBar Title="Unauthorized" Intent="@MessageIntent.Warning">
+            You are not authorized to view this page.
+        </FluentMessageBar>
+    </NotAuthorized>
+</AuthorizeView>
+
+
+
+
+@code {
+
+    [SupplyParameterFromQuery(Name = "c")]
+    private string? companyId { get; set; }
+
+    [Parameter] public string Action { get; set; } = "list";
+    [Parameter] public string Id { get; set; }
+
+
+    public bool ShowTable() => Action == "list" && !String.IsNullOrEmpty(companyId);
+
+
+
+}

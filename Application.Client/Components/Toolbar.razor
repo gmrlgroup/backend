@@ -1,0 +1,44 @@
+﻿
+
+
+
+<FluentToolbar id="toolbar-fluent-components-two" style="width:100%; border-radius: 5px; padding: 5px; margin-bottom:10px;">
+
+    <h4 slot="label" style="margin-right:10px; padding-top:5px; padding-left:5px">@Title</h4>
+
+    <FluentSpacer />
+    @ChildContent
+    
+
+    
+    @if(HasFilter)
+    {
+        <FluentButton IconEnd="@(new Icons.Regular.Size16.Filter())"
+                      Title="Filter"
+                      Appearance="Appearance.Stealth"
+                      OnClick="@(OnFilterClick)" />
+    }
+
+    @if (HasAdd)
+    {
+        <FluentButton IconEnd="@(new Icons.Regular.Size16.Add())"
+                      Title="Add"
+                      Appearance="Appearance.Stealth"
+                      OnClick="@(OnAddClick)" />
+    }
+
+</FluentToolbar>
+
+
+
+@code {
+    [Parameter] public string Title { get; set; }
+
+    [Parameter] public RenderFragment ChildContent { get; set; }
+
+    [Parameter] public bool HasFilter { get; set; }
+    [Parameter] public bool HasAdd { get; set; }
+
+    [Parameter] public EventCallback OnFilterClick { get; set; }
+    [Parameter] public EventCallback OnAddClick { get; set; }
+}

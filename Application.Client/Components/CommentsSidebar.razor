@@ -1,0 +1,486 @@
+@using Application.Shared.Models.Data
+@using Microsoft.FluentUI.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject HttpClient HttpClient
+@inject IJSRuntime JSRuntime
+
+<div class="comments-sidebar" style="height: 100%; background: #f9fafb; border-left: 1px solid #e5e7eb; display: flex; flex-direction: column;">
+    <!-- Header -->
+    <div style="padding: 20px; border-bottom: 1px solid #e5e7eb; background: white;">
+        <h3 style="margin: 0; color: #1f2937; font-size: 1.125rem; font-weight: 600;">
+            <FluentIcon Value="@(new Icons.Regular.Size20.Comment())" style="margin-right: 8px;" />
+            Comments
+        </h3>
+        <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.875rem;">
+            @Comments.Count comment@(Comments.Count != 1 ? "s" : "")
+        </p>
+    </div>
+
+    <!-- Comments List -->
+    <div class="comments-list" style="flex: 1; overflow-y: auto; padding: 16px;">
+        @if (IsLoading)
+        {
+            <div style="display: flex; justify-content: center; padding: 40px;">
+                <FluentProgressRing />
+            </div>
+        }
+        else if (!Comments.Any())
+        {
+            <div style="text-align: center; padding: 40px; color: #6b7280;">
+                <FluentIcon Value="@(new Icons.Regular.Size48.Comment())" style="margin-bottom: 12px; opacity: 0.5;" />
+                <p style="margin: 0; font-size: 0.875rem;">No comments yet</p>
+                <p style="margin: 4px 0 0 0; font-size: 0.75rem;">Be the first to add a comment!</p>
+            </div>
+        }
+        else
+        {
+            @foreach (var comment in Comments.OrderByDescending(c => c.CreatedAt))
+            {
+                <div class="comment-item" style="margin-bottom: 16px; background: white; border-radius: 8px; padding: 16px; border: 1px solid #e5e7eb;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="width: 32px; height: 32px; border-radius: 50%; background: #667eea; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 0.875rem;">
+                                @(comment.UserName?.FirstOrDefault().ToString()?.ToUpper() ?? "U")
+                            </div>
+                            <div>
+                                <div style="font-weight: 600; color: #1f2937; font-size: 0.875rem;">@comment.UserName</div>
+                                <div style="color: #6b7280; font-size: 0.75rem;">@comment.CreatedAt.ToString("MMM dd, yyyy 'at' h:mm tt")</div>
+                            </div>
+                        </div>
+                        
+                        @if (CanEditComment(comment))
+                        {
+                            <FluentMenuButton IconStart="@(new Icons.Regular.Size16.MoreHorizontal())"
+                                              ButtonAppearance="@Appearance.Stealth"
+                                            style="padding: 4px;">
+                                <FluentMenuItem OnClick="@(() => StartEditingComment(comment))">
+                                    <FluentIcon Value="@(new Icons.Regular.Size16.Edit())" style="margin-right: 8px;" />
+                                    Edit
+                                </FluentMenuItem>
+                                <FluentMenuItem OnClick="@(() => DeleteComment(comment.Id))">
+                                    <FluentIcon Value="@(new Icons.Regular.Size16.Delete())" style="margin-right: 8px;" />
+                                    Delete
+                                </FluentMenuItem>
+                            </FluentMenuButton>
+                        }
+                    </div>
+
+                    @if (EditingCommentId == comment.Id)
+                    {
+                        <!-- Edit Mode -->
+                        <div style="margin-top: 8px;">
+                            <FluentTextArea @bind-Value="@EditingContent" 
+                                          @ref="@EditTextArea"
+                                          @onkeydown="@((e) => OnEditKeyDown(e, comment.Id))"
+                                          Style="width: 100%; min-height: 80px; margin-bottom: 8px;" />
+                            <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                                <FluentButton Appearance="Appearance.Outline" 
+                                            OnClick="@CancelEditing"
+                                            style="border-radius: 6px; font-size: 0.75rem; padding: 6px 12px;">
+                                    Cancel
+                                </FluentButton>
+                                <FluentButton Appearance="Appearance.Accent" 
+                                            OnClick="@(() => SaveEditComment(comment.Id))"
+                                            style="border-radius: 6px; font-size: 0.75rem; padding: 6px 12px;">
+                                    Save
+                                </FluentButton>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <!-- Display Mode -->
+                        <div style="color: #374151; line-height: 1.5; white-space: pre-wrap;">@((MarkupString)FormatCommentContent(comment.Content))</div>
+                        
+                        @if (comment.MentionedUserIds.Any())
+                        {
+                            <div style="margin-top: 8px; font-size: 0.75rem; color: #6b7280;">
+                                <FluentIcon Value="@(new Icons.Regular.Size12.Mention())" style="margin-right: 4px;" />
+                                Mentioned @comment.MentionedUserIds.Count user@(comment.MentionedUserIds.Count != 1 ? "s" : "")
+                            </div>
+                        }
+                    }
+                </div>
+            }
+        }
+    </div>
+
+    <!-- Add Comment -->
+    <div style="padding: 16px; border-top: 1px solid #e5e7eb; background: white;">
+        <div style="position: relative;">
+            <FluentTextArea @bind-Value="@NewCommentContent" 
+                          @ref="@CommentTextArea"
+                          @oninput="@OnCommentInput"
+                          @onkeydown="@OnCommentKeyDown"
+                          Placeholder="Add a comment... Type &#64; to mention someone"
+                          Style="width: 100%; min-height: 80px; margin-bottom: 8px;" />
+            
+            <!-- User Mention Dropdown -->
+            @if (ShowMentionDropdown && MentionUsers.Any())
+            {
+                <div class="mention-dropdown" style="position: absolute; z-index: 1000; background: white; border: 1px solid #d1d5db; border-radius: 6px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); max-height: 200px; overflow-y: auto; width: 100%; bottom: 120px;">
+                    @foreach (var user in MentionUsers.Take(5))
+                    {
+                        <div class="mention-item" 
+                             style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f3f4f6; transition: background-color 0.2s;"
+                             @onclick="@(() => SelectMentionUser(user))"
+                             @onmouseenter="@((e) => HighlightMentionItem(e))"
+                             @onmouseleave="@((e) => UnhighlightMentionItem(e))">
+                            <div style="font-weight: 600; color: #1f2937; font-size: 0.875rem;">@user.FullName</div>
+                            <div style="color: #6b7280; font-size: 0.75rem;">@@@user.UserName • @user.Email</div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+        
+        <div style="display: flex; gap: 8px; justify-content: flex-end;">
+            <FluentButton Appearance="Appearance.Outline" 
+                        OnClick="@ClearComment"
+                        Disabled="@(string.IsNullOrWhiteSpace(NewCommentContent))"
+                        style="border-radius: 6px; font-size: 0.75rem; padding: 6px 12px;">
+                Clear
+            </FluentButton>
+            <FluentButton Appearance="Appearance.Accent" 
+                        OnClick="@AddComment"
+                        Disabled="@(string.IsNullOrWhiteSpace(NewCommentContent?.Trim()))"
+                        style="border-radius: 6px; font-size: 0.75rem; padding: 6px 12px;">
+                <FluentIcon Value="@(new Icons.Regular.Size12.ArrowRight())" style="margin-right: 4px;" />
+                Comment
+            </FluentButton>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string CompanyId { get; set; } = string.Empty;
+    [Parameter] public string DatasetId { get; set; } = string.Empty;
+    [Parameter] public string TableName { get; set; } = string.Empty;
+    [Parameter] public EventCallback<DataTableComment> OnCommentAdded { get; set; }
+    [Parameter] public EventCallback<string> OnCommentDeleted { get; set; }
+    [Parameter] public string CurrentUserId { get; set; }
+    /* public string CurrentUserId { get; set; } */ //= string.Empty;
+
+    private List<DataTableComment> Comments = new();
+    private List<UserMention> MentionUsers = new();
+    private string NewCommentContent = string.Empty;
+    private string EditingContent = string.Empty;
+    private string? EditingCommentId = null;
+    private bool IsLoading = false;
+    private bool ShowMentionDropdown = false;
+    private string CurrentMentionQuery = string.Empty;
+    private int MentionStartPosition = -1;
+
+    private FluentTextArea? CommentTextArea;
+    private FluentTextArea? EditTextArea;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Get current user
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        // print js
+        // await JSRuntime.InvokeVoidAsync("console.log", authState);
+
+        CurrentUserId = authState.User.Claims.FirstOrDefault(c => c.Type.EndsWith("nameidentifier"))?.Value ??
+                          authState.User.Claims.FirstOrDefault(c => c.Type.EndsWith("id"))?.Value ??
+                            string.Empty;
+
+
+        Console.WriteLine($"CommentSidebar: Company ID: {CompanyId}");
+
+        if (!string.IsNullOrEmpty(DatasetId) && !string.IsNullOrEmpty(TableName))
+        {
+            await LoadComments();
+        }
+    }
+
+    private async Task LoadComments()
+    {
+        IsLoading = true;
+        try
+        {
+            // add X-Company-ID header if not present
+            if (!HttpClient.DefaultRequestHeaders.Contains("X-Company-ID"))
+            {
+                HttpClient.DefaultRequestHeaders.Add("X-Company-ID", CompanyId);
+            }
+
+            var response = await HttpClient.GetFromJsonAsync<List<DataTableComment>>($"api/DataViews/comments/{DatasetId}/{TableName}");
+            Comments = response ?? new List<DataTableComment>();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading comments: {ex.Message}");
+            Comments = new List<DataTableComment>();
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task AddComment()
+    {
+        if (string.IsNullOrWhiteSpace(NewCommentContent?.Trim()))
+            return;
+
+        try
+        {
+            var comment = new DataTableComment
+            {
+                DatasetId = DatasetId,
+                UserId = CurrentUserId,
+                TableName = TableName,
+                Content = NewCommentContent.Trim(),
+                MentionedUserIds = ExtractMentionedUserIds(NewCommentContent)
+            };
+
+            // add X-Company-ID header if not present
+            if (!HttpClient.DefaultRequestHeaders.Contains("X-Company-ID"))
+            {
+                HttpClient.DefaultRequestHeaders.Add("X-Company-ID", CompanyId);
+            }
+
+            var response = await HttpClient.PostAsJsonAsync("api/DataViews/comments", comment);
+            if (response.IsSuccessStatusCode)
+            {
+                var addedComment = await response.Content.ReadFromJsonAsync<DataTableComment>();
+                if (addedComment != null)
+                {
+                    Comments.Insert(0, addedComment);
+                    NewCommentContent = string.Empty;
+                    await OnCommentAdded.InvokeAsync(addedComment);
+                    StateHasChanged();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error adding comment: {ex.Message}");
+        }
+    }
+
+    private async Task DeleteComment(string commentId)
+    {
+        try
+        {
+            var response = await HttpClient.DeleteAsync($"api/DataViews/comments/{commentId}");
+            if (response.IsSuccessStatusCode)
+            {
+                Comments.RemoveAll(c => c.Id == commentId);
+                await OnCommentDeleted.InvokeAsync(commentId);
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error deleting comment: {ex.Message}");
+        }
+    }
+
+    private void StartEditingComment(DataTableComment comment)
+    {
+        EditingCommentId = comment.Id;
+        EditingContent = comment.Content;
+        StateHasChanged();
+    }
+
+    private async Task SaveEditComment(string commentId)
+    {
+        try
+        {
+            var response = await HttpClient.PutAsJsonAsync($"api/DataViews/comments/{commentId}", EditingContent);
+            if (response.IsSuccessStatusCode)
+            {
+                var updatedComment = await response.Content.ReadFromJsonAsync<DataTableComment>();
+                if (updatedComment != null)
+                {
+                    var index = Comments.FindIndex(c => c.Id == commentId);
+                    if (index >= 0)
+                    {
+                        Comments[index] = updatedComment;
+                    }
+                }
+                CancelEditing();
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error updating comment: {ex.Message}");
+        }
+    }
+
+    private void CancelEditing()
+    {
+        EditingCommentId = null;
+        EditingContent = string.Empty;
+    }
+
+    private void ClearComment()
+    {
+        NewCommentContent = string.Empty;
+        ShowMentionDropdown = false;
+    }
+
+    private bool CanEditComment(DataTableComment comment)
+    {
+        return comment.UserId == CurrentUserId;
+    }
+
+    private async Task OnCommentInput(ChangeEventArgs e)
+    {
+        var content = e.Value?.ToString() ?? string.Empty;
+        NewCommentContent = content;
+
+        // Check for @ mentions
+        var cursorPosition = content.Length; // Simplified - in real implementation, get actual cursor position
+        await HandleMentionInput(content, cursorPosition);
+    }
+
+    private async Task HandleMentionInput(string content, int cursorPosition)
+    {
+        var lastAtIndex = content.LastIndexOf('@', Math.Max(0, cursorPosition - 1));
+        
+        if (lastAtIndex >= 0)
+        {
+            var mentionQuery = content.Substring(lastAtIndex + 1, cursorPosition - lastAtIndex - 1);
+            var hasSpaceAfterAt = mentionQuery.Contains(' ');
+            
+            if (!hasSpaceAfterAt && mentionQuery.Length <= 20)
+            {
+                MentionStartPosition = lastAtIndex;
+                CurrentMentionQuery = mentionQuery;
+                await SearchUsers(mentionQuery);
+                ShowMentionDropdown = MentionUsers.Any();
+            }
+            else
+            {
+                ShowMentionDropdown = false;
+            }
+        }
+        else
+        {
+            ShowMentionDropdown = false;
+        }
+        
+        StateHasChanged();
+    }
+
+    private async Task SearchUsers(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            MentionUsers.Clear();
+            return;
+        }
+
+        try
+        {
+            // add X-Company-ID header if not present
+            if (!HttpClient.DefaultRequestHeaders.Contains("X-Company-ID"))
+            {
+                HttpClient.DefaultRequestHeaders.Add("X-Company-ID", CompanyId);
+            }
+            
+            var response = await HttpClient.GetFromJsonAsync<List<UserMention>>($"api/DataViews/users/search?searchTerm={Uri.EscapeDataString(query)}&maxResults=5");
+            MentionUsers = response ?? new List<UserMention>();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error searching users: {ex.Message}");
+            MentionUsers.Clear();
+        }
+    }
+
+    private void SelectMentionUser(UserMention user)
+    {
+        if (MentionStartPosition >= 0)
+        {
+            var beforeMention = NewCommentContent.Substring(0, MentionStartPosition);
+            var afterMention = NewCommentContent.Substring(MentionStartPosition + CurrentMentionQuery.Length + 1);
+            NewCommentContent = $"{beforeMention}@{user.UserName} {afterMention}";
+        }
+        
+        ShowMentionDropdown = false;
+        MentionStartPosition = -1;
+        CurrentMentionQuery = string.Empty;
+        StateHasChanged();
+    }
+
+    private List<string> ExtractMentionedUserIds(string content)
+    {
+        var mentionedUserIds = new List<string>();
+        var mentionPattern = @"@(\w+)";
+        var matches = System.Text.RegularExpressions.Regex.Matches(content, mentionPattern);
+        
+        foreach (System.Text.RegularExpressions.Match match in matches)
+        {
+            var username = match.Groups[1].Value;
+            var user = MentionUsers.FirstOrDefault(u => u.UserName == username);
+            if (user != null)
+            {
+                mentionedUserIds.Add(user.Id);
+            }
+        }
+        
+        return mentionedUserIds.Distinct().ToList();
+    }
+
+    private string FormatCommentContent(string content)
+    {
+        if (string.IsNullOrEmpty(content))
+            return content;
+
+        // Replace @mentions with styled spans
+        var mentionPattern = @"@(\w+)";
+        var formattedContent = System.Text.RegularExpressions.Regex.Replace(content, mentionPattern, 
+            "<span style='color: #667eea; font-weight: 600; background: #f0f3ff; padding: 2px 4px; border-radius: 4px;'>@$1</span>");
+        
+        return formattedContent;
+    }
+
+    private async Task OnCommentKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && e.CtrlKey)
+        {
+            await AddComment();
+        }
+        else if (e.Key == "Escape")
+        {
+            ShowMentionDropdown = false;
+        }
+    }
+
+    private async Task OnEditKeyDown(KeyboardEventArgs e, string commentId)
+    {
+        if (e.Key == "Enter" && e.CtrlKey)
+        {
+            await SaveEditComment(commentId);
+        }
+        else if (e.Key == "Escape")
+        {
+            CancelEditing();
+        }
+    }    private void HighlightMentionItem(MouseEventArgs e)
+    {
+        // Handle in CSS hover instead
+    }
+
+    private void UnhighlightMentionItem(MouseEventArgs e)
+    {
+        // Handle in CSS hover instead
+    }
+}
+
+<style>
+    .mention-item:hover {
+        background-color: #f3f4f6 !important;
+    }
+    
+    .mention-item:last-child {
+        border-bottom: none !important;
+    }
+</style>

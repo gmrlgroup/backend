@@ -1,0 +1,146 @@
+@page "/company/new"
+@using System.ComponentModel.DataAnnotations
+@inject HttpClient _httpClient
+@inject NavigationManager _navigationManager
+@inject IToastService _toastService
+@inject AuthenticationStateProvider _authenticationStateProvider
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@attribute [Authorize]
+
+<PageTitle>Create Company</PageTitle>
+
+<div class="container" style="max-width: 600px; margin: 50px auto; padding: 20px;">
+    <div style="background-color: white; border-radius: 8px; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <div style="text-align: center; margin-bottom: 30px;">
+            <h2 style="color: #2c3e50; margin-bottom: 10px;">Create New Company</h2>
+            <p style="color: #7f8c8d;">Fill in the details below to create your company</p>
+        </div>
+
+        <EditForm Model="@companyModel" OnValidSubmit="@HandleValidSubmit" FormName="create-company" novalidate>
+            <DataAnnotationsValidator />
+            <FluentValidationSummary />
+
+            <FluentStack Orientation="Orientation.Vertical" Style="gap: 20px;">
+                <div>
+                    <FluentTextField 
+                        Name="Id" 
+                        @bind-Value="@companyModel.Id" 
+                        style="width: 100%;" 
+                        Label="Id" 
+                        Required 
+                        Placeholder="Enter your company name" />
+                    <FluentValidationMessage For="@(() => companyModel.Name)" />
+                </div>
+                
+                <div>
+                    <FluentTextField 
+                        Name="Name" 
+                        @bind-Value="@companyModel.Name" 
+                        style="width: 100%;" 
+                        Label="Name" 
+                        Required 
+                        Placeholder="Enter your company name" />
+                    <FluentValidationMessage For="@(() => companyModel.Name)" />
+                </div>
+
+                <div style="display: flex; gap: 15px; margin-top: 30px;">
+                    <FluentButton 
+                        Type="ButtonType.Submit" 
+                        Appearance="Appearance.Accent" 
+                        Loading="@isSubmitting">
+                        @if (isSubmitting)
+                        {
+                            <span>Creating...</span>
+                        }
+                        else
+                        {
+                            <span>Create Company</span>
+                        }
+                    </FluentButton>
+                    
+                    <FluentButton 
+                        Type="ButtonType.Button" 
+                        Appearance="Appearance.Neutral" 
+                        OnClick="@Cancel"
+                        Disabled="@isSubmitting">
+                        Cancel
+                    </FluentButton>
+                </div>
+            </FluentStack>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    private Company companyModel = new();
+    private bool isSubmitting = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Add user ID to headers
+        var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (!string.IsNullOrEmpty(userId))
+            {
+                _httpClient.DefaultRequestHeaders.Remove("UserId");
+                _httpClient.DefaultRequestHeaders.Add("UserId", userId);
+            }
+        }
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        isSubmitting = true;
+        try
+        {
+            @* var company = new Company
+            {
+                Name = companyModel.Name
+            }; *@
+
+            var response = await _httpClient.PostAsJsonAsync("api/companies", companyModel);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var createdCompany = await response.Content.ReadFromJsonAsync<Company>();
+                _toastService.ShowSuccess("Company created successfully!");
+                _navigationManager.NavigateTo($"/?c={createdCompany?.Id}");
+            }
+            else
+            {
+                var errorMessage = await response.Content.ReadAsStringAsync();
+                _toastService.ShowError($"Failed to create company: {errorMessage}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"An error occurred: {ex.Message}");
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private void Cancel()
+    {
+        _navigationManager.NavigateTo("/");
+    }
+
+    @* public class CompanyInputModel
+    {
+        [Required(ErrorMessage = "Company name is required")]
+        [StringLength(100, ErrorMessage = "Company name cannot exceed 100 characters")]
+        public string Name { get; set; } = string.Empty;
+    } *@
+}
+
+
+
+
+
+

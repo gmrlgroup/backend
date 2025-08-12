@@ -1,0 +1,494 @@
+@page "/data/tables/{Action}"
+@using Application.Shared.Models.Data
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.FluentUI.AspNetCore.Components
+@inject HttpClient _httpClient
+@inject IToastService _toastService
+@inject NavigationManager _navigationManager
+@inject AuthenticationStateProvider _authenticationStateProvider
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@attribute [Authorize]
+
+<PageTitle>Create Table</PageTitle>
+
+<!-- Main Content Card -->
+<FluentCard style="
+    background: rgba(255,255,255,0.95); 
+    border-radius: 16px; 
+    border: none; 
+    backdrop-filter: blur(10px); 
+    box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
+    padding: 0;
+    overflow: hidden;
+    max-width: 1200px;
+    margin: 0 auto;">
+    
+    <!-- Card Header -->
+    <div style="
+        padding: 32px 32px 24px 32px; 
+        border-bottom: 1px solid rgba(0,0,0,0.06);
+        background: linear-gradient(90deg, rgba(102,126,234,0.05) 0%, rgba(118,75,162,0.05) 100%);">
+        <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween" VerticalAlignment="VerticalAlignment.Center">
+            <div>
+                <h2 style="
+                    font-size: 1.5rem; 
+                    font-weight: 600; 
+                    color: #1f2937; 
+                    margin: 0 0 4px 0;">
+                    @if(Dataset is not null)
+                    {
+                        <span>Create New Table in </span>
+                        @Dataset.Name
+                    }
+                    else
+                    {
+                        <span>Create New Table</span>
+                    }
+                    
+                </h2>
+                <p style="
+                    color: #6b7280; 
+                    margin: 0; 
+                    font-size: 0.875rem;">
+                    Define your table structure with columns and data types
+                </p>
+            </div>
+            
+            <FluentButton 
+                Appearance="Appearance.Stealth" 
+                OnClick="@GoBack"
+                style="
+                    padding: 8px; 
+                    border-radius: 8px;
+                    color: #6b7280;">
+                <FluentIcon Value="@(new Icons.Regular.Size20.ArrowLeft())" />
+            </FluentButton>
+        </FluentStack>
+    </div>
+
+    <!-- Form Content -->
+    <div style="padding: 32px;">
+        <EditForm Model="@tableModel" OnValidSubmit="@HandleSubmit" style="max-height: 70vh; overflow-y: auto; padding-right: 8px;">
+            <DataAnnotationsValidator />
+            
+            <!-- Table Information Section -->
+            <div style="
+                background: rgba(102,126,234,0.02); 
+                border-radius: 12px; 
+                padding: 24px; 
+                margin-bottom: 32px;
+                border: 1px solid rgba(102,126,234,0.1);">
+                <h3 style="
+                    font-size: 1.125rem; 
+                    font-weight: 600; 
+                    color: #1f2937; 
+                    margin: 0 0 20px 0;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;">
+                    <FluentIcon Value="@(new Icons.Regular.Size20.Table())" style="color: #667eea;" />
+                    Table Information
+                </h3>
+                
+                <FluentGrid Spacing="3" AdaptiveRendering="true">
+                    <FluentGridItem xs="12" sm="6">
+                        <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                            <FluentLabel Typo="Typography.Body" Weight="FontWeight.Bold">
+                                Schema Name
+                            </FluentLabel>
+                            <FluentTextField 
+                                @bind-Value="tableModel.SchemaName"
+                                Placeholder="Enter schema name (e.g., main)"
+                                style="width: 100%;" />
+                            <ValidationMessage For="@(() => tableModel.SchemaName)" />
+                        </FluentStack>
+                    </FluentGridItem>
+                    
+                    <FluentGridItem xs="12" sm="6">
+                        <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                            <FluentLabel Typo="Typography.Body" Weight="FontWeight.Bold">
+                                Table Name
+                            </FluentLabel>
+                            <FluentTextField 
+                                @bind-Value="tableModel.TableName"
+                                Placeholder="Enter table name"
+                                style="width: 100%;" />
+                            <ValidationMessage For="@(() => tableModel.TableName)" />
+                        </FluentStack>
+                    </FluentGridItem>
+                </FluentGrid>
+            </div>
+
+            <!-- Columns Section -->
+            <div style="
+                background: rgba(118,75,162,0.02); 
+                border-radius: 12px; 
+                padding: 24px; 
+                margin-bottom: 32px;
+                border: 1px solid rgba(118,75,162,0.1);">
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween" VerticalAlignment="VerticalAlignment.Center" style="margin-bottom: 20px;">
+                    <h3 style="
+                        font-size: 1.125rem; 
+                        font-weight: 600; 
+                        color: #1f2937; 
+                        margin: 0;
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;">
+                        <FluentIcon Value="@(new Icons.Regular.Size20.Table())" style="color: #764ba2;" />
+                        Columns (@tableModel.Columns.Count)
+                    </h3>
+                    
+                    <FluentButton 
+                        Appearance="Appearance.Accent" 
+                        OnClick="@AddColumn"
+                        style="
+                            font-weight: 600; 
+                            border-radius: 8px; 
+                            padding: 8px 16px;
+                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            border: none;">
+                        <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="@Color.Lightweight" style="margin-right: 8px;" />
+                        Add Column
+                    </FluentButton>
+                </FluentStack>
+
+                @if (tableModel.Columns.Any())
+                {
+                    <div style="
+                        border-radius: 8px; 
+                        overflow: hidden; 
+                        border: 1px solid rgba(0,0,0,0.06);
+                        background: white;">
+                        
+                        <!-- Header -->
+                        <div style="
+                            background: #f9fafb; 
+                            padding: 16px 20px; 
+                            border-bottom: 1px solid rgba(0,0,0,0.06);
+                            display: grid;
+                            grid-template-columns: 2fr 1.5fr 1fr 1.5fr 80px;
+                            gap: 16px;
+                            align-items: center;
+                            font-weight: 600;
+                            color: #374151;
+                            font-size: 0.875rem;">
+                            <span>Column Name</span>
+                            <span>Data Type</span>
+                            <span>Nullable</span>
+                            <span>Default Value</span>
+                            <span>Actions</span>
+                        </div>
+
+                        @for (int i = 0; i < tableModel.Columns.Count; i++)
+                        {
+                            var index = i; // Capture for lambda
+                            <div style="
+                                padding: 16px 20px; 
+                                border-bottom: 1px solid rgba(0,0,0,0.06);
+                                display: grid;
+                                grid-template-columns: 2fr 1.5fr 1fr 1.5fr 80px;
+                                gap: 16px;
+                                align-items: center;
+                                background: white;">
+                                
+                                <FluentTextField 
+                                    @bind-Value="tableModel.Columns[index].Name"
+                                    Placeholder="Column name"
+                                    style="width: 100%;" />
+                                
+                                <FluentSelect TOption="string"
+                                    @bind-Value="tableModel.Columns[index].DataType"
+                                    style="width: 100%;">
+                                    @foreach (var dataType in Column.CommonDataTypes)
+                                    {
+                                        <FluentOption TOption="string" Value="@dataType">@dataType</FluentOption>
+                                    }
+                                </FluentSelect>
+                                
+                                <FluentCheckbox 
+                                    @bind-Value="tableModel.Columns[index].IsNullable" />
+                                
+                                <FluentTextField 
+                                    @bind-Value="tableModel.Columns[index].DefaultValue"
+                                    Placeholder="Default value (optional)"
+                                    style="width: 100%;" />
+                                
+                                <FluentButton 
+                                    Appearance="Appearance.Stealth"
+                                    OnClick="@(() => RemoveColumn(index))"
+                                    style="
+                                        padding: 8px; 
+                                        border-radius: 6px;
+                                        color: #ef4444;">
+                                    <FluentIcon Value="@(new Icons.Regular.Size16.Delete())" />
+                                </FluentButton>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div style="
+                        display: flex; 
+                        flex-direction: column; 
+                        align-items: center; 
+                        justify-content: center; 
+                        padding: 60px 0;
+                        text-align: center;
+                        background: white;
+                        border-radius: 8px;
+                        border: 2px dashed #d1d5db;">
+                        <FluentIcon Value="@(new Icons.Regular.Size48.Table())" style="
+                            color: #d1d5db; 
+                            margin-bottom: 16px;" />
+                        <h4 style="
+                            color: #374151; 
+                            font-size: 1.125rem; 
+                            font-weight: 600; 
+                            margin: 0 0 8px 0;">
+                            No Columns Added
+                        </h4>
+                        <p style="
+                            color: #6b7280; 
+                            margin: 0 0 24px 0; 
+                            font-size: 0.875rem;">
+                            Add columns to define your table structure
+                        </p>
+                        <FluentButton 
+                            Appearance="Appearance.Accent" 
+                            OnClick="@AddColumn"
+                            style="
+                                font-weight: 600; 
+                                border-radius: 8px; 
+                                padding: 12px 24px;
+                                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                border: none;">
+                            <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="@Color.Lightweight" style="margin-right: 8px;" />
+                            Add First Column
+                        </FluentButton>
+                    </div>
+                }
+            </div>
+
+            <!-- Action Buttons -->
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.End" VerticalGap="12" style="margin-top: 32px;">
+                <FluentButton 
+                    Appearance="Appearance.Stealth" 
+                    OnClick="@GoBack"
+                    style="
+                        font-weight: 600; 
+                        border-radius: 8px; 
+                        padding: 12px 24px;
+                        color: #6b7280;">
+                    Cancel
+                </FluentButton>
+                
+                <FluentButton 
+                    Type="ButtonType.Submit"
+                    Appearance="Appearance.Accent"
+                    Loading="@isSubmitting"
+                    Disabled="@(!tableModel.Columns.Any() || isSubmitting)"
+                    style="
+                        font-weight: 600; 
+                        border-radius: 8px; 
+                        padding: 12px 24px;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        border: none;">
+                    @if (isSubmitting)
+                    {
+                        <FluentIcon Value="@(new Icons.Regular.Size16.ArrowClockwise())" Color="@Color.Lightweight" style="margin-right: 8px;" />
+                        <span>Creating Table...</span>
+                    }
+                    else
+                    {
+                        <FluentIcon Value="@(new Icons.Regular.Size16.TableAdd())" Color="@Color.Lightweight" style="margin-right: 8px;" />
+                        <span>Create Table</span>
+                    }
+                </FluentButton>
+            </FluentStack>
+        </EditForm>
+    </div>
+</FluentCard>
+
+@code {
+
+    [Parameter] public string Action { get; set; }
+    private Table tableModel = new Table();
+    private bool isSubmitting = false;
+    private string? companyId;
+    private string? datasetId;
+    private string? tableName;
+
+    [SupplyParameterFromQuery]
+    public string? c { get; set; } // Company ID
+
+    [SupplyParameterFromQuery]
+    public string? d { get; set; } // Dataset ID
+
+    [SupplyParameterFromQuery]
+    public string? t { get; set; } // Table Name
+
+    public Dataset Dataset { get; set; }
+    // public Table Table { get; set; }
+    public List<Column> Columns { get; set; } = new List<Column>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        companyId = c;
+        datasetId = d;
+
+        // Rmove companyId and datasetId from headers if they exist
+        _httpClient.DefaultRequestHeaders.Remove("CompanyId");
+
+        //  companyId and UserId to headers
+        if (!string.IsNullOrEmpty(companyId))
+        {
+            _httpClient.DefaultRequestHeaders.Add("CompanyId", companyId);
+        }
+
+        // get the dataset
+        Dataset = await _httpClient.GetFromJsonAsync<Dataset>($"api/datasets/{datasetId}");
+
+        if(Action == "edit")
+        {
+            tableModel = await _httpClient.GetFromJsonAsync<Table>($"api/datasets/{datasetId}/tables/{t}");
+            
+            // Columns = await _httpClient.GetFromJsonAsync<List<Column>>($"api/datasets/{datasetId}/tables/{tableName}/columns");
+
+            // tableModel.Columns = Columns ?? new List<Column>();
+        }
+
+
+        if (string.IsNullOrEmpty(companyId))
+        {
+            _toastService.ShowWarning("Company ID is required");
+            GoBack();
+            return;// Task.CompletedTask;
+        }
+
+        if (string.IsNullOrEmpty(datasetId))
+        {
+            _toastService.ShowWarning("Dataset ID is required");
+            GoBack();
+            return;// Task.CompletedTask;
+        }
+
+        tableModel.CompanyId = companyId;
+        tableModel.DatasetId = datasetId;
+
+        // Add one default column to start
+        AddColumn();
+
+        return;
+    }
+
+    private void AddColumn()
+    {
+        tableModel.Columns.Add(new Column());
+        StateHasChanged();
+    }
+
+    private void RemoveColumn(int index)
+    {
+        if (tableModel.Columns.Count > index)
+        {
+            tableModel.Columns.RemoveAt(index);
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (!tableModel.Columns.Any())
+        {
+            _toastService.ShowWarning("Please add at least one column");
+            return;
+        }
+
+        // Validate that all columns have names
+        if (tableModel.Columns.Any(c => string.IsNullOrWhiteSpace(c.Name)))
+        {
+            _toastService.ShowWarning("All columns must have a name");
+            return;
+        }
+
+        // Check for duplicate column names
+        var duplicateColumns = tableModel.Columns
+            .GroupBy(c => c.Name.ToLower())
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key);
+
+        if (duplicateColumns.Any())
+        {
+            _toastService.ShowWarning($"Duplicate column names found: {string.Join(", ", duplicateColumns)}");
+            return;
+        }
+
+        try
+        {
+            isSubmitting = true;
+            StateHasChanged();
+
+            // Add user ID to headers for the API call
+            var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    _httpClient.DefaultRequestHeaders.Remove("UserId");
+                    _httpClient.DefaultRequestHeaders.Add("UserId", userId);
+                    tableModel.CreatedBy = userId;
+                }
+            }
+
+            var response = await _httpClient.PostAsJsonAsync("api/Datasets/tables", tableModel);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<dynamic>();
+                _toastService.ShowSuccess($"Table '{tableModel.SchemaName}.{tableModel.TableName}' created successfully");
+                GoBack();
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _toastService.ShowError($"Failed to create table: {errorContent}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error creating table: {ex.Message}");
+        }
+        finally
+        {
+            isSubmitting = false;
+            StateHasChanged();
+        }
+    }
+
+    private void GoBack()
+    {
+        _navigationManager.NavigateTo($"/data/datasets?c={companyId}");
+    }
+}
+
+<style>
+    .fluent-text-field, .fluent-select {
+        border-radius: 6px !important;
+        border: 1px solid #d1d5db !important;
+        transition: all 0.2s ease !important;
+    }
+    
+    .fluent-text-field:focus, .fluent-select:focus {
+        border-color: #667eea !important;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1) !important;
+    }
+
+    .fluent-checkbox {
+        transform: scale(1.2);
+    }
+</style>

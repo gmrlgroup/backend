@@ -1,0 +1,335 @@
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.FluentUI.AspNetCore.Components
+@using Icons = Microsoft.FluentUI.AspNetCore.Components.Icons
+@using System.Text
+@inject IToastService _toastService
+
+<div style="
+    background: rgba(118,75,162,0.02); 
+    border-radius: 12px; 
+    padding: 24px; 
+    margin-bottom: 32px;
+    border: 1px solid rgba(118,75,162,0.1);">
+    <h3 style="
+        font-size: 1.125rem; 
+        font-weight: 600; 
+        color: #1f2937; 
+        margin: 0 0 20px 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;">
+        <FluentIcon Value="@(new Icons.Regular.Size20.DocumentArrowUp())" style="color: #764ba2;" />
+        Step 2: Upload CSV File
+    </h3>
+
+    <div style="margin-bottom: 24px;">
+        <FluentLabel Typo="Typography.Body" Weight="FontWeight.Bold" style="margin-bottom: 8px; display: block;">
+            Select CSV file to import (Max 1GB)
+        </FluentLabel>
+        
+        <FluentInputFile DragDropZoneVisible="true"
+                        MaximumFileCount="1"
+                        MaximumFileSize="@(1024 * 1024 * 1024)"
+                        Accept=".csv"
+                        OnCompleted="@OnFilesChanged"
+                        style="
+                            width: 100%;
+                            min-height: 200px;
+                            border: 2px dashed #d1d5db;
+                            border-radius: 8px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            background: white;
+                            transition: all 0.2s ease;"
+                        OnDragEnter="@(() => isDragOver = true)"
+                        OnDragLeave="@(() => isDragOver = false)">
+            
+            <label style="
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                padding: 40px;
+                cursor: pointer;
+                text-align: center;
+                width: 100%;">
+                
+                @if (isProcessing)
+                {
+                    <FluentProgressRing style="margin-bottom: 16px;" />
+                    <span style="color: #667eea; font-weight: 600;">Processing file...</span>
+                }
+                else if (selectedFile != null)
+                {                    <FluentIcon Value="@(new Icons.Regular.Size48.Document())" style="
+                        color: #10b981; 
+                        margin-bottom: 16px;" />
+                    <h4 style="
+                        color: #374151; 
+                        font-size: 1.125rem; 
+                        font-weight: 600; 
+                        margin: 0 0 8px 0;">
+                        File Selected
+                    </h4>
+                    <p style="
+                        color: #6b7280; 
+                        margin: 0; 
+                        font-size: 0.875rem;">
+                        @selectedFile.Name (@FormatFileSize(selectedFile.Size))
+                    </p>
+                }
+                else
+                {                    <FluentIcon Value="@(new Icons.Regular.Size48.Document())" Color="@(isDragOver ? Color.Accent : Color.Neutral)" style="margin-bottom: 16px;" />
+                    <h4 style="
+                        color: #374151; 
+                        font-size: 1.125rem; 
+                        font-weight: 600; 
+                        margin: 0 0 8px 0;">
+                        Drop CSV file here or click to browse
+                    </h4>
+                    <p style="
+                        color: #6b7280; 
+                        margin: 0; 
+                        font-size: 0.875rem;">
+                        Supports files up to 1GB
+                    </p>
+                }
+            </label>
+        </FluentInputFile>
+    </div>
+
+    @if (selectedFile != null && !isProcessing)
+    {
+        <div style="
+            background: white;
+            border-radius: 8px;
+            padding: 16px;
+            border: 1px solid rgba(0,0,0,0.06);
+            margin-bottom: 24px;">
+            <h4 style="
+                font-size: 1rem; 
+                font-weight: 600; 
+                color: #374151; 
+                margin: 0 0 12px 0;">
+                File Information
+            </h4>
+            
+            <FluentGrid Spacing="3">
+                <FluentGridItem xs="12" sm="4">
+                    <strong>Name:</strong> @selectedFile.Name
+                </FluentGridItem>
+                <FluentGridItem xs="12" sm="4">
+                    <strong>Size:</strong> @FormatFileSize(selectedFile.Size)
+                </FluentGridItem>
+                <FluentGridItem xs="12" sm="4">
+                    <strong>Type:</strong> @selectedFile.ContentType
+                </FluentGridItem>
+            </FluentGrid>
+        </div>
+
+        @if (csvHeaders.Any())
+        {
+            <div style="
+                background: white;
+                border-radius: 8px;
+                padding: 16px;
+                border: 1px solid rgba(0,0,0,0.06);
+                margin-bottom: 24px;">
+                <h4 style="
+                    font-size: 1rem; 
+                    font-weight: 600; 
+                    color: #374151; 
+                    margin: 0 0 12px 0;">
+                    Detected Columns (@csvHeaders.Count)
+                </h4>
+                
+                <div style="
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 8px;">
+                    @foreach (var header in csvHeaders)
+                    {
+                        <span style="
+                            background: rgba(102,126,234,0.1);
+                            color: #667eea;
+                            padding: 4px 12px;
+                            border-radius: 16px;
+                            font-size: 0.875rem;
+                            font-weight: 500;">
+                            @header
+                        </span>
+                    }
+                </div>
+            </div>
+        }
+    }
+
+    <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween" style="margin-top: 24px;">
+        <FluentButton 
+            Appearance="Appearance.Stealth" 
+            OnClick="@OnBack"
+            style="
+                font-weight: 600; 
+                border-radius: 8px; 
+                padding: 12px 24px;
+                color: #6b7280;">
+            <FluentIcon Value="@(new Icons.Regular.Size16.ArrowLeft())" style="margin-right: 8px;" />
+            Back
+        </FluentButton>
+        
+        @if (selectedFile != null && csvHeaders.Any() && !isProcessing)
+        {
+            <FluentButton 
+                Appearance="Appearance.Accent"
+                OnClick="@ContinueToSchema"
+                style="
+                    font-weight: 600; 
+                    border-radius: 8px; 
+                    padding: 12px 24px;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    border: none;">
+                <FluentIcon Value="@(new Icons.Regular.Size16.ArrowRight())" style="margin-right: 8px;" />
+                Continue to Schema
+            </FluentButton>
+        }
+    </FluentStack>
+</div>
+
+@code {
+    [Parameter] public EventCallback<(IBrowserFile file, string fileName, List<string> headers)> OnFileUploaded { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+    [Parameter] public IBrowserFile? UploadedFile { get; set; }
+    [Parameter] public EventCallback<IBrowserFile?> UploadedFileChanged { get; set; }
+    [Parameter] public string FileName { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> FileNameChanged { get; set; }
+
+    private IBrowserFile? selectedFile;
+    private List<string> csvHeaders = new();
+    private bool isProcessing = false;
+    private bool isDragOver = false;    private async Task OnFilesChanged(IEnumerable<FluentInputFileEventArgs> files)
+    {
+        var fileArg = files.FirstOrDefault();
+        if (fileArg?.LocalFile == null) return;
+
+        try
+        {
+            isProcessing = true;
+            StateHasChanged();            // Convert FileInfo to IBrowserFile using InputFile standard approach
+            var fileInfo = fileArg.LocalFile;
+            
+            // Create a memory stream from the file for IBrowserFile compatibility
+            using (var fileStream = fileInfo.OpenRead())
+            {
+                var browserFile = new BrowserFileWrapper(fileInfo.Name, fileStream, fileInfo.Length, "text/csv");
+                selectedFile = browserFile;
+            }
+            
+            await UploadedFileChanged.InvokeAsync(selectedFile);
+            await FileNameChanged.InvokeAsync(Path.GetFileNameWithoutExtension(selectedFile.Name));
+
+            // Read the first line to get headers
+            await ReadCsvHeaders(selectedFile);
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error processing file: {ex.Message}");
+            selectedFile = null;
+            csvHeaders.Clear();
+        }
+        finally
+        {
+            isProcessing = false;
+            isDragOver = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ReadCsvHeaders(IBrowserFile file)
+    {
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 1024 * 1024); // Read first 1GB to get headers
+            using var reader = new StreamReader(stream);
+            
+            var firstLine = await reader.ReadLineAsync();
+            if (!string.IsNullOrEmpty(firstLine))
+            {
+                // Simple CSV parsing for headers - this could be enhanced for more complex CSV formats
+                csvHeaders = firstLine.Split(',')
+                    .Select(h => h.Trim().Trim('"').Trim())
+                    .Where(h => !string.IsNullOrEmpty(h))
+                    .ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error reading CSV headers: {ex.Message}");
+            csvHeaders.Clear();
+        }
+    }
+
+    private async Task ContinueToSchema()
+    {
+        if (selectedFile != null && csvHeaders.Any())
+        {
+            await OnFileUploaded.InvokeAsync((selectedFile, Path.GetFileNameWithoutExtension(selectedFile.Name), csvHeaders));
+        }
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] suffixes = { "B", "KB", "MB", "GB" };
+        int counter = 0;
+        decimal number = bytes;
+        while (Math.Round(number / 1024) >= 1)
+        {
+            number /= 1024;
+            counter++;
+        }        return $"{number:n1} {suffixes[counter]}";
+    }    // Wrapper class to convert FileInfo to IBrowserFile
+    private class BrowserFileWrapper : IBrowserFile
+    {
+        private readonly byte[] _data;
+        
+        public BrowserFileWrapper(string name, Stream stream, long size, string contentType)
+        {
+            Name = name;
+            Size = size;
+            ContentType = contentType;
+            LastModified = DateTimeOffset.Now;
+            
+            // Store the data as byte array to allow multiple reads
+            using var memoryStream = new MemoryStream();
+            stream.Position = 0; // Reset position first
+            stream.CopyTo(memoryStream);
+            _data = memoryStream.ToArray();
+        }
+
+        public string Name { get; }
+        public DateTimeOffset LastModified { get; }
+        public long Size { get; }
+        public string ContentType { get; }
+
+        public Stream OpenReadStream(long maxAllowedSize = 512000, CancellationToken cancellationToken = default)
+        {
+            if (Size > maxAllowedSize)
+                throw new InvalidOperationException($"File size {Size} exceeds maximum allowed size {maxAllowedSize}");
+            
+            // Return a new MemoryStream each time to allow multiple independent reads
+            return new MemoryStream(_data);
+        }
+    }
+}
+
+<style>
+    .fluent-input-file {
+        border-color: #d1d5db !important;
+        border-radius: 8px !important;
+        transition: all 0.2s ease !important;
+    }
+    
+    .fluent-input-file:hover, .fluent-input-file.drag-over {
+        border-color: #667eea !important;
+        background-color: rgba(102, 126, 234, 0.02) !important;
+    }
+</style>

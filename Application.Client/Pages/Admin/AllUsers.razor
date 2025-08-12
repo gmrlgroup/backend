@@ -1,0 +1,106 @@
+﻿@page "/admin/users/test"
+@inject HttpClient _client
+@inject NavigationManager _navigationManager
+@inject StateContainer _stateContainer
+@using System.Linq.Expressions
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@attribute [Authorize]
+
+
+
+@* @if(UsersQuery is not null)
+{
+    <TableComponent Items="Users" 
+                    Columns="Columns" 
+                    TItem = "ApplicationUser"
+                    HasEdit="true"
+                    OnEditClick="@(HandleEditClick)"
+                    HasDelete="true" 
+                    OnToolbarAddClick="@(HandleToolbarAddClick)"/>
+} *@
+
+
+
+@code {
+
+    [SupplyParameterFromQuery(Name = "c")]
+    private string? companyId { get; set; }
+
+    private List<ApplicationUser> Users = new List<ApplicationUser>();
+    // private IQueryable<Dictionary<string, object>> UsersQuery { get; set; }
+    private IList<ApplicationUser> UsersQuery { get; set; }
+
+    public bool IsLoading { get; set; }
+    private string[] Columns { get; set; } = new string[] { "UserName", "Email" };
+
+    protected override async Task OnInitializedAsync()
+    {
+
+        _client.DefaultRequestHeaders.Remove("X-Company-ID");
+        _client.DefaultRequestHeaders.Add("X-Company-ID", companyId);
+
+
+       
+
+        Users = await _client.GetFromJsonAsync<List<ApplicationUser>>("api/users");
+        // UsersQuery = Users.AsQueryable();
+
+        if (Columns is null)
+        {
+            Columns = UsersQuery.AsQueryable().ElementType.GetProperties().Select(p => p.Name).ToArray();
+        }
+    }
+
+
+
+    // Handle Edit Click: Navigate to an edit page based on the Id
+    void HandleEditClick(ApplicationUser user)
+    {
+        _navigationManager.NavigateTo($"/admin/users/{user.Id}");
+    }
+
+    void HandleToolbarAddClick()
+    {
+        _navigationManager.NavigateTo($"/admin/users/add");
+    }
+
+
+
+    // private async Task GoToNextPageAsync()
+    // {
+    //     IsLoading = true;
+    //     await pagination.SetCurrentPageIndexAsync(pagination.CurrentPageIndex + 1);
+
+    //     await GetDataFromTable();
+
+    //     IsLoading = false;
+    // }
+
+    // private async Task GoToFirstPage()
+    // {
+    //     IsLoading = true;
+
+    //     await pagination.SetCurrentPageIndexAsync(0);
+
+    //     await GetDataFromTable();
+
+    //     IsLoading = false;
+    // }
+
+    // private async Task GoToPreviousPageAsync()
+    // {
+    //     IsLoading = true;
+
+    //     if (pagination.CurrentPageIndex > 0)
+    //     {
+    //         await pagination.SetCurrentPageIndexAsync(pagination.CurrentPageIndex - 1);
+
+    //         await GetDataFromTable();
+    //     }
+
+    //     IsLoading = false;
+
+    // }
+
+
+}

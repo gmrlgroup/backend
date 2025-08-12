@@ -1,0 +1,196 @@
+﻿@* @page "/admin/users/{userId}/permissions"
+@inject HttpClient _client
+@using System.Linq.Expressions
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@layout TablesLayout
+@attribute [Authorize] *@
+
+
+@*
+@if (String.IsNullOrEmpty(userId))
+{
+
+}
+else
+{
+    <div style="padding:10px;min-width:800px">
+        <FluentToolbar id="toolbar-fluent-components-two" style="width:100%">
+
+            <h3 slot="label" style="margin-right:10px;">@userId</h3>
+
+            <FluentButton IconEnd="@(new Icons.Regular.Size16.Filter())"
+                          Title="Filter"
+                          Appearance="Appearance.Stealth"
+                          OnClick="@(OnShowFilterClick)" />
+
+
+        </FluentToolbar>
+    </div>
+
+}
+
+
+
+@* @if (Columns is not null && Columns.Count() > 0)
+{
+
+    <FilterComponent ShowComponent="ShowFilterSection" Columns="@Columns" OnQueryGenerated="HandleQueryGenerated" />
+
+
+} *@
+
+
+
+@* <Table Items="FilteredDataQueryable" 
+        GoToFirstPage="GoToFirstPage" 
+        GoToNextPageAsync="GoToNextPageAsync" 
+        GoToPreviousPageAsync="GoToPreviousPageAsync" 
+        HasEdit="true"
+        HasDelete="true"/> *@
+
+
+
+
+
+@* @code {
+    [Parameter] public string? userId { get; set; } = string.Empty;
+
+    public IEnumerable<string> Columns { get; set; } = Enumerable.Empty<string>();
+
+    PaginationState pagination = new PaginationState { ItemsPerPage = 100 };
+
+    public bool ShowFilterSection { get; set; }
+
+
+
+    private List<Dictionary<string, object>> dataTable;
+    private List<Dictionary<string, string>> FilterDetails = new List<Dictionary<string, string>>();
+
+    private IQueryable<Dictionary<string, object>> FilteredDataQueryable { get; set; }
+
+    public string GridTemplateColumns { get; set; }
+    public string FilterQuery { get; set; } = "";
+
+    // Dictionary to store current filter values for each column
+    private Dictionary<string, string> FilterValues = new Dictionary<string, string>();
+
+    private bool IsLoading { get; set; }
+
+
+
+    private async Task GoToNextPageAsync()
+    {
+        IsLoading = true;
+        await pagination.SetCurrentPageIndexAsync(pagination.CurrentPageIndex + 1);
+
+        await GetDataFromTable();
+
+        IsLoading = false;
+    }
+
+    private async Task GoToFirstPage()
+    {
+        IsLoading = true;
+
+        await pagination.SetCurrentPageIndexAsync(0);
+
+        await GetDataFromTable();
+
+        IsLoading = false;
+    }
+
+    private async Task GoToPreviousPageAsync()
+    {
+        IsLoading = true;
+
+        if (pagination.CurrentPageIndex > 0)
+        {
+            await pagination.SetCurrentPageIndexAsync(pagination.CurrentPageIndex - 1);
+
+            await GetDataFromTable();
+        }
+
+        IsLoading = false;
+
+    }
+
+
+
+    protected override async Task OnInitializedAsync()
+    {
+
+        if (!String.IsNullOrEmpty(SchemaName) && !String.IsNullOrEmpty(TableName))
+        {
+
+            FilterQuery = "";
+
+            await GetDataFromTable();
+        }
+    }
+
+
+    private void OnShowFilterClick() => ShowFilterSection = ShowFilterSection == true ? false : true;
+
+
+
+    private async Task GetDataFromTable()
+    {
+
+
+        if (!String.IsNullOrEmpty(FilterQuery))
+        {
+            // remove the old filterquery from the header
+            _client.DefaultRequestHeaders.Remove("FilterQuery");
+
+            // add filterquery to the header
+            _client.DefaultRequestHeaders.Add("FilterQuery", FilterQuery);
+        }
+
+
+
+        dataTable = await _client.GetFromJsonAsync<List<Dictionary<string, object>>>($"api/database/tables/{SchemaName}.[{TableName}]?pageNumber={pagination.CurrentPageIndex}");
+
+        // FilteredData = dataTable;
+        FilteredDataQueryable = dataTable?.AsQueryable();
+        Columns = GetColumnNames();
+
+        // StateHasChanged();
+
+
+
+    }
+
+
+
+    // Callback method to handle query generated in the component
+    private async void HandleQueryGenerated(string query)
+    {
+        FilterQuery = query;
+
+        // await pagination.SetCurrentPageIndexAsync(0);
+
+        await GetDataFromTable();
+
+
+    }
+
+
+
+
+
+    // Get all column names dynamically from the first row
+    private IEnumerable<string> GetColumnNames()
+    {
+        if (dataTable != null && dataTable.Count > 0)
+        {
+            var firstRow = (IDictionary<string, object>)dataTable[0];
+
+            // generate 1fr 1fr based on number of columns
+            GridTemplateColumns = string.Join(" ", Enumerable.Repeat("5fr", firstRow.Count));
+            StateHasChanged();
+            return firstRow.Keys;
+        }
+
+        return Enumerable.Empty<string>();
+    }
+} *@

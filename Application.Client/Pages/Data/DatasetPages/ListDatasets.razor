@@ -1,0 +1,472 @@
+@page "/data/datasets"
+@using Application.Shared.Models
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.FluentUI.AspNetCore.Components
+@using Application.Client.Components
+@inject HttpClient _httpClient
+@inject IToastService _toastService
+@inject NavigationManager _navigationManager
+@inject AuthenticationStateProvider _authenticationStateProvider
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@attribute [Authorize]
+
+<PageTitle>Datasets</PageTitle>
+
+
+        <!-- Main Content Card -->
+        <FluentCard style="
+            background: rgba(255,255,255,0.95); 
+            border-radius: 16px; 
+            border: none; 
+            backdrop-filter: blur(10px); 
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
+            padding: 0;
+            overflow: hidden;">
+            
+            <!-- Card Header -->
+            <div style="
+                padding: 32px 32px 24px 32px; 
+                border-bottom: 1px solid rgba(0,0,0,0.06);
+                background: linear-gradient(90deg, rgba(102,126,234,0.05) 0%, rgba(118,75,162,0.05) 100%);">
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween" VerticalAlignment="VerticalAlignment.Center">
+                    <div>
+                        <h2 style="
+                            font-size: 1.5rem; 
+                            font-weight: 600; 
+                            color: #1f2937; 
+                            margin: 0 0 4px 0;">
+                            All Datasets
+                        </h2>
+                        <p style="
+                            color: #6b7280; 
+                            margin: 0; 
+                            font-size: 0.875rem;">
+                            @if (isLoading)
+                            {
+                                <span>Loading datasets...</span>
+                            }
+                            else
+                            {
+                                <span>@(items?.Count() ?? 0) datasets found</span>
+                            }
+                        </p>
+                    </div>
+                    
+                    <FluentButton 
+                        Appearance="Appearance.Accent" 
+                        OnClick="@CreateDataset"
+                        style="
+                            font-weight: 600; 
+                            border-radius: 8px; 
+                            padding: 12px 24px;
+                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            border: none;">
+                        <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="@Color.Lightweight" style="margin-right: 8px;" />
+                        Create Dataset
+                    </FluentButton>
+                </FluentStack>
+            </div>
+
+            <!-- Data Grid Container -->
+            <div style="padding: 24px 32px 32px 32px;min-height: 70vh;">
+                @if (isLoading)
+                {
+                    <div style="
+                        display: flex; 
+                        justify-content: center; 
+                        align-items: center; 
+                        padding: 80px 0;
+                        flex-direction: column;
+                        gap: 16px;">
+                        <FluentProgressRing style="width: 48px; height: 48px;" />
+                        <p style="color: #6b7280; margin: 0;">Loading datasets...</p>
+                    </div>
+                }
+                else if (items?.Any() == true)
+                {
+                    <!-- Data Grid -->
+                    <div style="
+                        border-radius: 12px; 
+                        overflow: hidden; 
+                        border: 1px solid rgba(0,0,0,0.06);
+                        background: white;
+                        min-height: 60vh;">
+                        <FluentDataGrid @ref="dataGrid" 
+                            Items="@items"
+                            ResizableColumns="true"
+                            ResizeType="@DataGridResizeType.Discrete"
+                            HeaderCellAsButtonWithMenu="true"
+                            Pagination="@pagination"
+                            TGridItem="Dataset"
+                            RowSize="DataGridRowSize.Medium"
+                            GridTemplateColumns="1fr 2fr 0.8fr"
+                            ShowHover="true"
+                            style="border: none;">
+
+                            <PropertyColumn Property="@(d => d.Name)" 
+                                Title="Dataset Name" 
+                                Sortable="true" 
+                                InitialSortDirection="SortDirection.Ascending"
+                                IsDefaultSortColumn="true"
+                                Filtered="!string.IsNullOrWhiteSpace(Filter.Name)">
+                                <ColumnOptions>
+                                    <div class="search-box" style="padding: 8px;">
+                                        <FluentSearch 
+                                            type="search" 
+                                            @bind-Value="@Filter.Name" 
+                                            @bind-Value:after="@HandleFilter" 
+                                            Placeholder="Search datasets..." 
+                                            style="width: 100%;" />
+                                    </div>
+                                </ColumnOptions>
+                                
+                            </PropertyColumn>
+
+                            <PropertyColumn Property="@(d => d.Description)" 
+                                Title="Description" 
+                                Sortable="true"
+                                Filtered="!string.IsNullOrWhiteSpace(Filter.Description)">
+                                <ColumnOptions>
+                                    <div class="search-box" style="padding: 8px;">
+                                        <FluentSearch 
+                                            type="search" 
+                                            @bind-Value="@Filter.Description" 
+                                            @bind-Value:after="@HandleFilter" 
+                                            Placeholder="Search descriptions..." 
+                                            style="width: 100%;" />
+                                    </div>
+                                </ColumnOptions>
+                                
+                            </PropertyColumn>
+
+                            <TemplateColumn Title="Actions" Align="@Align.End">
+                                <ChildContent>
+                                    <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                                        <FluentButton 
+                                            aria-label="Open dataset" 
+                                            Appearance="Appearance.Stealth"
+                                            OnClick="@(() => OpenDataset(context))"
+                                            style="
+                                                padding: 8px; 
+                                                border-radius: 6px;
+                                                color: #22c55e;">
+                                            <FluentIcon Value="@(new Icons.Regular.Size16.Open())" />
+                                        </FluentButton>
+
+                                        <FluentButton 
+                                            aria-label="Share dataset" 
+                                            Appearance="Appearance.Stealth"
+                                            OnClick="@(() => ShareDataset(context))"
+                                            style="
+                                                padding: 8px; 
+                                                border-radius: 6px;
+                                                color: #3b82f6;">
+                                            <FluentIcon Value="@(new Icons.Regular.Size16.Share())" />
+                                        </FluentButton>
+
+                                        <FluentButton 
+                                            aria-label="Edit dataset" 
+                                            Appearance="Appearance.Stealth"
+                                            OnClick="@(() => EditDataset(context))"
+                                            style="
+                                                padding: 8px; 
+                                                border-radius: 6px;
+                                                color: #667eea;">
+                                            <FluentIcon Value="@(new Icons.Regular.Size16.Edit())" />
+                                        </FluentButton>
+                                        
+                                        <FluentButton 
+                                            aria-label="Delete dataset" 
+                                            Appearance="Appearance.Stealth"
+                                            OnClick="@(() => DeleteDataset(context))"
+                                            style="
+                                                padding: 8px; 
+                                                border-radius: 6px;
+                                                color: #ef4444;">
+                                            <FluentIcon Value="@(new Icons.Regular.Size16.Delete())" />
+                                        </FluentButton>
+                                    </div>
+                                </ChildContent>
+                            </TemplateColumn>
+
+                        </FluentDataGrid>
+                    </div>
+
+                    <!-- Pagination -->
+                    <div style="margin-top: 24px; border-top: 1px solid rgba(0,0,0,0.06); padding-top: 24px;">
+                        <FluentPaginator State="@pagination" style="
+                            display: flex; 
+                            justify-content: center;
+                            gap: 16px;">
+                            <SummaryTemplate>
+                                <div style="
+                                    color: #6b7280; 
+                                    font-size: 0.875rem;
+                                    display: flex;
+                                    align-items: center;
+                                    gap: 8px;">
+                                    <FluentIcon Value="@(new Icons.Regular.Size16.Info())" style="color: #9ca3af;" />
+                                    <span>Showing <strong>@(pagination.TotalItemCount ?? 0)</strong> datasets</span>
+                                </div>
+                            </SummaryTemplate>
+                            <PaginationTextTemplate>
+                                <div style="
+                                    color: #6b7280; 
+                                    font-size: 0.875rem;">
+                                    Page <strong>@(pagination.CurrentPageIndex + 1)</strong> of <strong>@(pagination.LastPageIndex + 1)</strong>
+                                </div>
+                            </PaginationTextTemplate>
+                        </FluentPaginator>
+                    </div>
+                }
+                else
+                {
+                    <!-- Empty State -->
+                    <div style="
+                        display: flex; 
+                        flex-direction: column; 
+                        align-items: center; 
+                        justify-content: center; 
+                        padding: 80px 0;
+                        text-align: center;">
+                        <FluentIcon Value="@(new Icons.Regular.Size48.Database())" style="
+                            color: #d1d5db; 
+                            margin-bottom: 16px;" />
+                        <h3 style="
+                            color: #374151; 
+                            font-size: 1.25rem; 
+                            font-weight: 600; 
+                            margin: 0 0 8px 0;">
+                            No Datasets Found
+                        </h3>
+                        <p style="
+                            color: #6b7280; 
+                            margin: 0 0 24px 0; 
+                            font-size: 0.875rem;">
+                            @if (string.IsNullOrEmpty(companyId))
+                            {
+                                <span>Company ID is required to load datasets.</span>
+                            }
+                            else
+                            {
+                                <span>Get started by creating your first dataset for your company.</span>
+                            }
+                        </p>
+                        @if (!string.IsNullOrEmpty(companyId))
+                        {
+                            <FluentButton 
+                                Appearance="Appearance.Accent" 
+                                OnClick="@CreateDataset"
+                                style="
+                                    font-weight: 600; 
+                                    border-radius: 8px; 
+                                    padding: 12px 24px;
+                                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                    border: none;">
+                                <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="@Color.Lightweight" style="margin-right: 8px;" />
+                                Create Your First Dataset
+                            </FluentButton>
+                        }
+                    </div>
+                }
+            </div>
+        </FluentCard>
+
+
+<!-- Share Dataset Modal -->
+<ShareDatasetModal IsVisible="@showShareModal" 
+                   IsVisibleChanged="@((bool value) => showShareModal = value)"
+                   DatasetId="@(selectedDatasetForSharing?.Id ?? string.Empty)" 
+                   DatasetName="@(selectedDatasetForSharing?.Name ?? string.Empty)" 
+                   CompanyId="@(companyId ?? string.Empty)" />
+
+
+@code {
+    private FluentDataGrid<Dataset>? dataGrid;
+    private IQueryable<Dataset>? items;
+    private Dataset Filter { get; set; } = new Dataset();
+    private Dictionary<string, string> FilterQuery = new Dictionary<string, string>();
+    private PaginationState pagination = new PaginationState { ItemsPerPage = 10 };
+    private bool isLoading = true;
+    private string? companyId;
+    private bool showShareModal = false;
+    private Dataset? selectedDatasetForSharing;
+
+    [SupplyParameterFromQuery]
+    public string? c { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Get company ID from query parameter
+        companyId = c;
+        
+        if (string.IsNullOrEmpty(companyId))
+        {
+            _toastService.ShowWarning("Company ID is required to view datasets");
+            isLoading = false;
+            return;
+        }
+
+        await LoadDatasets();
+    }
+
+    private async Task LoadDatasets()
+    {
+        try
+        {
+            isLoading = true;
+            StateHasChanged();
+
+            // Add user ID to headers for the API call
+            var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    _httpClient.DefaultRequestHeaders.Remove("UserId");
+                    _httpClient.DefaultRequestHeaders.Add("UserId", userId);
+                }
+
+                 if (!string.IsNullOrEmpty(c))
+                {
+                    _httpClient.DefaultRequestHeaders.Remove("X-Company-Id");
+                    _httpClient.DefaultRequestHeaders.Add("X-Company-Id", c);
+                }
+            }
+
+            var response = await _httpClient.GetAsync($"api/datasets");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var datasets = await response.Content.ReadFromJsonAsync<List<Dataset>>();
+                items = datasets?.AsQueryable() ?? new List<Dataset>().AsQueryable();
+            }
+            else
+            {
+                _toastService.ShowError($"Failed to load datasets: {response.StatusCode}");
+                items = new List<Dataset>().AsQueryable();
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error loading datasets: {ex.Message}");
+            items = new List<Dataset>().AsQueryable();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleFilter()
+    {
+        if (items == null) return;
+
+        // Reset to first page when filtering
+        await pagination.SetCurrentPageIndexAsync(0);
+        
+        // Apply filters
+        var filteredItems = items.AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(Filter.Name))
+        {
+            filteredItems = filteredItems.Where(d => 
+                d.Name?.Contains(Filter.Name, StringComparison.OrdinalIgnoreCase) == true);
+        }
+
+        if (!string.IsNullOrWhiteSpace(Filter.Description))
+        {
+            filteredItems = filteredItems.Where(d => 
+                d.Description?.Contains(Filter.Description, StringComparison.OrdinalIgnoreCase) == true);
+        }
+
+        items = filteredItems.AsQueryable();
+        if (dataGrid != null)
+            await dataGrid.RefreshDataAsync();
+    }
+
+    private void CreateDataset()
+    {
+        _navigationManager.NavigateTo($"/data/datasets/create?c={companyId}");
+    }
+
+    private void OpenDataset(Dataset dataset)
+    {
+        _navigationManager.NavigateTo($"/data/tables?c={companyId}&d={dataset.Id}");
+    }
+
+    private void EditDataset(Dataset dataset)
+    {
+        // Navigate to edit page (you'll need to create this)
+        _navigationManager.NavigateTo($"/data/datasets/edit/{dataset.Id}?c={companyId}");
+    }
+
+    private void ShareDataset(Dataset dataset)
+    {
+        selectedDatasetForSharing = dataset;
+        showShareModal = true;
+    }
+
+    private async Task DeleteDataset(Dataset dataset)
+    {
+        if (string.IsNullOrEmpty(dataset.Id))
+        {
+            _toastService.ShowError("Invalid dataset ID");
+            return;
+        }
+
+        try
+        {
+            // Add user ID to headers for the API call
+            var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    _httpClient.DefaultRequestHeaders.Remove("UserId");
+                    _httpClient.DefaultRequestHeaders.Add("UserId", userId);
+                }
+            }
+
+            var response = await _httpClient.DeleteAsync($"api/Datasets/{dataset.Id}");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                _toastService.ShowSuccess($"Dataset '{dataset.Name}' deleted successfully");
+                await LoadDatasets(); // Reload the list
+            }
+            else
+            {
+                _toastService.ShowError($"Failed to delete dataset: {response.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error deleting dataset: {ex.Message}");
+        }
+    }
+}
+
+<style>
+    .search-box {
+        width: 100%;
+    }
+    
+    .search-box input {
+        border-radius: 6px;
+        border: 1px solid #d1d5db;
+        transition: all 0.2s ease;
+    }
+    
+    .search-box input:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+</style>

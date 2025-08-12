@@ -1,0 +1,145 @@
+﻿
+
+@inject HttpClient _client
+@using System.Linq.Expressions
+@typeparam TItem
+
+
+
+
+
+<div style="background-color:white; border-radius: 5px; padding: 5px; height:80vh; overflow-x:auto; overflow-y:auto; outline: 1px solid transparent;">
+    <FluentDataGrid role="grid"
+                        @ref="grid"
+                        Items="Items.AsQueryable()"
+                        ResizableColumns="true"
+                        AutoFit="true"
+                        ShowHover="true"
+                        OnRowDoubleClick="@(() => Console.WriteLine("Row double clicked!"))"
+                        ItemSize="36"
+                        Loading="IsLoading"
+                        TGridItem="TItem"
+                        DisplayMode="DataGridDisplayMode.Grid"
+                        RowSize="DataGridRowSize.Small"> @*display:grid; *@
+
+        @* Dynamically create columns based on Columns array *@
+        @foreach (var column in Columns)
+    {
+        <TemplateColumn Style="min-width:120px" Title="@column" Tooltip="true" Align="Align.Start" Sortable="true">
+            <ChildContent>
+                @{
+                    var value = GetPropertyValue(context, column);
+                    // if type of value is decimal than only 2 decimal points
+                    if (value is decimal)
+                    {
+                        value = ((decimal)value).ToString("##,##.##");
+                    }
+                }
+                <span>@value</span>
+            </ChildContent>
+        </TemplateColumn>
+    }
+
+
+
+    @* Static Actions Column *@
+    @if(HasEdit|| HasDelete || HasOpen || HasDownload || HasShare)
+    {
+        <TemplateColumn Title="Actions" Align="@Align.End">
+            @if (HasEdit)
+            {
+                <FluentButton aria-label="Edit item" IconEnd="@(new Icons.Regular.Size16.Edit())" OnClick="@(() => OnEditClick.InvokeAsync(context))" />
+            }
+
+            @if (HasDelete)
+            {
+                <FluentButton aria-label="Delete item" IconEnd="@(new Icons.Regular.Size16.Delete())" OnClick="@(DeleteClick)" />
+            }
+
+            @if (HasOpen)
+            {
+                <FluentButton aria-label="Open item" IconEnd="@(new Icons.Regular.Size16.Open())" Appearance="Appearance.Stealth" OnClick="@(() => OnOpenClick.InvokeAsync(context))" />
+            }
+
+
+            @if (HasDownload)
+            {
+                <FluentButton aria-label="Open item" IconEnd="@(new Icons.Regular.Size16.ArrowDownload())" Appearance="Appearance.Stealth" OnClick="@(() => OnDownloadClick.InvokeAsync(context))" />
+            }
+
+            @if (HasShare)
+            {
+                <FluentButton aria-label="Open item" IconEnd="@(new Icons.Regular.Size16.Share())" Appearance="Appearance.Stealth" OnClick="@(() => OnShareClick.InvokeAsync(context))" />
+            }
+
+
+        </TemplateColumn>
+    }
+
+</FluentDataGrid>
+
+</div>
+
+@code {
+
+    [Parameter] public FluentDataGrid<TItem> grid { get; set; }
+    [Parameter] public string Title { get; set; }
+    
+    [Parameter] public RenderFragment AdditionalAction { get; set; }
+
+    [Parameter] public IList<TItem> Items { get; set; }
+    [Parameter] public TItem Item { get; set; }
+    [Parameter] public string[] Columns { get; set; }
+    // [Parameter] public EventCallback GoToFirstPage { get; set; }
+    // [Parameter] public EventCallback GoToPreviousPageAsync { get; set; }
+    // [Parameter] public EventCallback GoToNextPageAsync { get; set; }
+    // [Parameter] public EventCallback OnToolbarAddClick { get; set; }
+
+    [Parameter] public bool HasEdit { get; set; } = false;
+    [Parameter] public EventCallback<TItem> OnEditClick { get; set; }
+
+    [Parameter] public bool HasDelete { get; set; } = false;
+    [Parameter] public EventCallback DeleteClick { get; set; }
+
+    [Parameter] public bool HasOpen { get; set; } = false;
+    [Parameter] public EventCallback<TItem> OnOpenClick { get; set; }
+
+    [Parameter] public bool HasDownload { get; set; } = false;
+    [Parameter] public EventCallback<TItem> OnDownloadClick { get; set; }
+
+    [Parameter] public bool HasShare { get; set; } = false;
+    [Parameter] public EventCallback<TItem> OnShareClick { get; set; }
+
+    [Parameter] public bool IsLoading { get; set; } = false;
+
+
+    PaginationState pagination = new PaginationState { ItemsPerPage = 100 };
+
+    public bool ShowFilterSection { get; set; }
+    private List<Dictionary<string, object>> dataTable;
+    public string GridTemplateColumns { get; set; }
+
+    
+
+
+    // Method to get property value dynamically
+    private object GetPropertyValue(TItem item, string propertyName)
+    {
+
+        // if item is type of dic
+        if (item is Dictionary<string, object>)
+        {
+            var dic = item as Dictionary<string, object>;
+            return dic.ContainsKey(propertyName) ? dic[propertyName] : "N/A";
+        }
+
+
+        var property = typeof(TItem).GetProperty(propertyName);
+
+
+
+        return property != null ? property.GetValue(item) : "N/A";
+    }
+
+    
+}

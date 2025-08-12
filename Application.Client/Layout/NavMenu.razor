@@ -1,0 +1,204 @@
+﻿@using System.Security.Claims
+@using Microsoft.AspNetCore.SignalR.Client
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@implements IDisposable
+@inject NavigationManager _navigation
+@inject StateContainer _stateContainer
+@inject HttpClient _client
+@inject ClientAuthenticationDetail _clientAuthenticationDetail
+
+@inject IToastService _toastService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+
+<div class="navmenu">
+    <input type="checkbox" title="Menu expand/collapse toggle" id="navmenu-toggle" class="navmenu-icon" />
+    <label for="navmenu-toggle" class="navmenu-icon"><FluentIcon Value="@(new Icons.Regular.Size20.Navigation())" Color="Color.Fill" /></label>
+    <nav class="sitenav" aria-labelledby="main-menu">
+
+        <FluentNavMenu Id="main-menu" Width="250" Collapsible="true" Title="Navigation menu" @bind-Expanded="expanded" CustomToggle="true">
+
+            <FluentNavLink Href="@($"{queryParameter}")" Match="NavLinkMatch.All" Icon="@(new Icons.Regular.Size20.Home())" IconColor="Color.Accent">Home</FluentNavLink>
+        
+            <AuthorizeView Roles="@($"{companyId}_ADMIN, {companyId}_DATA")">
+                <Authorized>
+                    <FluentNavGroup Title="Data" Tooltip="Data" Icon="@(new Icons.Regular.Size24.EarthLeaf())">
+                        <FluentNavLink Href="@($"data/datasets{queryParameter}")" Icon="@(new Icons.Regular.Size20.Server())" IconColor="Color.Accent">Create Dataset</FluentNavLink>
+                        <FluentNavLink Href="@($"data/import{queryParameter}")" Icon="@(new Icons.Regular.Size20.ArrowUpload())" IconColor="Color.Accent">Import Data</FluentNavLink>
+                    </FluentNavGroup>
+                </Authorized>
+            </AuthorizeView>
+
+            <AuthorizeView Roles="@($"{companyId}_SALES")">
+                <Authorized>
+                    <FluentNavGroup Title="Stream" Tooltip="Stream" Icon="@(new Icons.Regular.Size24.Pipeline())">
+                        <FluentNavLink Href="@($"realtime/sales-dashboard{queryParameter}")" Icon="@(new Icons.Regular.Size20.GanttChart())" IconColor="Color.Accent">Sales Dashboard</FluentNavLink>
+                    </FluentNavGroup>
+                </Authorized>
+            </AuthorizeView>
+
+            <AuthorizeView Roles="@($"{companyId}_ADMIN")">
+                <Authorized>
+                    <FluentNavGroup Title="Admin" Tooltip="Admin" Icon="@(new Icons.Regular.Size24.PersonAccounts())">
+                        <FluentNavLink Href="@($"admin/users/list{queryParameter}")" Icon="@(new Icons.Regular.Size20.Person())" IconColor="Color.Accent">Users</FluentNavLink>
+                    </FluentNavGroup>
+                    <FluentNavGroup Title="Organization" Tooltip="Organization" Icon="@(new Icons.Regular.Size24.Organization())">
+                        <FluentNavLink Href="/company/new" Icon="@(new Icons.Regular.Size20.AddCircle())" IconColor="Color.Accent">Create Company</FluentNavLink>
+                    </FluentNavGroup>
+                </Authorized>
+            </AuthorizeView>
+            
+              <AuthorizeView>
+                <Authorized>
+                    
+                    <FluentNavLink Href="Account/Manage">@context.User.Identity?.Name</FluentNavLink>
+                    <form action="Account/Logout" method="post">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="ReturnUrl" value="@currentUrl" />
+                        <FluentButton Type="ButtonType.Submit" Style="width: 100%;">Logout</FluentButton>
+                    </form>
+                </Authorized>
+                <NotAuthorized>
+                    <FluentNavLink Href="Account/Register">Register</FluentNavLink>
+                    <FluentNavLink Href="Account/Login">Login</FluentNavLink>
+                </NotAuthorized>
+            </AuthorizeView>
+        </FluentNavMenu>
+    </nav>
+</div>
+
+<FluentMenuProvider />
+
+
+@code {
+
+    [SupplyParameterFromQuery(Name = "c")]
+    private string? companyId { get; set; }
+
+    private bool expanded = true;
+
+    private string? currentUrl;
+
+    private string queryParameter => _stateContainer.Company is null ? "" : $"?c={_stateContainer.Company.Id}";
+    ClaimsPrincipal ClaimsPrincipalUser;
+
+    protected override async Task OnInitializedAsync()
+    {
+
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(_navigation.ToAbsoluteUri("/notification/datajob"))
+            .Build();
+
+        hubConnection.On<Notification<DataJob>>("ReceiveMessage", (notification) =>
+        {
+            // var encodedMsg = $"{message}";
+            // messages.Add(encodedMsg);
+            ShowToast(notification);
+            InvokeAsync(StateHasChanged);
+        });
+
+        await hubConnection.StartAsync();
+
+
+
+        currentUrl = _navigation.ToBaseRelativePath(_navigation.Uri);
+        _navigation.LocationChanged += OnLocationChanged;
+
+        var userId = await _clientAuthenticationDetail.GetUserId();
+
+        if(_stateContainer.Company == null && await _clientAuthenticationDetail.UserIsAuthenticated())
+        {
+            _stateContainer.Company = await GetUserDefaultCompany(userId);
+        }
+        else
+        {
+            if (!await _clientAuthenticationDetail.UserIsAuthenticated())
+                Console.WriteLine("Customers INITIALIZE: User not authencated");
+        }
+
+
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        ClaimsPrincipalUser = authState.User;
+
+        if (ClaimsPrincipalUser.Identity != null)
+        {
+            var useridentity = ClaimsPrincipalUser.Identity.Name;
+            var roles = ClaimsPrincipalUser.Claims.Where(c => c.Type == ClaimTypes.Role).Select(c => c.Value).ToList();
+
+            foreach(var role in roles)
+            {
+                Console.WriteLine($"Role: {role}");
+            }
+        }
+
+        
+
+        _stateContainer.OnChange += StateHasChanged;
+    }
+
+    private HubConnection? hubConnection;
+    private List<string> messages = [];
+    private string? userInput;
+    private string? messageInput;
+
+
+    public bool IsConnected =>
+        hubConnection?.State == HubConnectionState.Connected;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        currentUrl = _navigation.ToBaseRelativePath(e.Location);
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _navigation.LocationChanged -= OnLocationChanged;
+    }
+
+
+
+
+
+    private async Task<Company> GetUserDefaultCompany(string userId)
+    {
+        var uri = _client.BaseAddress;
+
+        // add userId to the header
+        _client.DefaultRequestHeaders.Add("userId", userId);
+
+        var companies = await _client.GetFromJsonAsync<List<Company>>("api/companies");
+
+        // // get the first company
+        return companies.FirstOrDefault();
+    }
+
+
+
+    
+    void ShowToast(Notification<DataJob> notification)
+    {
+
+        _toastService.ShowCommunicationToast(new ToastParameters<CommunicationToastContent>()
+            {
+                Intent = ToastIntent.Success,
+                Title = notification.Data.Name,
+                Timeout = 4000,
+                Content = new CommunicationToastContent()
+                {
+                    Subtitle = notification.Message,
+                    Details = notification.Data.Duration,
+                },
+            });
+
+    }
+
+}

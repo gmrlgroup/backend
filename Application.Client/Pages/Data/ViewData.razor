@@ -1,0 +1,506 @@
+@page "/data/view"
+@using Application.Shared.Models.Data
+@using Application.Shared.Models
+@using Microsoft.FluentUI.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Web
+@inject HttpClient HttpClient
+@inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JSRuntime
+@inject IToastService ToastService
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@attribute [Authorize]
+
+
+<PageTitle>Data Viewer - @(TableInfo?.TableName ?? "Loading...")</PageTitle>
+
+<div class="data-viewer-container" style="height: 88vh; display: flex; flex-direction: column; background: #f8fafc;">
+    
+    <!-- Header -->
+    <div class="header" style="background: white; border-bottom: 1px solid #e5e7eb; padding: 16px 24px; flex-shrink: 0;">
+        <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween" VerticalAlignment="VerticalAlignment.Center">
+            <div>
+                <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" HorizontalGap="12">
+                    <FluentButton Appearance="Appearance.Stealth" 
+                                OnClick="@GoBack"
+                                style="padding: 8px; border-radius: 6px; color: #6b7280;">
+                        <FluentIcon Value="@(new Icons.Regular.Size20.ArrowLeft())" />
+                    </FluentButton>
+                    <div>
+                        <h1 style="margin: 0; font-size: 1.5rem; font-weight: 600; color: #1f2937;">
+                            @if (TableInfo != null)
+                            {
+                                <span>@TableInfo.TableName</span>
+                            }
+                            else
+                            {
+                                <span>Loading...</span>
+                            }
+                        </h1>
+                        <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.875rem;">
+                            @if (DatasetInfo != null && TableInfo != null)
+                            {
+                                <span>@DatasetInfo.Name • @TotalRows rows</span>
+                            }
+                            else
+                            {
+                                <span>Loading table information...</span>
+                            }
+                        </p>
+                    </div>
+                </FluentStack>
+            </div>
+
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="10" Style="justify-content: end!important;">
+                <FluentButton IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
+                              OnClick="@DownloadFilteredData"
+                              Disabled="@IsLoading"
+                              Appearance="Appearance.Outline"
+                              style="color: #059669; border-color: #059669;">
+                    Download
+                </FluentButton>
+                <FluentButton IconStart="@(new Icons.Regular.Size16.ArrowClockwise())"
+                              OnClick="@RefreshData"
+                              Disabled="@IsLoading"
+                              Appearance="Appearance.Outline">
+                    Refresh
+                </FluentButton>
+                <FluentButton IconStart="@(new Icons.Regular.Size16.Comment())"
+                                OnClick="@(() => ShowCommentsPanel = !ShowCommentsPanel)"
+                              Disabled="@IsLoading"
+                              Appearance="Appearance.Outline">
+                    Comments
+                    @if (CommentsCount > 0)
+                    {
+                        <span style="margin-left: 4px; background: #ef4444; color: white; border-radius: 10px; padding: 2px 6px; font-size: 0.75rem;">@CommentsCount</span>
+                    }
+                </FluentButton>
+                
+                @* <FluentButton Appearance="Appearance.Outline" 
+                            OnClick="@(() => ShowCommentsPanel = !ShowCommentsPanel)"
+                            style="border-radius: 6px;">
+                    <FluentIcon Value="@(new Icons.Regular.Size16.Comment())" style="margin-right: 4px;" />
+                    Comments
+                    @if (CommentsCount > 0)
+                    {
+                        <span style="margin-left: 4px; background: #ef4444; color: white; border-radius: 10px; padding: 2px 6px; font-size: 0.75rem;">@CommentsCount</span>
+                    }
+                </FluentButton> *@
+            </FluentStack>
+        </FluentStack>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content" style="flex: 1; display: flex; overflow: hidden;">
+        
+        <!-- Data Table Area -->
+        <div class="table-area" style="flex: 1; padding: 24px; overflow: hidden; @(ShowCommentsPanel ? "padding-right: 12px;" : "")">
+            
+            @if (IsLoading && !TableData.Any())
+            {
+                <div style="display: flex; justify-content: center; align-items: center; height: 100%; background: white; border-radius: 8px;">
+                    <div style="text-align: center;">
+                        <FluentProgressRing style="margin-bottom: 16px;" />
+                        <p style="color: #6b7280; margin: 0;">Loading table data...</p>
+                    </div>
+                </div>
+            }
+            else if (TableColumns?.Any() == true)
+            {
+                <DynamicTableComponent TItem="Dictionary<string, object>"
+                                     Items="@TableData"
+                                     DefaultColumns="@DefaultColumnNames"
+                                     AllColumns="@AllColumnNames"
+                                     VisibleColumns="@UserColumnSettings"
+                                     IsLoading="@IsLoading"
+                                     CurrentPage="@CurrentPage"
+                                     PageSize="@PageSize"
+                                     TotalRows="@TotalRows"
+                                     TableHeight="100%"
+                                     OnColumnSettingsChanged="@OnColumnSettingsChanged"
+                                     OnFiltersChanged="@OnFiltersChanged"
+                                     OnSearchChanged="@OnSearchChanged"
+                                     OnPageChanged="@OnPageChanged" />
+            }
+            else if (!IsLoading)
+            {
+                <div style="display: flex; justify-content: center; align-items: center; height: 100%; background: white; border-radius: 8px;">
+                    <div style="text-align: center; color: #6b7280;">
+                        <FluentIcon Value="@(new Icons.Regular.Size48.Table())" style="margin-bottom: 16px; opacity: 0.5;" />
+                        <h3 style="margin: 0 0 8px 0;">No Data Available</h3>
+                        <p style="margin: 0;">This table appears to be empty or the data could not be loaded.</p>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Comments Panel -->
+        @if (ShowCommentsPanel)
+        {
+            <div class="comments-panel" style="width: 350px; flex-shrink: 0; padding: 24px 24px 24px 12px;">
+                <CommentsSidebar CompanyId="@c"
+                                DatasetId="@DatasetId"
+                                CurrentUserId="@CurrentUserId"
+                               TableName="@TableName"                               OnCommentAdded="@OnCommentAdded"
+                               OnCommentDeleted="@OnCommentDeleted" />
+            </div>
+        }
+    </div>
+</div>
+
+<!-- AI Chat Widget -->
+<AIChatWidget CompanyId="@c" UserId="@CurrentUserId" />
+
+@code {
+    // Query parameters
+    [SupplyParameterFromQuery] public string? c { get; set; }
+    [SupplyParameterFromQuery] public string? DatasetId { get; set; }
+    [SupplyParameterFromQuery] public string? TableName { get; set; }
+    
+
+    // Data properties
+    private Dataset? DatasetInfo;
+    private Table? TableInfo;
+    private List<Column>? TableColumns;
+    private List<Dictionary<string, object>> TableData = new();
+    private List<ColumnSettings>? UserColumnSettings;
+    private TableDataQuery CurrentQuery = new();
+
+    // UI state
+    private bool IsLoading = false;
+    private bool ShowCommentsPanel = false;
+    private int CurrentPage = 1;
+    private int PageSize = 50;
+    private int TotalRows = 0;
+    private int CommentsCount = 0;
+    private string CurrentUserId = string.Empty;
+
+    // Helper properties
+    private List<string> DefaultColumnNames => TableColumns?.Select(c => c.Name).ToList() ?? new List<string>();
+    private List<string> AllColumnNames => TableColumns?.Select(c => c.Name).ToList() ?? new List<string>();
+
+    protected override async Task OnInitializedAsync()
+    {
+
+        // add X-Company-ID header if not present
+        if (!HttpClient.DefaultRequestHeaders.Contains("X-Company-ID"))
+        {
+            HttpClient.DefaultRequestHeaders.Add("X-Company-ID", c);
+        }
+
+
+        // Get current user
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+
+        CurrentUserId = authState.User.Claims.FirstOrDefault(c => c.Type.EndsWith("nameidentifier"))?.Value ??
+                          authState.User.Claims.FirstOrDefault(c => c.Type.EndsWith("id"))?.Value ??
+                            string.Empty;
+
+        
+        
+
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+
+        if (!string.IsNullOrEmpty(DatasetId) && !string.IsNullOrEmpty(TableName))
+        {
+            await LoadInitialData();
+        }
+        // else
+        // {
+        //     // Redirect back if parameters are missing
+        //     NavigationManager.NavigateTo($"/data/tables?c={c}&d={DatasetId}");
+        // }
+    }
+
+    private async Task LoadInitialData()
+    {
+        IsLoading = true;
+        StateHasChanged();
+
+        // add X-Company-ID header if not present
+        if (!HttpClient.DefaultRequestHeaders.Contains("X-Company-ID"))
+        {
+            HttpClient.DefaultRequestHeaders.Add("X-Company-ID", c);
+        }
+
+        try
+        {
+            // Load dataset info
+            var datasetResponse = await HttpClient.GetFromJsonAsync<Dataset>($"api/Datasets/{DatasetId}");
+            DatasetInfo = datasetResponse;
+
+            // Load table info and columns
+            var tableResponse = await HttpClient.GetFromJsonAsync<Table>($"api/Datasets/{DatasetId}/tables/{TableName}");
+            TableInfo = tableResponse;
+            TableColumns = tableResponse?.Columns;
+
+            // Load user preferences
+            await LoadUserPreferences();
+
+            // Initialize query
+            CurrentQuery = new TableDataQuery
+            {
+                DatasetId = DatasetId!,
+                TableName = TableName!,
+                Page = CurrentPage,
+                PageSize = PageSize,
+                SelectedColumns = UserColumnSettings?.Where(c => c.IsVisible).OrderBy(c => c.Order).Select(c => c.ColumnName).ToList()
+            };
+
+            // Load initial data
+            await LoadTableData();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading initial data: {ex.Message}");
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadUserPreferences()
+    {
+        try
+        {
+
+            // add X-Company-ID header if not present
+            if (!HttpClient.DefaultRequestHeaders.Contains("X-Company-ID"))
+            {
+                HttpClient.DefaultRequestHeaders.Add("X-Company-ID", c);
+            }
+
+
+            var comments = await HttpClient.GetFromJsonAsync<List<DataTableComment>>($"api/DataViews/comments/{DatasetId}/{TableName}");
+            CommentsCount = comments?.Count(c => c.DatasetId == DatasetId && c.TableName == TableName) ?? 0;
+
+
+            var response = await HttpClient.GetFromJsonAsync<UserColumnPreferences>($"api/DataViews/preferences/{DatasetId}/{TableName}");
+            
+            if (response?.ColumnSettings?.Any() == true)
+            {
+                UserColumnSettings = response.ColumnSettings;
+            }
+            else if (TableColumns?.Any() == true)
+            {
+                // Create default preferences
+                UserColumnSettings = TableColumns.Select((col, index) => new ColumnSettings
+                {
+                    ColumnName = col.Name,
+                    IsVisible = true,
+                    Order = index,
+                    // Width = 120 // TODO: Set default width based on column type or other logic if the width is fixed in ColumnSettings
+                }).ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading user preferences: {ex.Message}");
+            // Create default preferences
+            if (TableColumns?.Any() == true)
+            {
+                UserColumnSettings = TableColumns.Select((col, index) => new ColumnSettings
+                {
+                    ColumnName = col.Name,
+                    IsVisible = true,
+                    Order = index,
+                    // Width = 120 // TODO: Set default width based on column type or other logic if the width is fixed in ColumnSettings
+                }).ToList();
+            }
+        }
+    }
+
+    private async Task LoadTableData()
+    {
+        IsLoading = true;
+        
+        try
+        {
+            var response = await HttpClient.PostAsJsonAsync($"api/Datasets/{DatasetId}/tables/{TableName}/data", CurrentQuery);
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<TableDataResult>();
+                if (result != null)
+                {
+                    TableData = result.Data;
+                    TotalRows = result.TotalRows;
+                    CurrentPage = result.Page;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading table data: {ex.Message}");
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnColumnSettingsChanged(List<ColumnSettings> newSettings)
+    {
+        UserColumnSettings = newSettings;
+        
+        // Save preferences
+        try
+        {
+            var preferences = new UserColumnPreferences
+            {
+                DatasetId = DatasetId!,
+                TableName = TableName!,
+                ColumnSettings = newSettings
+            };
+            
+            await HttpClient.PostAsJsonAsync("api/DataViews/preferences", preferences);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving preferences: {ex.Message}");
+        }
+
+        // Update query and reload data
+        CurrentQuery.SelectedColumns = newSettings.Where(c => c.IsVisible).OrderBy(c => c.Order).Select(c => c.ColumnName).ToList();
+        await LoadTableData();
+    }
+
+    private async Task OnFiltersChanged(List<FilterCondition> filters)
+    {
+        CurrentQuery.Filters = filters;
+        CurrentQuery.Page = 1; // Reset to first page when filtering
+        CurrentPage = 1;
+        await LoadTableData();
+    }
+
+    private async Task OnSearchChanged(string searchTerm)
+    {
+        // Add search as a global filter
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {            var searchFilters = TableColumns?.Select(col => new FilterCondition
+            {
+                ColumnName = col.Name,
+                Operator = "contains",
+                Value = searchTerm
+            }).ToList() ?? new List<FilterCondition>();
+
+            CurrentQuery.Filters = searchFilters;
+        }
+        else
+        {
+            CurrentQuery.Filters = new List<FilterCondition>();
+        }
+        
+        CurrentQuery.Page = 1;
+        CurrentPage = 1;
+        await LoadTableData();
+    }
+
+    private async Task OnPageChanged(int newPage)
+    {
+        CurrentPage = newPage;
+        CurrentQuery.Page = newPage;
+        await LoadTableData();
+    }
+
+    private async Task RefreshData()
+    {
+        await LoadTableData();
+    }
+
+    private async Task DownloadFilteredData()
+    {
+        if (string.IsNullOrEmpty(DatasetId) || string.IsNullOrEmpty(TableName))
+        {
+            ToastService.ShowError("Dataset ID or Table Name is missing");
+            return;
+        }
+
+        try
+        {
+            // Create a download query that includes all current filters and column selections
+            var downloadQuery = new TableDataQuery
+            {
+                DatasetId = DatasetId,
+                TableName = TableName,
+                Page = 1,
+                PageSize = int.MaxValue, // Get all filtered data for download
+                SelectedColumns = CurrentQuery.SelectedColumns, // Use current column selection
+                Filters = CurrentQuery.Filters, // Use current filters
+                SortColumns = CurrentQuery.SortColumns // Use current sorting
+            };
+
+            // Call the backend to get filtered data
+            var response = await HttpClient.PostAsJsonAsync($"api/Datasets/{DatasetId}/tables/{TableName}/download-filtered", downloadQuery);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsByteArrayAsync();
+                var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/csv";
+                
+                // Get filename from Content-Disposition header or create default
+                var fileName = $"{TableName}_filtered.csv";
+                if (response.Content.Headers.ContentDisposition?.FileName != null)
+                {
+                    fileName = response.Content.Headers.ContentDisposition.FileName.Trim('"');
+                }
+                else
+                {
+                    // Create a descriptive filename with timestamp
+                    var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                    var columnCount = CurrentQuery.SelectedColumns?.Count ?? TableColumns?.Count ?? 0;
+                    var filterCount = CurrentQuery.Filters?.Count ?? 0;
+                    
+                    if (filterCount > 0 || columnCount < (TableColumns?.Count ?? 0))
+                    {
+                        fileName = $"{TableName}_filtered_{timestamp}.csv";
+                    }
+                    else
+                    {
+                        fileName = $"{TableName}_{timestamp}.csv";
+                    }
+                }
+
+                // Trigger download using JavaScript interop
+                await JSRuntime.InvokeVoidAsync("downloadFileFromByteArray", fileName, contentType, content);
+                
+                // Show success message
+                var filterInfo = CurrentQuery.Filters?.Count > 0 ? " with filters applied" : "";
+                var columnInfo = CurrentQuery.SelectedColumns?.Count < (TableColumns?.Count ?? 0) ? " (selected columns only)" : "";
+                ToastService.ShowSuccess($"Table data downloaded successfully{filterInfo}{columnInfo}");
+            }
+            else
+            {
+                ToastService.ShowError($"Failed to download data: {response.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error downloading data: {ex.Message}");
+        }
+    }
+
+    private void GoBack()
+    {
+        Console.WriteLine(DatasetId);
+        NavigationManager.NavigateTo($"/data/tables?c={c}&d={DatasetId}");
+    }
+
+    private void OnCommentAdded(DataTableComment comment)
+    {
+        CommentsCount++;
+        StateHasChanged();
+    }
+
+    private void OnCommentDeleted(string commentId)
+    {
+        CommentsCount = Math.Max(0, CommentsCount - 1);
+        StateHasChanged();
+    }
+}

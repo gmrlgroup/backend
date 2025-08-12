@@ -1,0 +1,300 @@
+@using Application.Shared.Models
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.FluentUI.AspNetCore.Components
+@using Microsoft.FluentUI.AspNetCore.Components.Icons
+@inject HttpClient _httpClient
+@inject IToastService _toastService
+@inject AuthenticationStateProvider _authenticationStateProvider
+
+<FluentDialog Hidden="@(!IsVisible)" 
+              TrapFocus="true" 
+              Modal="true" 
+              OnDismiss="CloseDialog"
+              PreventScroll="true"
+              style="--dialog-width: 600px; --dialog-height: auto;">
+    
+    <FluentDialogHeader ShowDismiss="true">
+        <FluentStack VerticalAlignment="VerticalAlignment.Center">
+            <FluentIcon Value="@(new Icons.Regular.Size24.Share())" />
+            <FluentLabel Typo="Typography.PaneHeader">
+                Share Dataset: @DatasetName
+            </FluentLabel>
+        </FluentStack>
+    </FluentDialogHeader>
+
+    <FluentDialogBody>
+        <FluentStack Orientation="Orientation.Vertical" VerticalGap="16">
+            
+            <!-- Share Form -->
+            <EditForm Model="@shareRequest" OnValidSubmit="@HandleShareSubmit">
+                <DataAnnotationsValidator />
+                
+                <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                    <FluentTextField 
+                        @bind-Value="shareRequest.Email"
+                        Label="Email Address"
+                        Placeholder="Enter user email address"
+                        Required="true"
+                        style="width: 100%;" />
+                    <FluentValidationMessage For="() => shareRequest.Email" />
+
+                    <FluentSelect TOption="string"
+                        @bind-Value="selectedUserTypeString"
+                        Label="Access Level"
+                        style="width: 100%;">
+                        <FluentOption TOption="string" Value="Viewer">Viewer - Can view and query data</FluentOption>
+                        <FluentOption TOption="string" Value="Editor">Editor - Can modify dataset structure</FluentOption>
+                        <FluentOption TOption="string" Value="Admin">Admin - Full access including sharing</FluentOption>
+                    </FluentSelect>
+
+                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" style="margin-top: 16px;">
+                        <FluentButton 
+                            Type="ButtonType.Submit" 
+                            Appearance="Appearance.Accent"
+                            Loading="@isSharing"
+                            style="flex: 1;">
+                            <FluentIcon Value="@(new Icons.Regular.Size16.Share())" style="margin-right: 8px;" />
+                            Share Dataset
+                        </FluentButton>
+                        
+                        <FluentButton 
+                            Type="ButtonType.Button" 
+                            Appearance="Appearance.Neutral"
+                            OnClick="@CloseDialog"
+                            style="flex: 1;">
+                            Cancel
+                        </FluentButton>
+                    </FluentStack>
+                </FluentStack>
+            </EditForm>
+
+            <!-- Current Shares Section -->
+            @if (isLoadingShares)
+            {
+                <div style="text-align: center; padding: 20px;">
+                    <FluentProgressRing style="width: 32px; height: 32px;" />
+                    <p style="margin: 8px 0 0 0; color: #6b7280;">Loading shared users...</p>
+                </div>
+            }
+            else if (sharedUsers?.Any() == true)
+            {
+                <FluentDivider style="margin: 24px 0 16px 0;" />
+                
+                <FluentLabel Typo="Typography.Subject" style="margin-bottom: 12px;">
+                    Currently Shared With:
+                </FluentLabel>
+
+                <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                    @foreach (var user in sharedUsers)
+                    {
+                        <FluentCard style="padding: 12px; border: 1px solid #e5e7eb;">
+                            <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" HorizontalAlignment="HorizontalAlignment.SpaceBetween">
+                                <FluentStack Orientation="Orientation.Vertical" VerticalGap="2">
+                                    <FluentLabel Typo="Typography.Body" style="font-weight: 600;">
+                                        @user.Email
+                                    </FluentLabel>
+                                    <FluentLabel Typo="Typography.Body" style="color: #6b7280;">
+                                        @GetAccessLevelText(user.Type) • Shared @user.CreatedAt.ToString("MMM dd, yyyy")
+                                    </FluentLabel>
+                                </FluentStack>
+                                
+                                <FluentButton 
+                                    Appearance="Appearance.Stealth"
+                                    OnClick="@(() => RemoveUserAccess(user.UserId))"
+                                    style="color: #ef4444;">
+                                    <FluentIcon Value="@(new Icons.Regular.Size16.Delete())" />
+                                </FluentButton>
+                            </FluentStack>
+                        </FluentCard>
+                    }
+                </FluentStack>
+            }
+        </FluentStack>
+    </FluentDialogBody>
+</FluentDialog>
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
+    [Parameter] public string DatasetId { get; set; } = string.Empty;
+    [Parameter] public string DatasetName { get; set; } = string.Empty;
+    [Parameter] public string CompanyId { get; set; } = string.Empty;
+
+    private ShareDatasetRequest shareRequest = new();
+    private List<DatasetUserDto>? sharedUsers;
+    private bool isSharing = false;
+    private bool isLoadingShares = false;
+    private string selectedUserTypeString = "Viewer";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsVisible && !string.IsNullOrEmpty(DatasetId))
+        {
+            shareRequest = new ShareDatasetRequest 
+            { 
+                DatasetId = DatasetId,
+                UserType = DatasetUserType.Viewer
+            };
+            selectedUserTypeString = "Viewer";
+            
+            await LoadSharedUsers();
+        }
+    }
+
+    private async Task LoadSharedUsers()
+    {
+        try
+        {
+            isLoadingShares = true;
+            StateHasChanged();
+
+            // Add user ID to headers for the API call
+            var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    _httpClient.DefaultRequestHeaders.Remove("UserId");
+                    _httpClient.DefaultRequestHeaders.Add("UserId", userId);
+                }
+            }
+
+            var response = await _httpClient.GetAsync($"api/datasets/{DatasetId}/sharing");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                sharedUsers = await response.Content.ReadFromJsonAsync<List<DatasetUserDto>>();
+            }
+            else
+            {
+                _toastService.ShowError("Failed to load shared users");
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error loading shared users: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingShares = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleShareSubmit()
+    {
+        try
+        {
+            isSharing = true;
+            StateHasChanged();
+
+            // Convert string to enum
+            shareRequest.UserType = selectedUserTypeString switch
+            {
+                "Admin" => DatasetUserType.Admin,
+                "Editor" => DatasetUserType.Editor,
+                "Viewer" => DatasetUserType.Viewer,
+                _ => DatasetUserType.Viewer
+            };
+
+            // Add user ID to headers for the API call
+            var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    _httpClient.DefaultRequestHeaders.Remove("UserId");
+                    _httpClient.DefaultRequestHeaders.Add("UserId", userId);
+                }
+            }
+
+            var response = await _httpClient.PostAsJsonAsync($"api/datasets/{DatasetId}/sharing", shareRequest);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                _toastService.ShowSuccess($"Dataset shared successfully with {shareRequest.Email}");
+                
+                // Reset form
+                shareRequest.Email = string.Empty;
+                shareRequest.UserType = DatasetUserType.Viewer;
+                selectedUserTypeString = "Viewer";
+                
+                // Reload shared users
+                await LoadSharedUsers();
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _toastService.ShowError($"Failed to share dataset: {errorContent}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error sharing dataset: {ex.Message}");
+        }
+        finally
+        {
+            isSharing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RemoveUserAccess(string userId)
+    {
+        try
+        {
+            // Add user ID to headers for the API call
+            var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                var currentUserId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!string.IsNullOrEmpty(currentUserId))
+                {
+                    _httpClient.DefaultRequestHeaders.Remove("UserId");
+                    _httpClient.DefaultRequestHeaders.Add("UserId", currentUserId);
+                }
+            }
+
+            var response = await _httpClient.DeleteAsync($"api/datasets/{DatasetId}/sharing/{userId}");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                _toastService.ShowSuccess("User access removed successfully");
+                await LoadSharedUsers();
+            }
+            else
+            {
+                _toastService.ShowError("Failed to remove user access");
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error removing user access: {ex.Message}");
+        }
+    }
+
+    private async Task CloseDialog()
+    {
+        IsVisible = false;
+        await IsVisibleChanged.InvokeAsync(IsVisible);
+    }
+
+    private string GetAccessLevelText(DatasetUserType userType)
+    {
+        return userType switch
+        {
+            DatasetUserType.Admin => "Administrator",
+            DatasetUserType.Editor => "Editor",
+            DatasetUserType.Viewer => "Viewer",
+            _ => "Unknown"
+        };
+    }
+}

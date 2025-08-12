@@ -1,0 +1,262 @@
+@page "/data/import"
+@using Application.Shared.Models.Data
+@using Application.Shared.Models
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.FluentUI.AspNetCore.Components
+@using Icons = Microsoft.FluentUI.AspNetCore.Components.Icons
+@using Microsoft.AspNetCore.Components.Forms
+@using System.IO
+@using System.Text
+@inject HttpClient _httpClient
+@inject IToastService _toastService
+@inject NavigationManager _navigationManager
+@inject AuthenticationStateProvider _authenticationStateProvider
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@attribute [Authorize]
+
+<PageTitle>Import Data</PageTitle>
+
+<!-- Main Content Card -->
+<FluentCard style="
+    background: rgba(255,255,255,0.95); 
+    border-radius: 16px; 
+    border: none; 
+    backdrop-filter: blur(10px); 
+    box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
+    padding: 0;
+    overflow: hidden;
+    max-width: 1200px;
+    margin: 0 auto;">
+    
+    <!-- Card Header -->
+    <div style="
+        padding: 32px 32px 24px 32px; 
+        border-bottom: 1px solid rgba(0,0,0,0.06);
+        background: linear-gradient(90deg, rgba(102,126,234,0.05) 0%, rgba(118,75,162,0.05) 100%);">
+        <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween" VerticalAlignment="VerticalAlignment.Center">
+            <div>
+                <h2 style="
+                    font-size: 1.5rem; 
+                    font-weight: 600; 
+                    color: #1f2937; 
+                    margin: 0 0 4px 0;">
+                    Import Data
+                </h2>
+                <p style="
+                    color: #6b7280; 
+                    margin: 0; 
+                    font-size: 0.875rem;">
+                    Import CSV data into your datasets
+                </p>
+            </div>
+            
+            <FluentButton 
+                Appearance="Appearance.Stealth" 
+                OnClick="@GoBack"
+                style="
+                    padding: 8px; 
+                    border-radius: 8px;
+                    color: #6b7280;">
+                <FluentIcon Value="@(new Icons.Regular.Size20.ArrowLeft())" />
+            </FluentButton>
+        </FluentStack>
+    </div>
+
+    <!-- Progress Indicator -->
+    <div style="padding: 20px 32px;">
+        <FluentProgress style="margin-bottom: 16px;"
+                      Value="@GetProgressValue()"
+                      Min="0"
+                      Max="100" />
+        
+        <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween">
+            <div style="@GetStepStyle(1)">
+                <FluentIcon Value="@(new Icons.Regular.Size16.Database())" />
+                <span>Choose Dataset</span>
+            </div>
+            <div style="@GetStepStyle(2)">
+                <FluentIcon Value="@(new Icons.Regular.Size16.DocumentArrowUp())" />
+                <span>Upload File</span>
+            </div>
+            <div style="@GetStepStyle(3)">
+                <FluentIcon Value="@(new Icons.Regular.Size16.Table())" />
+                <span>Configure Schema</span>
+            </div>
+        </FluentStack>
+    </div>
+
+    <!-- Form Content -->
+    <div style="padding: 32px;">        @if (currentStep == 1)
+        {
+            <DatasetSelectionStep OnDatasetSelected="HandleDatasetSelected"
+                                CompanyId="@companyId" />
+        }
+        else if (currentStep == 2)
+        {            <FileUploadStep OnFileUploaded="@HandleFileUploaded"
+                          OnBack="GoToPreviousStep" />
+        }
+        else if (currentStep == 3)
+        {
+            <SchemaConfigurationStep Dataset="@selectedDataset"
+                                   FileName="@fileName"
+                                   CsvHeaders="@csvHeaders"
+                                   OnSchemaConfirmed="HandleSchemaConfirmed"
+                                   OnBack="GoToPreviousStep"
+                                   TableModel="@tableModel" />
+        }
+    </div>
+</FluentCard>
+
+@code {
+    private int currentStep = 1;
+    private string? companyId;
+    private Dataset? selectedDataset;
+    private IBrowserFile? uploadedFile;
+    private string fileName = string.Empty;
+    private List<string> csvHeaders = new();
+    private Table tableModel = new();
+    private bool isProcessing = false;    [SupplyParameterFromQuery]
+    public string? c { get; set; } // Company ID
+
+    protected override Task OnInitializedAsync()
+    {
+        companyId = c;
+
+        // Remove and add company ID to headers
+        _httpClient.DefaultRequestHeaders.Remove("CompanyId");
+        if (!string.IsNullOrEmpty(companyId))
+        {
+            _httpClient.DefaultRequestHeaders.Add("CompanyId", companyId);
+        }
+
+        if (string.IsNullOrEmpty(companyId))
+        {
+            _toastService.ShowWarning("Company ID is required");
+            GoBack();
+            return Task.CompletedTask;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private int GetProgressValue()
+    {
+        return currentStep switch
+        {
+            1 => 0,
+            2 => 33,
+            3 => 66,
+            _ => 100
+        };
+    }
+
+    private string GetStepStyle(int step)
+    {
+        var isActive = step == currentStep;
+        var isCompleted = step < currentStep;
+        
+        var color = isActive ? "#667eea" : isCompleted ? "#10b981" : "#d1d5db";
+        var fontWeight = isActive || isCompleted ? "600" : "400";
+        
+        return $"display: flex; align-items: center; gap: 8px; color: {color}; font-weight: {fontWeight}; font-size: 0.875rem;";
+    }    private Task HandleDatasetSelected(Dataset dataset)
+    {
+        selectedDataset = dataset;
+        currentStep = 2;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private Task HandleFileUploaded((IBrowserFile file, string name, List<string> headers) data)
+    {
+        uploadedFile = data.file;
+        fileName = data.name;
+        csvHeaders = data.headers;
+        currentStep = 3;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private async Task HandleSchemaConfirmed(Table table)
+    {
+        try
+        {
+            isProcessing = true;
+            StateHasChanged();
+
+            // Add user ID to headers for the API call
+            var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    _httpClient.DefaultRequestHeaders.Remove("UserId");
+                    _httpClient.DefaultRequestHeaders.Add("UserId", userId);
+                    table.CreatedBy = userId;
+                }
+            }
+
+            // Create the table first
+            var tableResponse = await _httpClient.PostAsJsonAsync("api/Datasets/tables", table);
+            
+            if (!tableResponse.IsSuccessStatusCode)
+            {
+                var errorContent = await tableResponse.Content.ReadAsStringAsync();
+                _toastService.ShowError($"Failed to create table: {errorContent}");
+                return;
+            }            // Upload and import the CSV data
+            using var content = new MultipartFormDataContent();
+            var fileContent = new StreamContent(uploadedFile!.OpenReadStream(maxAllowedSize: 1073741824)); // 1GB
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/csv");
+            content.Add(fileContent, "file", uploadedFile.Name);
+            content.Add(new StringContent(table.TableName), "tableName");
+            content.Add(new StringContent(selectedDataset!.Id!), "datasetId");
+
+            var importResponse = await _httpClient.PostAsync("api/Datasets/import-csv", content);
+            
+            if (importResponse.IsSuccessStatusCode)
+            {
+                _toastService.ShowSuccess($"Data imported successfully into table '{table.SchemaName}.{table.TableName}'");
+                GoBack();
+            }
+            else
+            {
+                var errorContent = await importResponse.Content.ReadAsStringAsync();
+                _toastService.ShowError($"Failed to import data: {errorContent}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error importing data: {ex.Message}");
+        }
+        finally
+        {
+            isProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private void GoToPreviousStep()
+    {
+        if (currentStep > 1)
+        {
+            currentStep--;
+            StateHasChanged();
+        }
+    }
+
+    private void GoBack()
+    {
+        _navigationManager.NavigateTo($"/data/datasets?c={companyId}");
+    }
+}
+
+<style>
+    .fluent-progress {
+        height: 6px !important;
+        border-radius: 3px !important;
+    }
+</style>

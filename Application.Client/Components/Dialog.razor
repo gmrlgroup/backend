@@ -1,0 +1,44 @@
+﻿@typeparam TItem
+@implements IDialogContentComponent<TItem>
+
+@* Header *@
+<FluentDialogHeader ShowDismiss="true">
+    <FluentStack VerticalAlignment="VerticalAlignment.Center">
+        <FluentIcon Value="@(new Icons.Regular.Size24.WindowApps())" />
+        <FluentLabel Typo="Typography.PaneHeader">
+            @FluentDialog.Instance.Parameters.Title
+        </FluentLabel>
+    </FluentStack>
+</FluentDialogHeader>
+
+@* Footer *@
+<FluentDialogFooter>
+    <FluentButton Appearance="Appearance.Accent" OnClick="@SaveAsync">Save</FluentButton>
+    <FluentButton Appearance="Appearance.Neutral" OnClick="@CancelAsync">Cancel</FluentButton>
+</FluentDialogFooter>
+
+@* Body *@
+<FluentDialogBody>
+    
+</FluentDialogBody>
+
+@code {
+    [Parameter]
+    public TItem Content { get; set; } = default!;
+
+    [CascadingParameter]
+    public FluentDialog FluentDialog { get; set; } = default!;
+
+    [Parameter]
+    public RenderFragment DialogBody { get; set; }
+
+    private async Task SaveAsync()
+    {
+        await FluentDialog.CloseAsync(Content);
+    }
+
+    private async Task CancelAsync()
+    {
+        await FluentDialog.CancelAsync();
+    }
+}

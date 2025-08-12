@@ -1,0 +1,196 @@
+﻿@inherits LayoutComponentBase
+@using System.Security.Claims
+@using Application.Shared.Services.Org
+@using Microsoft.AspNetCore.WebUtilities
+@inject NavigationManager _navigationManager
+@inject AuthenticationStateProvider _authenticationStateProvider
+@inject StateContainer _stateContainer
+@inject ICompanyService _companyService
+
+
+
+<FluentLayout>
+    <FluentHeader>
+        Application
+        <FluentSpacer />
+       
+        
+        <FluentDesignTheme @bind-Mode="@Mode"
+                           @bind-OfficeColor="@OfficeColor"
+                           OnLoaded="@OnLoaded"
+                           OnLuminanceChanged="@OnLuminanceChanged"
+                           StorageName="theme" />
+        
+            
+        
+        <FluentButton Appearance="Appearance.Lightweight" >@(_stateContainer.Company != null ? _stateContainer.Company.Id : "...")</FluentButton>
+        
+    </FluentHeader>
+    
+    <FluentStack Class="main" Orientation="Orientation.Horizontal" Width="100%">
+        <NavMenu />
+        <FluentBodyContent Class="body-content">
+            <div class="content">
+                @Body
+            </div>
+        </FluentBodyContent>
+    </FluentStack>
+    <FluentFooter>
+        <div>< /> with 💙 by flowbyte</div>
+        <FluentSpacer />
+    </FluentFooter>
+</FluentLayout>
+
+
+
+<FluentMenuProvider />
+<FluentToastProvider MaxToastCount="10" @rendermode="@RenderMode.InteractiveWebAssembly" />
+<FluentMessageBarProvider />
+<FluentDialogProvider @rendermode="@RenderMode.InteractiveWebAssembly" />
+
+
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">🗙</a>
+</div>
+
+
+
+
+
+
+@code {
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? authenticationState { get; set; }
+    private Company Company { get; set; } = new Company();
+    private string authMessage = "The user is NOT authenticated.";
+
+    private string? surname;
+    private IEnumerable<Claim> claims = Enumerable.Empty<Claim>();
+
+    public DesignThemeModes Mode { get; set; } = DesignThemeModes.Light;
+    public OfficeColor? OfficeColor { get; set; }
+
+    void OnLoaded(LoadedEventArgs e)
+    {
+        Console.WriteLine($"Loaded: {(e.Mode == DesignThemeModes.System ? "System" : "")} {(e.IsDark ? "Dark" : "Light")}");
+    }
+
+    void OnLuminanceChanged(LuminanceChangedEventArgs e)
+    {
+        Console.WriteLine($"Changed: {(e.Mode == DesignThemeModes.System ? "System" : "")} {(e.IsDark ? "Dark" : "Light")}");
+    }
+
+    void PickRandomColor()
+    {
+        OfficeColor = OfficeColorUtilities.GetRandom();
+    }
+
+    
+
+    // get the base URL of the application and firts part of the URL after the base url
+
+    protected override async Task OnInitializedAsync()
+    {
+        var userId = await GetUserId();
+
+
+        // if user is not authenticated, stop here
+        if (userId is null)
+        {
+            return;
+        }
+
+
+        var stateCompany = _stateContainer.Company;
+
+        // add ?c=comp in the url
+        var uri = new Uri(_navigationManager.Uri);
+        var query = uri.Query;
+        
+        // check if url contains ?c=x
+        if (QueryHelpers.ParseQuery(query).TryGetValue("c", out var companyId))
+        {
+            var company = await _companyService.GetCompany(companyId);
+
+            _stateContainer.Company = company;
+            
+        }
+
+        else
+        {
+            var company = await GetUserDefaultCompany(userId);
+            if(company is null)
+            {
+                return;
+            }
+
+            _stateContainer.Company = company;
+
+                // add ?c=x to the url
+                var newUri = QueryHelpers.AddQueryString(uri.AbsoluteUri, "c", company.Id);
+
+                _navigationManager.NavigateTo(newUri);
+
+            
+        }
+
+        if(stateCompany is null)
+        {
+            var company = await GetUserDefaultCompany(userId);
+
+            _stateContainer.Company = company;
+            
+        }
+        
+        _stateContainer.OnChange += StateHasChanged;
+
+
+    }
+
+    
+
+
+
+
+    private async Task<Company> GetUserDefaultCompany(string userId)
+    {
+        var companies = new List<Company>();
+        try {
+
+            companies = await _companyService.GetCompanies(userId);
+        }
+        catch(InvalidOperationException e)
+        {
+            Console.WriteLine(e.Message);
+        }
+        
+
+        // // get the first company
+        return companies.FirstOrDefault();
+    }
+
+
+
+
+
+
+    private async Task<string> GetUserId()
+    {
+        var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity is not null && user.Identity.IsAuthenticated)
+        {
+            return user.FindFirst(c => c.Type == ClaimTypes.NameIdentifier)?.Value;
+        }
+
+        return null;
+
+
+    }
+
+
+}

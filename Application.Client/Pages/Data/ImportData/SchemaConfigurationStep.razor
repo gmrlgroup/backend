@@ -1,0 +1,444 @@
+@using Application.Shared.Models.Data
+@using Application.Shared.Models
+@using Microsoft.FluentUI.AspNetCore.Components
+@using Icons = Microsoft.FluentUI.AspNetCore.Components.Icons
+@using Microsoft.AspNetCore.Components.Forms
+@inject IToastService _toastService
+
+<div style="
+    background: rgba(34,197,94,0.02); 
+    border-radius: 12px; 
+    padding: 24px; 
+    margin-bottom: 32px;
+    border: 1px solid rgba(34,197,94,0.1);">
+    <h3 style="
+        font-size: 1.125rem; 
+        font-weight: 600; 
+        color: #1f2937; 
+        margin: 0 0 20px 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;">
+        <FluentIcon Value="@(new Icons.Regular.Size20.Table())" style="color: #22c55e;" />
+        Step 3: Configure Schema
+    </h3>    
+    
+    <EditForm Model="@TableModel" OnValidSubmit="@HandleSubmit" style="max-height: 50vh; overflow-y: auto; padding-right: 8px;">
+        <DataAnnotationsValidator />
+        
+        <!-- Table Information Section -->
+        <div style="
+            background: rgba(102,126,234,0.02); 
+            border-radius: 12px; 
+            padding: 24px; 
+            margin-bottom: 32px;
+            border: 1px solid rgba(102,126,234,0.1);">
+            <h4 style="
+                font-size: 1.125rem; 
+                font-weight: 600; 
+                color: #1f2937; 
+                margin: 0 0 20px 0;
+                display: flex;
+                align-items: center;
+                gap: 8px;">
+                <FluentIcon Value="@(new Icons.Regular.Size20.Table())" style="color: #667eea;" />
+                Table Information
+            </h4>
+            
+            <FluentGrid Spacing="3" AdaptiveRendering="true">
+                <FluentGridItem xs="12" sm="6">
+                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                        <FluentLabel Typo="Typography.Body" Weight="FontWeight.Bold">
+                            Schema Name
+                        </FluentLabel>
+                        <FluentTextField 
+                            @bind-Value="TableModel.SchemaName"
+                            Placeholder="Enter schema name (e.g., main)"
+                            style="width: 100%;" />
+                        <ValidationMessage For="@(() => TableModel.SchemaName)" />
+                    </FluentStack>
+                </FluentGridItem>
+                
+                <FluentGridItem xs="12" sm="6">
+                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                        <FluentLabel Typo="Typography.Body" Weight="FontWeight.Bold">
+                            Table Name
+                        </FluentLabel>
+                        <FluentTextField 
+                            @bind-Value="TableModel.TableName"
+                            Placeholder="Enter table name"
+                            style="width: 100%;" />
+                        <ValidationMessage For="@(() => TableModel.TableName)" />
+                    </FluentStack>
+                </FluentGridItem>
+            </FluentGrid>
+        </div>
+
+        <!-- Columns Section -->
+        <div style="
+            background: rgba(118,75,162,0.02); 
+            border-radius: 12px; 
+            padding: 24px; 
+            margin-bottom: 32px;
+            border: 1px solid rgba(118,75,162,0.1);">
+            <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween" VerticalAlignment="VerticalAlignment.Center" style="margin-bottom: 20px;">
+                <h4 style="
+                    font-size: 1.125rem; 
+                    font-weight: 600; 
+                    color: #1f2937; 
+                    margin: 0;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;">
+                    <FluentIcon Value="@(new Icons.Regular.Size20.Table())" style="color: #764ba2;" />
+                    Columns (@TableModel.Columns.Count)
+                </h4>
+                
+                <FluentButton 
+                    Appearance="Appearance.Accent" 
+                    OnClick="@AddColumn"
+                    style="
+                        font-weight: 600; 
+                        border-radius: 8px; 
+                        padding: 8px 16px;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        border: none;">
+                    <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="@Color.Lightweight" style="margin-right: 8px;" />
+                    Add Column
+                </FluentButton>
+            </FluentStack>            @if (TableModel.Columns.Any())
+            {
+                <div style="
+                    border-radius: 8px; 
+                    overflow: hidden; 
+                    border: 1px solid rgba(0,0,0,0.06);
+                    background: white;">
+                    
+                    <!-- Header -->
+                    <div style="
+                        background: #f9fafb; 
+                        padding: 16px 20px; 
+                        border-bottom: 1px solid rgba(0,0,0,0.06);
+                        display: grid;
+                        grid-template-columns: 2fr 1.5fr 1fr 1.5fr 80px;
+                        gap: 16px;
+                        align-items: center;
+                        font-weight: 600;
+                        color: #374151;
+                        font-size: 0.875rem;">
+                        <span>Column Name</span>
+                        <span>Data Type</span>
+                        <span>Nullable</span>
+                        <span>Default Value</span>
+                        <span>Actions</span>
+                    </div>
+
+                    @for (int i = 0; i < TableModel.Columns.Count; i++)
+                    {
+                        var index = i; // Capture for lambda
+                        <div style="
+                            padding: 16px 20px; 
+                            border-bottom: 1px solid rgba(0,0,0,0.06);
+                            display: grid;
+                            grid-template-columns: 2fr 1.5fr 1fr 1.5fr 80px;
+                            gap: 16px;
+                            align-items: center;
+                            background: white;">
+                            
+                            <FluentTextField 
+                                @bind-Value="TableModel.Columns[index].Name"
+                                Placeholder="Column name"
+                                style="width: 100%;" />
+                            
+                            <FluentSelect TOption="string"
+                                @bind-Value="TableModel.Columns[index].DataType"
+                                style="width: 100%;">
+                                @foreach (var dataType in Column.CommonDataTypes)
+                                {
+                                    <FluentOption TOption="string" Value="@dataType">@dataType</FluentOption>
+                                }
+                            </FluentSelect>
+                            
+                            <FluentCheckbox 
+                                @bind-Value="TableModel.Columns[index].IsNullable" />
+                            
+                            <FluentTextField 
+                                @bind-Value="TableModel.Columns[index].DefaultValue"
+                                Placeholder="Default value (optional)"
+                                style="width: 100%;" />
+                            
+                            <FluentButton 
+                                Appearance="Appearance.Stealth"
+                                OnClick="@(() => RemoveColumn(index))"
+                                style="
+                                    padding: 8px; 
+                                    border-radius: 6px;
+                                    color: #ef4444;">
+                                <FluentIcon Value="@(new Icons.Regular.Size16.Delete())" />
+                            </FluentButton>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div style="
+                    display: flex; 
+                    flex-direction: column; 
+                    align-items: center; 
+                    justify-content: center; 
+                    padding: 60px 0;
+                    text-align: center;
+                    background: white;
+                    border-radius: 8px;
+                    border: 2px dashed #d1d5db;">
+                    <FluentIcon Value="@(new Icons.Regular.Size48.Table())" style="
+                        color: #d1d5db; 
+                        margin-bottom: 16px;" />
+                    <h4 style="
+                        color: #374151; 
+                        font-size: 1.125rem; 
+                        font-weight: 600; 
+                        margin: 0 0 8px 0;">
+                        No Columns Configured
+                    </h4>
+                    <p style="
+                        color: #6b7280; 
+                        margin: 0 0 24px 0; 
+                        font-size: 0.875rem;">
+                        Columns from your CSV file will appear here
+                    </p>                </div>
+            }
+        </div>
+    </EditForm>
+
+    <!-- Action Buttons - Fixed at bottom -->
+    <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween" style="margin-top: 32px; padding-top: 16px; border-top: 1px solid rgba(0,0,0,0.06); background: white;">
+        <FluentButton 
+            Appearance="Appearance.Stealth" 
+            OnClick="@OnBack"
+            style="
+                font-weight: 600; 
+                border-radius: 8px; 
+                padding: 12px 24px;
+                color: #6b7280;">
+            <FluentIcon Value="@(new Icons.Regular.Size16.ArrowLeft())" style="margin-right: 8px;" />
+            Back
+        </FluentButton>
+        
+        <FluentButton 
+            OnClick="@HandleSubmit"
+            Appearance="Appearance.Accent"
+            Loading="@isSubmitting"
+            Disabled="@(!TableModel.Columns.Any() || isSubmitting)"
+            style="
+                font-weight: 600; 
+                border-radius: 8px; 
+                padding: 12px 24px;
+                background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+                border: none;">
+            @if (isSubmitting)
+            {
+                <FluentIcon Value="@(new Icons.Regular.Size16.ArrowClockwise())" Color="@Color.Lightweight" style="margin-right: 8px;" />
+                <span>Creating Table & Importing Data...</span>
+            }
+            else
+            {
+                <FluentIcon Value="@(new Icons.Regular.Size16.CloudArrowUp())" Color="@Color.Lightweight" style="margin-right: 8px;" />
+                <span>Create Table & Import Data</span>
+            }
+        </FluentButton>
+    </FluentStack>
+</div>
+
+@code {
+    [Parameter] public Dataset? Dataset { get; set; }
+    [Parameter] public string FileName { get; set; } = string.Empty;
+    [Parameter] public List<string> CsvHeaders { get; set; } = new();
+    [Parameter] public EventCallback<Table> OnSchemaConfirmed { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+    [Parameter] public Table TableModel { get; set; } = new();
+    [Parameter] public EventCallback<Table> TableModelChanged { get; set; }
+
+    private bool isSubmitting = false;    protected override Task OnInitializedAsync()
+    {
+        InitializeTableModel();
+        InitializeColumnsFromCsvHeaders();
+        return Task.CompletedTask;
+    }
+
+    protected override Task OnParametersSetAsync()
+    {
+        if (TableModel.Columns.Count == 0 && CsvHeaders.Any())
+        {
+            InitializeColumnsFromCsvHeaders();
+        }
+        return Task.CompletedTask;
+    }
+
+    private void InitializeTableModel()
+    {
+        if (Dataset != null)
+        {
+            TableModel.CompanyId = Dataset.CompanyId;
+            TableModel.DatasetId = Dataset.Id!;
+        }
+        
+        TableModel.SchemaName = "main";
+        TableModel.TableName = SanitizeTableName(FileName);
+    }
+
+    private void InitializeColumnsFromCsvHeaders()
+    {
+        TableModel.Columns.Clear();
+        
+        foreach (var header in CsvHeaders)
+        {
+            var sanitizedName = SanitizeColumnName(header);
+            var dataType = InferDataType(header);
+            
+            TableModel.Columns.Add(new Column
+            {
+                Name = sanitizedName,
+                DataType = dataType,
+                IsNullable = true, // Default to not nullable as requested
+                DefaultValue = null // No default value as requested
+            });
+        }
+        
+        StateHasChanged();
+    }
+
+    private string SanitizeTableName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return "imported_table";
+        
+        // Remove invalid characters and ensure it starts with a letter
+        var sanitized = System.Text.RegularExpressions.Regex.Replace(name, @"[^a-zA-Z0-9_]", "_");
+        
+        if (!char.IsLetter(sanitized[0]) && sanitized[0] != '_')
+            sanitized = "table_" + sanitized;
+        
+        return sanitized.ToLower();
+    }
+
+    private string SanitizeColumnName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return "column";
+        
+        // Remove invalid characters and ensure it starts with a letter
+        var sanitized = System.Text.RegularExpressions.Regex.Replace(name, @"[^a-zA-Z0-9_]", "_");
+        
+        if (!char.IsLetter(sanitized[0]) && sanitized[0] != '_')
+            sanitized = "col_" + sanitized;
+        
+        return sanitized.ToLower();
+    }
+
+    private string InferDataType(string columnName)
+    {
+        // Simple heuristics for data type inference based on column names
+        var lowerName = columnName.ToLower();
+        
+        if (lowerName.Contains("id") || lowerName.Contains("count") || lowerName.Contains("number"))
+            return "VARCHAR"; //INTEGER
+        
+        if (lowerName.Contains("price") || lowerName.Contains("amount") || lowerName.Contains("cost") || 
+            lowerName.Contains("rate") || lowerName.Contains("percent"))
+            return "DECIMAL";
+        
+        if (lowerName.Contains("date") || lowerName.Contains("time"))
+            return "TIMESTAMP";
+        
+        if (lowerName.Contains("email") || lowerName.Contains("url") || lowerName.Contains("phone"))
+            return "VARCHAR";
+        
+        if (lowerName.Contains("description") || lowerName.Contains("note") || lowerName.Contains("comment"))
+            return "TEXT";
+        
+        if (lowerName.Contains("active") || lowerName.Contains("enabled") || lowerName.Contains("is_"))
+            return "BOOLEAN";
+        
+        // Default to VARCHAR for unknown patterns
+        return "VARCHAR";
+    }
+
+    private void AddColumn()
+    {
+        TableModel.Columns.Add(new Column());
+        StateHasChanged();
+    }
+
+    private void RemoveColumn(int index)
+    {
+        if (TableModel.Columns.Count > index)
+        {
+            TableModel.Columns.RemoveAt(index);
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (!TableModel.Columns.Any())
+        {
+            _toastService.ShowWarning("Please configure at least one column");
+            return;
+        }
+
+        // Validate that all columns have names
+        if (TableModel.Columns.Any(c => string.IsNullOrWhiteSpace(c.Name)))
+        {
+            _toastService.ShowWarning("All columns must have a name");
+            return;
+        }
+
+        // Check for duplicate column names
+        var duplicateColumns = TableModel.Columns
+            .GroupBy(c => c.Name.ToLower())
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key);
+
+        if (duplicateColumns.Any())
+        {
+            _toastService.ShowWarning($"Duplicate column names found: {string.Join(", ", duplicateColumns)}");
+            return;
+        }
+
+        try
+        {
+            isSubmitting = true;
+            StateHasChanged();
+
+            await OnSchemaConfirmed.InvokeAsync(TableModel);
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error: {ex.Message}");
+        }
+        finally
+        {
+            isSubmitting = false;
+            StateHasChanged();
+        }
+    }
+}
+
+<style>
+    .fluent-text-field, .fluent-select {
+        border-radius: 6px !important;
+        border: 1px solid #d1d5db !important;
+        transition: all 0.2s ease !important;
+    }
+    
+    .fluent-text-field:focus, .fluent-select:focus {
+        border-color: #667eea !important;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1) !important;
+    }
+
+    .fluent-checkbox {
+        transform: scale(1.2);
+    }
+</style>

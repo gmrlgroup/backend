@@ -1,0 +1,44 @@
+﻿@page "/auth/details"
+@using System.Security.Claims
+
+
+
+
+
+<AuthorizeView>
+    <p>Hello, @context.User.Identity?.Name</p> <!-- Displays user's name -->
+    <p>Roles: @roles</p> <!-- Displays roles assigned to the user -->
+    <AuthorizeView Roles="Spec.Read" Context="childContext">
+        <p>You have Spec.Read role!</p> <!-- Displayed if user has 'Spec.Read' role -->
+    </AuthorizeView>
+</AuthorizeView>
+
+@code {
+    [CascadingParameter]
+    Task<AuthenticationState> authenticationState { get; set; }
+
+    string roles = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (authenticationState is not null)
+        {
+            var userIdentity = (ClaimsIdentity)(await authenticationState).User?.Identity;
+            var claims = userIdentity.Claims;
+            
+
+            foreach (var claim in claims)
+            {
+                if (claim.Type == ClaimTypes.Role)
+                {
+                    roles += claim.Value + ", ";
+                }
+                else {
+                    Console.WriteLine(claim.Type + ": " + claim.Value);
+                }
+            }
+        }
+
+        await base.OnInitializedAsync();
+    }
+}

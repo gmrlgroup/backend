@@ -1,0 +1,168 @@
+﻿@* @page "/admin/users/test/{userId}" *@
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@inject NavigationManager _navigationManager
+@inject HttpClient _httpClient
+@inject StateContainer _stateContainer
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@attribute [Authorize]
+
+
+<PageTitle>User Details</PageTitle>
+
+
+
+<div class="">
+    <h3>User Details</h3>
+
+
+    <FluentGrid Spacing="3" AdaptiveRendering="true" Justify="@JustifyContent.FlexStart">
+        <FluentGridItem xs="12" sm="6" HiddenWhen="GridItemHidden.SmAndDown">
+
+            <EditForm Model="User" OnValidSubmit="HandleValidSubmit">
+
+                <FluentTextField Label="User Name" @bind-Value="UserInput.UserName" Style="width: 100%; margin-bottom:20px" Required="true" Disabled="@(Disabled)" />
+
+                <FluentTextField Label="Email" @bind-Value="UserInput.Email" Type="email" Style="width: 100%; margin-bottom:20px" Required="true" Disabled="@(Disabled)" />
+
+                @if(Action == "add" || Action == "pass")
+                {
+
+                    <FluentTextField Label="Password" @bind-Value="UserInput.Password" TextFieldType="TextFieldType.Password" Style="width: 100%; margin-bottom:20px" Required="true" Disabled="@(Disabled)" />
+
+                    <FluentTextField Label="Password" @bind-Value="UserInput.ConfirmPassword" TextFieldType="TextFieldType.Password" Style="width: 100%; margin-bottom:20px" Required="true" Disabled="@(Disabled)" />
+                }
+
+                @if (UserRoles is not null)
+                {
+
+                    <div style="display: block; height: 300px;">
+                        <FluentSelect Style="margin-bottom:20px" TOption="string" Appearance="Appearance.Neutral"
+                        Label="Select role:"
+                        Items="@IdentityRoles"
+                        Id="roles-listbox2"
+                        Multiple="true"
+                        OptionValue="@(p => p)"
+                        OptionText="@(p => p)"
+                        @bind-Value="@SelectedValue"
+                        @bind-SelectedOptions="@SelectedOptions" />
+                    </div>
+
+                }
+
+
+
+
+
+                <div style="margin-bottom: 20px;">
+
+                    <FluentButton OnClick="ResetPassword" Appearance="Appearance.Outline">
+                        Reset Password
+                    </FluentButton>
+
+
+                    <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent" >
+                        Save Changes
+                    </FluentButton>
+
+                    <FluentButton OnClick="CancelEdit" Appearance="Appearance.Stealth" >
+                        Cancel
+                    </FluentButton>
+                </div>
+
+            </EditForm>
+        </FluentGridItem>
+    </FluentGrid>
+
+</div>
+
+@code {
+
+
+    [Parameter] public string Action { get; set; } = "list";
+
+    [Parameter] public string CompanyId { get; set; }
+    [Parameter] public string Id { get; set; }
+
+    public List<string> IdentityRoles { get; set; }
+    public List<string> UserRoles { get; set; }
+
+    public ApplicationUser User { get; set; } = new ApplicationUser();
+
+
+    private UserInputModel UserInput = new UserInputModel();
+
+    string? SelectedValue;
+    IEnumerable<string>? SelectedOptions;
+
+    private bool IsDisabled => Action.ToLower() != "add";
+
+    public bool Disabled => (Action == "add" || Action == "edit") ? false : true;
+    // if parameter is changed
+    protected override async Task OnParametersSetAsync()
+    {
+        _httpClient.DefaultRequestHeaders.Remove("X-Company-ID");
+        _httpClient.DefaultRequestHeaders.Add("X-Company-ID", CompanyId);
+
+        User = await _httpClient.GetFromJsonAsync<ApplicationUser>($"api/users/{Id}");
+
+        var identityRolesResponse = await _httpClient.GetFromJsonAsync<Response<List<IdentityRole>>>($"api/roles");
+        IdentityRoles = identityRolesResponse.Items.Select(i => i.Name).ToList();
+
+        if ((Action == "edit" || Action == "details") && !String.IsNullOrEmpty(Id))
+        {
+
+            UserRoles = await _httpClient.GetFromJsonAsync<List<string>>($"api/users/{Id}/roles");
+
+            UserInput.UserName = User.UserName;
+            UserInput.Email = User.Email;
+            UserInput.Roles = UserRoles;
+
+            SelectedOptions = UserRoles;
+        }
+    }
+
+
+    private async Task HandleValidSubmit()
+    {
+        UserInput.Roles = SelectedOptions.ToList();
+
+        Console.WriteLine("Valid Submit");
+
+        _httpClient.DefaultRequestHeaders.Remove("X-Company-ID");
+        _httpClient.DefaultRequestHeaders.Add("X-Company-ID", CompanyId);
+
+
+        if (Action.ToLower() == "add")
+        {
+            Console.WriteLine("Add a new user");
+            // await UserService.AddUserAsync(user);
+            await _httpClient.PostAsJsonAsync("api/users", UserInput);
+
+
+        }
+        else
+        {
+            await _httpClient.PutAsJsonAsync($"api/users/{Id}", UserInput);
+        }
+        // NavigationManager.NavigateTo("/admin/users");
+
+        _navigationManager.NavigateTo($"/admin/users/list?c={CompanyId}");
+    }
+
+    private void CancelEdit()
+    {
+        _navigationManager.NavigateTo($"/admin/users?c={CompanyId}");
+    }
+
+    private async Task ResetPassword()
+    {
+        _navigationManager.NavigateTo($"admin/users/pass/{Id}?c={CompanyId}");
+    }
+
+
+}
+
+
+
+

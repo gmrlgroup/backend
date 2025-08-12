@@ -1,0 +1,196 @@
+@page "/realtime/sales-dashboard"
+@using Application.Shared.Services.Data
+@using Microsoft.FluentUI.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.SignalR.Client
+@using Microsoft.FluentUI.AspNetCore.Components.Icons
+@using System.Text.Json
+@inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JSRuntime
+@inject IToastService ToastService
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@attribute [Authorize]
+@implements IAsyncDisposable
+
+<PageTitle>Real-Time Sales Dashboard</PageTitle>
+
+@* 
+
+
+<AuthorizeView Roles="@($"{companyId}_SALES")">
+    <Authorized>
+        
+ *@
+
+        <div class="sales-dashboard-container" style="height: 88vh; display: flex; flex-direction: column; background: #f8fafc;">
+    
+            <!-- Header -->
+            <div class="header" style="background: white; border-bottom: 1px solid #e5e7eb; padding: 16px 24px; flex-shrink: 0;">
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween" VerticalAlignment="VerticalAlignment.Center">
+                    <div>
+                        <h1 style="margin: 0; font-size: 1.5rem; font-weight: 600; color: #1f2937;">
+                            Real-Time Sales Dashboard
+                        </h1>
+                        <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.875rem;">
+                            Live sales data and analytics • Last updated: @(lastUpdated?.ToString("HH:mm:ss") ?? "Loading...")
+                        </p>
+                    </div>
+                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                        <FluentBadge Appearance="@(IsConnected ? Appearance.Accent : Appearance.Neutral)"
+                                   style="@(IsConnected ? "background: #059669; color: white;" : "background: #f3f4f6; color: #374151;")">
+                            @(IsConnected ? "Live" : "Disconnected")
+                        </FluentBadge>
+                        <FluentButton Appearance="Appearance.Stealth" 
+                                    OnClick="RefreshData"
+                                    style="padding: 8px; border-radius: 6px;">
+                            <FluentIcon Value="@(new Icons.Regular.Size20.ArrowClockwise())" />
+                        </FluentButton>
+                    </FluentStack>
+                </FluentStack>
+            </div>
+
+            <!-- Content -->
+            <div class="content" style="flex: 1; padding: 24px; overflow-y: auto;">
+        
+                @if (isLoading)
+                {
+                    <div style="display: flex; justify-content: center; align-items: center; height: 50vh;">
+                        <FluentProgressRing />
+                    </div>
+                }
+                else
+                {
+                    <!-- Overall KPI Cards -->
+                    <div style="margin-bottom: 24px;">
+                        <h2 style="margin: 0 0 16px 0; font-size: 1.25rem; font-weight: 600; color: #1f2937;">Overall Performance</h2>
+                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="16" Wrap="true">
+                            <div class="kpi-card" style="background: white; border-radius: 8px; padding: 16px; border: 1px solid #e5e7eb; min-width: 200px; flex: 1;">
+                            <div style="color: #6b7280; font-size: 1rem; margin-bottom: 16px; font-weight: 600;">Total Sales</div>
+                                <div style="font-size: 1.675rem; font-weight: 700; color: #059669;">
+                                    @($"${overallKpi?.TotalSales.ToString("N0")}" ?? "Loading...")
+                                </div>
+                            </div>
+                            <div class="kpi-card" style="background: white; border-radius: 8px; padding: 20px; border: 1px solid #e5e7eb; min-width: 200px; flex: 1;">
+                                <div style="color: #6b7280; font-size: 1rem; margin-bottom: 16px; font-weight: 600;">Total Transactions</div>
+                                <div style="font-size: 1.675rem; font-weight: 700; color: #2563eb;">
+                                    @(overallKpi?.TotalTransactions.ToString("N0") ?? "Loading...")
+                                </div>
+                            </div>
+                            <div class="kpi-card" style="background: white; border-radius: 8px; padding: 20px; border: 1px solid #e5e7eb; min-width: 200px; flex: 1;">
+                                <div style="color: #6b7280; font-size: 1rem; margin-bottom: 16px; font-weight: 600;">Average Basket</div>
+                                <div style="font-size: 1.675rem; font-weight: 700; color: #7c3aed;">
+                                    @($"${overallKpi?.AverageBasket.ToString("N0")}" ?? "Loading...")
+                                </div>
+                            </div>
+                            @* <div class="kpi-card" style="background: white; border-radius: 8px; padding: 20px; border: 1px solid #e5e7eb; min-width: 200px; flex: 1;">
+                                <div style="color: #6b7280; font-size: 1rem; margin-bottom: 16px;">Active Stores</div>
+                                <div style="font-size: 1.675rem; font-weight: 700; color: #dc2626; font-weight: 600;">
+                                    @(overallKpi?.TotalStores.ToString("N0") ?? "Loading...")
+                                </div>
+                            </div> *@
+                        </FluentStack>
+                    </div>
+
+                    <!-- Banner KPI Cards -->
+                    @if (bannerKpis?.Any() == true)
+                    {
+                        <div style="margin-bottom: 24px;">
+                            <h2 style="margin: 0 0 16px 0; font-size: 1.25rem; font-weight: 600; color: #1f2937;">Performance by Banner</h2>
+                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="16" Wrap="true">
+                                @foreach (var banner in bannerKpis)
+                                {
+                                    <div class="banner-kpi-card" style="background: white; border-radius: 8px; padding: 16px; border: 1px solid #e5e7eb; min-width: 280px; flex: 1;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                            <h3 style="margin: 0; font-size: 1rem; font-weight: 600; color: #1f2937;">@banner.Banner</h3>
+                                            <FluentBadge Appearance="Appearance.Neutral" style="background: #f3f4f6; color: #374151;">
+                                                @banner.StoreCount stores
+                                            </FluentBadge>
+                                        </div>
+                                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="16">
+                                            <div style="flex: 1;">
+                                                <div style="color: #6b7280; font-size: 0.75rem;">Sales</div>
+                                                <div style="font-size: 1.25rem; font-weight: 700; color: #059669;">@($"${banner.TotalSales.ToString("N0")}")</div>
+                                            </div>
+                                            <div style="flex: 1;">
+                                                <div style="color: #6b7280; font-size: 0.75rem;">Transactions</div>
+                                                <div style="font-size: 1.25rem; font-weight: 700; color: #2563eb;">@banner.TotalTransactions.ToString("N0")</div>
+                                            </div>
+                                            <div style="flex: 1;">
+                                                <div style="color: #6b7280; font-size: 0.75rem;">Avg Basket</div>
+                                                <div style="font-size: 1.25rem; font-weight: 700; color: #7c3aed;">@($"${banner.AverageBasket.ToString("N0")}")</div>
+                                            </div>
+                                        </FluentStack>
+                                    </div>
+                                }
+                            </FluentStack>
+                        </div>
+                    }
+
+                    <!-- Data Table -->
+                    <div style="background: white; border-radius: 8px; border: 1px solid #e5e7eb; overflow: hidden;">
+                        <div style="padding: 16px 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
+                            <h2 style="margin: 0; font-size: 1.125rem; font-weight: 600; color: #1f2937;">Store Performance Details</h2>
+                            <FluentButton Appearance="Appearance.Stealth" OnClick="ToggleColumnSettings">
+                                <FluentIcon Value="@(new Icons.Regular.Size20.Settings())" />
+                                Columns
+                            </FluentButton>
+                        </div>
+                
+                        @if (showColumnSettings)
+                        {
+                            <div style="padding: 16px 20px; border-bottom: 1px solid #e5e7eb; background: #f9fafb;">
+                                <h3 style="margin: 0 0 12px 0; font-size: 0.875rem; font-weight: 600; color: #374151;">Show/Hide Columns</h3>
+                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="16" Wrap="true">
+                                    <FluentCheckbox @bind-Value="columnSettings.ShowScheme" Label="Scheme" />
+                                    <FluentCheckbox @bind-Value="columnSettings.ShowStoreCode" Label="Store Code" />
+                                    <FluentCheckbox @bind-Value="columnSettings.ShowTotalSales" Label="Total Sales" />
+                                    <FluentCheckbox @bind-Value="columnSettings.ShowTotalTransactions" Label="Total Transactions" />
+                                    <FluentCheckbox @bind-Value="columnSettings.ShowAverageBasket" Label="Average Basket" />
+                                    <FluentCheckbox @bind-Value="columnSettings.ShowLastUpdated" Label="Last Updated" />
+                                </FluentStack>
+                            </div>
+                        }
+
+                        <div style="overflow-x: auto;">
+                            <FluentDataGrid Items="@dashboardData?.AsQueryable()" GridTemplateColumns="@GetGridTemplateColumns()" style="width: 100%;">
+                                @if (columnSettings.ShowScheme)
+                                {
+                                    <PropertyColumn Property="@(c => c.Scheme)" Title="Scheme" Sortable="true" />
+                                }
+                                @if (columnSettings.ShowStoreCode)
+                                {
+                                    <PropertyColumn Property="@(c => c.StoreCode)" Title="Store Code" Sortable="true" />
+                                }
+                                @if (columnSettings.ShowTotalSales)
+                                {
+                                    <TemplateColumn Title="Total Sales" Sortable="true" SortBy="@(GridSort<SalesDashboardData>.ByAscending(p => p.TotalSales))">
+                                        <div style="font-weight: 600; color: #059669;">@context.TotalSales.ToString("C")</div>
+                                    </TemplateColumn>
+                                }
+                                @if (columnSettings.ShowTotalTransactions)
+                                {
+                                    <TemplateColumn Title="Total Transactions" Sortable="true" SortBy="@(GridSort<SalesDashboardData>.ByAscending(p => p.TotalTransactions))">
+                                        <div style="font-weight: 600; color: #2563eb;">@context.TotalTransactions.ToString("N0")</div>
+                                    </TemplateColumn>
+                                }
+                                @if (columnSettings.ShowAverageBasket)
+                                {
+                                    <TemplateColumn Title="Average Basket" Sortable="true" SortBy="@(GridSort<SalesDashboardData>.ByAscending(p => p.AverageBasket))">
+                                        <div style="font-weight: 600; color: #7c3aed;">@context.AverageBasket.ToString("C")</div>
+                                    </TemplateColumn>
+                                }
+                                @if (columnSettings.ShowLastUpdated)
+                                {
+                                    <TemplateColumn Title="Last Updated" Sortable="true" SortBy="@(GridSort<SalesDashboardData>.ByAscending(p => p.LastUpdated))">
+                                        <div style="color: #6b7280; font-size: 0.875rem;">@context.LastUpdated.ToString("HH:mm:ss")</div>
+                                    </TemplateColumn>
+                                }
+                            </FluentDataGrid>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+@*     </Authorized>
+</AuthorizeView> *@

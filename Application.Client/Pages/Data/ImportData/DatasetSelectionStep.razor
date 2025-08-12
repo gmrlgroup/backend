@@ -1,0 +1,251 @@
+@using Application.Shared.Models
+@using Microsoft.FluentUI.AspNetCore.Components
+@using Icons = Microsoft.FluentUI.AspNetCore.Components.Icons
+@inject HttpClient _httpClient
+@inject IToastService _toastService
+
+<div style="
+    background: rgba(102,126,234,0.02); 
+    border-radius: 12px; 
+    padding: 24px; 
+    margin-bottom: 32px;
+    border: 1px solid rgba(102,126,234,0.1);">
+    <h3 style="
+        font-size: 1.125rem; 
+        font-weight: 600; 
+        color: #1f2937; 
+        margin: 0 0 20px 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;">
+        <FluentIcon Value="@(new Icons.Regular.Size20.Database())" style="color: #667eea;" />
+        Step 1: Choose Dataset
+    </h3>
+
+    @if (isLoading)
+    {
+        <div style="display: flex; align-items: center; justify-content: center; padding: 40px 0;">
+            <FluentProgressRing />
+            <span style="margin-left: 12px; color: #6b7280;">Loading datasets...</span>
+        </div>
+    }
+    else if (datasets?.Any() == true)
+    {
+        <div style="margin-bottom: 24px;">
+            <FluentLabel Typo="Typography.Body" Weight="FontWeight.Bold" style="margin-bottom: 8px; display: block;">
+                Select an existing dataset or create a new one
+            </FluentLabel>
+            
+            <FluentSelect TOption="string"
+                         Value="@selectedDatasetId"
+                         ValueChanged="@HandleDatasetSelection"
+                         Placeholder="Choose a dataset..."
+                         style="width: 100%; margin-bottom: 16px;">
+                <FluentOption TOption="string" Value="">-- Select Dataset --</FluentOption>
+                @foreach (var dataset in datasets)
+                {
+                    <FluentOption TOption="string" Value="@dataset.Id">@dataset.Name</FluentOption>
+                }
+            </FluentSelect>
+        </div>
+
+        <FluentDivider style="margin: 24px 0;" />
+        
+        <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" style="margin-bottom: 16px;">
+            <span style="color: #6b7280; font-size: 0.875rem;">Or create a new dataset:</span>
+        </FluentStack>
+        
+        <FluentStack Orientation="Orientation.Horizontal" VerticalGap="12">
+            <FluentTextField @bind-Value="newDatasetName"
+                           Placeholder="Enter new dataset name"
+                           style="flex: 1;" />
+            <FluentButton Appearance="Appearance.Accent"
+                        OnClick="CreateNewDataset"
+                        Disabled="@(string.IsNullOrWhiteSpace(newDatasetName) || isCreatingDataset)"
+                        Loading="@isCreatingDataset"
+                        style="white-space: nowrap;">
+                @if (isCreatingDataset)
+                {
+                    <span>Creating...</span>
+                }
+                else
+                {
+                    <FluentIcon Value="@(new Icons.Regular.Size16.Add())" style="margin-right: 8px;" />
+                    <span>Create Dataset</span>
+                }
+            </FluentButton>
+        </FluentStack>
+    }
+    else
+    {
+        <div style="
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            padding: 60px 0;
+            text-align: center;
+            background: white;
+            border-radius: 8px;
+            border: 2px dashed #d1d5db;">
+            <FluentIcon Value="@(new Icons.Regular.Size48.Database())" style="
+                color: #d1d5db; 
+                margin-bottom: 16px;" />
+            <h4 style="
+                color: #374151; 
+                font-size: 1.125rem; 
+                font-weight: 600; 
+                margin: 0 0 8px 0;">
+                No Datasets Found
+            </h4>
+            <p style="
+                color: #6b7280; 
+                margin: 0 0 24px 0; 
+                font-size: 0.875rem;">
+                Create your first dataset to get started
+            </p>
+            
+            <FluentStack Orientation="Orientation.Horizontal" VerticalGap="12" style="width: 100%; max-width: 400px;">
+                <FluentTextField @bind-Value="newDatasetName"
+                               Placeholder="Enter dataset name"
+                               style="flex: 1;" />
+                <FluentButton Appearance="Appearance.Accent"
+                            OnClick="CreateNewDataset"
+                            Disabled="@(string.IsNullOrWhiteSpace(newDatasetName) || isCreatingDataset)"
+                            Loading="@isCreatingDataset">
+                    @if (isCreatingDataset)
+                    {
+                        <span>Creating...</span>
+                    }
+                    else
+                    {
+                        <FluentIcon Value="@(new Icons.Regular.Size16.Add())" style="margin-right: 8px;" />
+                        <span>Create Dataset</span>
+                    }
+                </FluentButton>
+            </FluentStack>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(selectedDatasetId))
+    {
+        <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.End" style="margin-top: 24px;">
+            <FluentButton 
+                Appearance="Appearance.Accent"
+                OnClick="@(() => OnDatasetSelected.InvokeAsync(datasets!.First(d => d.Id == selectedDatasetId)))"
+                style="
+                    font-weight: 600; 
+                    border-radius: 8px; 
+                    padding: 12px 24px;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    border: none;">
+                <FluentIcon Value="@(new Icons.Regular.Size16.ArrowRight())" style="margin-right: 8px;" />
+                Continue to Upload
+            </FluentButton>
+        </FluentStack>
+    }
+</div>
+
+@code {
+    [Parameter] public string CompanyId { get; set; } = string.Empty;
+    [Parameter] public EventCallback<Dataset> OnDatasetSelected { get; set; }
+    [Parameter] public Dataset? SelectedDataset { get; set; }
+    [Parameter] public EventCallback<Dataset?> SelectedDatasetChanged { get; set; }
+
+    private List<Dataset>? datasets;
+    private bool isLoading = true;
+    private bool isCreatingDataset = false;
+    private string selectedDatasetId = string.Empty;
+    private string newDatasetName = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDatasets();
+    }
+
+    private async Task LoadDatasets()
+    {
+        try
+        {
+            isLoading = true;
+            StateHasChanged();
+
+            datasets = await _httpClient.GetFromJsonAsync<List<Dataset>>($"api/datasets");
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Failed to load datasets: {ex.Message}");
+            datasets = new List<Dataset>();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }    private Task HandleDatasetSelection(string datasetId)
+    {
+        selectedDatasetId = datasetId;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private async Task CreateNewDataset()
+    {
+        if (string.IsNullOrWhiteSpace(newDatasetName))
+            return;
+
+        try
+        {
+            isCreatingDataset = true;
+            StateHasChanged();
+
+            var newDataset = new Dataset
+            {
+                Name = newDatasetName.Trim(),
+                Description = $"Dataset created during data import",
+                CompanyId = CompanyId
+            };
+
+            var response = await _httpClient.PostAsJsonAsync("api/datasets", newDataset);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var createdDataset = await response.Content.ReadFromJsonAsync<Dataset>();
+                if (createdDataset != null)
+                {
+                    await LoadDatasets(); // Refresh the list
+                    selectedDatasetId = createdDataset.Id!;
+                    newDatasetName = string.Empty;
+                    _toastService.ShowSuccess($"Dataset '{createdDataset.Name}' created successfully");
+                }
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _toastService.ShowError($"Failed to create dataset: {errorContent}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error creating dataset: {ex.Message}");
+        }
+        finally
+        {
+            isCreatingDataset = false;
+            StateHasChanged();
+        }
+    }
+}
+
+<style>
+    .fluent-text-field, .fluent-select {
+        border-radius: 6px !important;
+        border: 1px solid #d1d5db !important;
+        transition: all 0.2s ease !important;
+    }
+    
+    .fluent-text-field:focus, .fluent-select:focus {
+        border-color: #667eea !important;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1) !important;
+    }
+</style>

@@ -1,0 +1,535 @@
+@page "/data/tables"
+@using Application.Shared.Models
+@using Application.Shared.Models.Data
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.FluentUI.AspNetCore.Components
+@using Microsoft.JSInterop
+@inject HttpClient _httpClient
+@inject IToastService _toastService
+@inject NavigationManager _navigationManager
+@inject AuthenticationStateProvider _authenticationStateProvider
+@inject IJSRuntime _jsRuntime
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@attribute [Authorize]
+
+<PageTitle>Tables</PageTitle>
+
+
+        <!-- Main Content Card -->
+        <FluentCard style="
+            background: rgba(255,255,255,0.95); 
+            border-radius: 16px; 
+            border: none; 
+            backdrop-filter: blur(10px); 
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
+            padding: 0;
+            overflow: hidden;">
+            
+            <!-- Card Header -->
+            <div style="
+                padding: 32px 32px 24px 32px; 
+                border-bottom: 1px solid rgba(0,0,0,0.06);
+                background: linear-gradient(90deg, rgba(102,126,234,0.05) 0%, rgba(118,75,162,0.05) 100%);">
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween" VerticalAlignment="VerticalAlignment.Center">
+                    <div>
+                        <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" VerticalGap="8">
+                            <FluentButton 
+                                Appearance="Appearance.Stealth" 
+                                OnClick="@GoBack"
+                                style="
+                                    padding: 8px; 
+                                    border-radius: 8px;
+                                    color: #6b7280;
+                                    margin-right: 8px;">
+                                <FluentIcon Value="@(new Icons.Regular.Size20.ArrowLeft())" />
+                            </FluentButton>
+                            <div>
+                                <h2 style="
+                                    font-size: 1.5rem; 
+                                    font-weight: 600; 
+                                    color: #1f2937; 
+                                    margin: 0 0 4px 0;">
+                                    @if (string.IsNullOrEmpty(datasetName))
+                                    {
+                                        <span>Tables</span>
+                                    }
+                                    else
+                                    {
+                                        <span>@datasetName Tables</span>
+                                    }
+                                </h2>
+                                <p style="
+                                    color: #6b7280; 
+                                    margin: 0; 
+                                    font-size: 0.875rem;">
+                                    @if (isLoading)
+                                    {
+                                        <span>Loading tables...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>@(tables?.Count ?? 0) tables found</span>
+                                    }
+                                </p>
+                            </div>
+                        </FluentStack>
+                    </div>
+                    
+                    <FluentButton 
+                        Appearance="Appearance.Accent" 
+                        OnClick="@CreateTable"
+                        style="
+                            font-weight: 600; 
+                            border-radius: 8px; 
+                            padding: 12px 24px;
+                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            border: none;">
+                        <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="@Color.Lightweight" style="margin-right: 8px;" />
+                        Create Table
+                    </FluentButton>
+                </FluentStack>
+            </div>
+
+            <!-- Data Grid Container -->
+            <div style="padding: 24px 32px 32px 32px;min-height: 70vh;">
+                @if (isLoading)
+                {
+                    <div style="
+                        display: flex; 
+                        justify-content: center; 
+                        align-items: center; 
+                        padding: 80px 0;
+                        flex-direction: column;
+                        gap: 16px;">
+                        <FluentProgressRing style="width: 48px; height: 48px;" />
+                        <p style="color: #6b7280; margin: 0;">Loading tables...</p>
+                    </div>
+                }
+                else if (tables?.Any() == true)
+                {
+                    <!-- Data Grid -->
+                    <div style="
+                        border-radius: 12px; 
+                        overflow: hidden; 
+                        border: 1px solid rgba(0,0,0,0.06);
+                        background: white;
+                        min-height: 60vh;">
+                        <FluentDataGrid @ref="dataGrid" 
+                            Items="@filteredTables"
+                            ResizableColumns="true"
+                            ResizeType="@DataGridResizeType.Discrete"
+                            HeaderCellAsButtonWithMenu="true"
+                            Pagination="@pagination"
+                            TGridItem="string"
+                            RowSize="DataGridRowSize.Medium"
+                            GridTemplateColumns="1fr 0.8fr"
+                            ShowHover="true"
+                            style="border: none;">
+
+                            <PropertyColumn Property="@(t => t)" 
+                                Title="Table Name" 
+                                Sortable="true" 
+                                InitialSortDirection="SortDirection.Ascending"
+                                IsDefaultSortColumn="true"
+                                Filtered="!string.IsNullOrWhiteSpace(Filter)">
+                                <ColumnOptions>
+                                    <div class="search-box" style="padding: 8px;">
+                                        <FluentSearch 
+                                            type="search" 
+                                            @bind-Value="@Filter" 
+                                            @bind-Value:after="@HandleFilter" 
+                                            Placeholder="Search tables..." 
+                                            style="width: 100%;" />
+                                    </div>
+                                </ColumnOptions>
+                                
+                            </PropertyColumn>
+
+                            <TemplateColumn Title="Actions" Align="@Align.End">
+                                <ChildContent>
+                                    <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                                        <FluentButton 
+                                            aria-label="View table data" 
+                                            Appearance="Appearance.Stealth"
+                                            OnClick="@(() => ViewTable(context))"
+                                            style="
+                                                padding: 8px; 
+                                                border-radius: 6px;
+                                                color: #667eea;">
+                                            <FluentIcon Value="@(new Icons.Regular.Size16.Table())" />
+                                        </FluentButton>
+
+                                        <FluentButton 
+                                            aria-label="Download table data" 
+                                            Appearance="Appearance.Stealth"
+                                            OnClick="@(() => DownloadTable(context))"
+                                            style="
+                                                padding: 8px; 
+                                                border-radius: 6px;
+                                                color: #059669;">
+                                            <FluentIcon Value="@(new Icons.Regular.Size16.ArrowDownload())" />
+                                        </FluentButton>
+
+                                        <FluentButton 
+                                            aria-label="Edit table structure" 
+                                            Appearance="Appearance.Stealth"
+                                            OnClick="@(() => EditTable(context))"
+                                            style="
+                                                padding: 8px; 
+                                                border-radius: 6px;
+                                                color: #667eea;">
+                                            <FluentIcon Value="@(new Icons.Regular.Size16.Edit())" />
+                                        </FluentButton>
+                                        
+                                        <FluentButton 
+                                            aria-label="Delete table" 
+                                            Appearance="Appearance.Stealth"
+                                            OnClick="@(() => DeleteTable(context))"
+                                            style="
+                                                padding: 8px; 
+                                                border-radius: 6px;
+                                                color: #ef4444;">
+                                            <FluentIcon Value="@(new Icons.Regular.Size16.Delete())" />
+                                        </FluentButton>
+                                    </div>
+                                </ChildContent>
+                            </TemplateColumn>
+
+                        </FluentDataGrid>
+                    </div>
+
+                    <!-- Pagination -->
+                    <div style="margin-top: 24px; border-top: 1px solid rgba(0,0,0,0.06); padding-top: 24px;">
+                        <FluentPaginator State="@pagination" style="
+                            display: flex; 
+                            justify-content: center;
+                            gap: 16px;">
+                            <SummaryTemplate>
+                                <div style="
+                                    color: #6b7280; 
+                                    font-size: 0.875rem;
+                                    display: flex;
+                                    align-items: center;
+                                    gap: 8px;">
+                                    <FluentIcon Value="@(new Icons.Regular.Size16.Info())" style="color: #9ca3af;" />
+                                    <span>Showing <strong>@(pagination.TotalItemCount ?? 0)</strong> tables</span>
+                                </div>
+                            </SummaryTemplate>
+                            <PaginationTextTemplate>
+                                <div style="
+                                    color: #6b7280; 
+                                    font-size: 0.875rem;">
+                                    Page <strong>@(pagination.CurrentPageIndex + 1)</strong> of <strong>@(pagination.LastPageIndex + 1)</strong>
+                                </div>
+                            </PaginationTextTemplate>
+                        </FluentPaginator>
+                    </div>
+                }
+                else
+                {
+                    <!-- Empty State -->
+                    <div style="
+                        display: flex; 
+                        flex-direction: column; 
+                        align-items: center; 
+                        justify-content: center; 
+                        padding: 80px 0;
+                        text-align: center;">
+                        <FluentIcon Value="@(new Icons.Regular.Size48.Table())" style="
+                            color: #d1d5db; 
+                            margin-bottom: 16px;" />
+                        <h3 style="
+                            color: #374151; 
+                            font-size: 1.25rem; 
+                            font-weight: 600; 
+                            margin: 0 0 8px 0;">
+                            No Tables Found
+                        </h3>
+                        <p style="
+                            color: #6b7280; 
+                            margin: 0 0 24px 0; 
+                            font-size: 0.875rem;">
+                            @if (string.IsNullOrEmpty(companyId) || string.IsNullOrEmpty(datasetId))
+                            {
+                                <span>Company ID and Dataset ID are required to load tables.</span>
+                            }
+                            else
+                            {
+                                <span>Get started by creating your first table in this dataset.</span>
+                            }
+                        </p>
+                        @if (!string.IsNullOrEmpty(companyId) && !string.IsNullOrEmpty(datasetId))
+                        {
+                            <FluentButton 
+                                Appearance="Appearance.Accent" 
+                                OnClick="@CreateTable"
+                                style="
+                                    font-weight: 600; 
+                                    border-radius: 8px; 
+                                    padding: 12px 24px;
+                                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                    border: none;">
+                                <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="@Color.Lightweight" style="margin-right: 8px;" />
+                                Create Your First Table
+                            </FluentButton>
+                        }
+                    </div>
+                }
+            </div>
+        </FluentCard>
+
+@code {
+
+    [SupplyParameterFromQuery] public string? c { get; set; }
+
+    [SupplyParameterFromQuery] public string? d { get; set; }
+
+    private FluentDataGrid<string> dataGrid = null!;
+    private List<string>? tables;
+    private IQueryable<string>? filteredTables;
+    private string Filter { get; set; } = string.Empty;
+    private PaginationState pagination = new PaginationState { ItemsPerPage = 10 };
+    private bool isLoading = true;
+    private string? companyId;
+    private string? datasetId;
+    private string? datasetName;
+
+    
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Get company ID and dataset ID from query parameters
+        companyId = c;
+        datasetId = d;
+        
+        if (string.IsNullOrEmpty(companyId))
+        {
+            _toastService.ShowWarning("Company ID is required to view tables");
+            isLoading = false;
+            return;
+        }
+
+        if (string.IsNullOrEmpty(datasetId))
+        {
+            _toastService.ShowWarning("Dataset ID is required to view tables");
+            isLoading = false;
+            return;
+        }
+
+        await LoadTables();
+    }
+
+    private async Task LoadTables()
+    {
+        try
+        {
+            isLoading = true;
+            StateHasChanged();
+
+            // Add user ID to headers for the API call
+            var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    _httpClient.DefaultRequestHeaders.Remove("UserId");
+                    _httpClient.DefaultRequestHeaders.Add("UserId", userId);
+                }
+            }
+
+            // Load dataset info for display
+            var datasetResponse = await _httpClient.GetAsync($"api/Datasets/item/{datasetId}");
+            if (datasetResponse.IsSuccessStatusCode)
+            {
+                var dataset = await datasetResponse.Content.ReadFromJsonAsync<Dataset>();
+                datasetName = dataset?.Name;
+            }
+
+            // Load tables
+            var response = await _httpClient.GetAsync($"api/Datasets/{datasetId}/tables");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                tables = await response.Content.ReadFromJsonAsync<List<string>>();
+                filteredTables = tables?.AsQueryable() ?? new List<string>().AsQueryable();
+            }
+            else
+            {
+                _toastService.ShowError($"Failed to load tables: {response.StatusCode}");
+                tables = new List<string>();
+                filteredTables = new List<string>().AsQueryable();
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error loading tables: {ex.Message}");
+            tables = new List<string>();
+            filteredTables = new List<string>().AsQueryable();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleFilter()
+    {
+        if (tables == null) return;
+
+        // Reset to first page when filtering
+        await pagination.SetCurrentPageIndexAsync(0);
+        
+        // Apply filters
+        var filtered = tables.AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(Filter))
+        {
+            filtered = filtered.Where(t => 
+                t.Contains(Filter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        filteredTables = filtered.AsQueryable();
+        await dataGrid.RefreshDataAsync();
+    }
+
+    private void CreateTable()
+    {
+        _navigationManager.NavigateTo($"/data/tables/create?c={companyId}&d={datasetId}");
+    }    
+    
+    private void ViewTable(string tableName)
+    {
+        // Navigate to table data view
+        _navigationManager.NavigateTo($"/data/view?c={companyId}&DatasetId={datasetId}&TableName={tableName}");
+    }
+
+    private async Task DownloadTable(string tableName)
+    {
+        if (string.IsNullOrEmpty(tableName))
+        {
+            _toastService.ShowError("Invalid table name");
+            return;
+        }
+
+        try
+        {
+            // Add user ID to headers for the API call
+            var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    _httpClient.DefaultRequestHeaders.Remove("UserId");
+                    _httpClient.DefaultRequestHeaders.Add("UserId", userId);
+                }
+            }
+
+            // Call the download endpoint
+            var response = await _httpClient.GetAsync($"api/Datasets/{datasetId}/tables/{tableName}/download");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsByteArrayAsync();
+                var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/csv";
+                
+                // Get filename from Content-Disposition header or create default
+                var fileName = $"{tableName}.csv";
+                if (response.Content.Headers.ContentDisposition?.FileName != null)
+                {
+                    fileName = response.Content.Headers.ContentDisposition.FileName.Trim('"');
+                }
+
+                // Trigger download using JavaScript interop
+                await _jsRuntime.InvokeVoidAsync("downloadFileFromByteArray", fileName, contentType, content);
+                
+                _toastService.ShowSuccess($"Table '{tableName}' downloaded successfully");
+            }
+            else
+            {
+                _toastService.ShowError($"Failed to download table: {response.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error downloading table: {ex.Message}");
+        }
+    }
+
+    private void EditTable(string tableName)
+    {
+        // Navigate to table structure edit page (you'll need to create this)
+        // _navigationManager.NavigateTo($"/data/tables/edit/{tableName}?c={companyId}&d={datasetId}");
+        _navigationManager.NavigateTo($"/data/tables/edit?c={companyId}&d={datasetId}&t={tableName}");
+    }
+
+    private async Task DeleteTable(string tableName)
+    {
+        if (string.IsNullOrEmpty(tableName))
+        {
+            _toastService.ShowError("Invalid table name");
+            return;
+        }
+
+        try
+        {
+            // Add user ID to headers for the API call
+            var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    _httpClient.DefaultRequestHeaders.Remove("UserId");
+                    _httpClient.DefaultRequestHeaders.Add("UserId", userId);
+                }
+            }
+
+            var response = await _httpClient.DeleteAsync($"api/Datasets/{datasetId}/tables/{tableName}");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                _toastService.ShowSuccess($"Table '{tableName}' deleted successfully");
+                await LoadTables(); // Reload the list
+            }
+            else
+            {
+                _toastService.ShowError($"Failed to delete table: {response.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error deleting table: {ex.Message}");
+        }
+    }
+
+    private void GoBack()
+    {
+        _navigationManager.NavigateTo($"/data/datasets?c={companyId}");
+    }
+}
+
+<style>
+    .search-box {
+        width: 100%;
+    }
+    
+    .search-box input {
+        border-radius: 6px;
+        border: 1px solid #d1d5db;
+        transition: all 0.2s ease;
+    }
+    
+    .search-box input:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+</style>

@@ -1,0 +1,98 @@
+﻿@using System.Linq.Expressions
+@rendermode InteractiveWebAssembly
+
+<div class="filter-container" style="@(DisplayStyle)">
+    @foreach (var filter in Filters)
+    {
+        <div class="filter-row">
+
+            <FluentSelect Appearance="Appearance.Filled"                
+              TOption="string"
+              Items="@Columns"
+              Immediate="true"
+              @bind-Value="@filter.ColumnName">
+            </FluentSelect>
+
+            <FluentSelect Appearance="Appearance.Filled"
+                          TOption="string"
+                          Items="@Operators"
+                          Immediate="true"
+                          @bind-Value="@filter.Operator">
+            </FluentSelect>
+
+            <FluentTextField @bind-Value=filter.Value AriaLabel="Value"></FluentTextField>
+
+            <FluentSelect Appearance="Appearance.Filled"
+                          TOption="string"
+                          Items="@LogicalOperator"
+                          Immediate="true"
+                          @bind-Value="@filter.LogicalOperator">
+            </FluentSelect>
+
+            <button @onclick="() => RemoveFilter(filter)">Remove</button>
+        </div>
+    }
+
+    <!-- Add New Filter Button -->
+    <button @onclick="AddFilter">Add Filter</button>
+
+    <!-- Generate Query Button -->
+    <button @onclick="GenerateQuery">Generate Query</button>
+
+    <!-- Display the generated query -->
+    @if (!string.IsNullOrEmpty(FilterQuery))
+    {
+        <p style="margin-top:10px"><strong>Filters Applied: </strong> @FilterQuery</p>
+    }
+</div>
+
+
+
+@code {
+    // List of available columns to filter on
+    [Parameter] public IEnumerable<string> Columns { get; set; }
+
+    [Parameter] public EventCallback<string> OnQueryGenerated { get; set; }
+
+    [Parameter] public bool? ShowComponent { get; set; } = false;
+    public string? DisplayStyle => ShowComponent == true ? "display:block" : "display:none";
+
+    public string SelectedColumn { get; set;  }
+
+    // Stores the generated query
+    public string FilterQuery { get; set; } = "";
+
+    // List of available filter operators
+    public List<string> Operators { get; set; } = new List<string> { "", "=", "!=", ">", "<", ">=", "<=" };
+    public List<string> LogicalOperator { get; set; } = new List<string> {"", "AND", "OR" };
+
+    // Holds the list of current filters
+    private List<FilterCondition> Filters { get; set; } = new();
+
+    
+
+    // Adds a new filter row
+    private void AddFilter()
+    {
+        Filters.Add(new FilterCondition());
+    }
+
+    // Removes a specified filter
+    private void RemoveFilter(FilterCondition filter)
+    {
+        Filters.Remove(filter);
+    }
+
+    // Generates the query based on the filter list
+    private async Task GenerateQuery()
+    {
+        // Construct each condition with the correct formatting
+        FilterQuery = string.Join(" ", Filters.Select(f => $"{f.ColumnName} {f.Operator} '{f.Value}' {f.LogicalOperator}").ToArray());
+
+        // Clean up trailing logical operators (AND/OR)
+        FilterQuery = FilterQuery.TrimEnd(" ANDOR".ToCharArray()); // Ensure no trailing logical operators
+
+        // Notify the parent with the generated query
+        await OnQueryGenerated.InvokeAsync(FilterQuery);
+    }
+}

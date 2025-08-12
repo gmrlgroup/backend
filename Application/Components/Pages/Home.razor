@@ -1,0 +1,107 @@
+﻿@page "/"
+@using Application.Client.Components
+@using Microsoft.AspNetCore.WebUtilities
+@inject IJSRuntime _jsRuntime
+@inject NavigationManager _navigationManager
+
+
+<PageTitle>Home</PageTitle>
+
+<div class="home">
+  <div class="bg-grid" aria-hidden="true"></div>
+
+  <section class="hero">
+    <span class="badge">data • realtime • ai</span>
+
+    <h1 class="title">
+      <span class="pixel">@CompanyId</span>
+      <span class="title-fade">— data in motion</span>
+    </h1>
+
+    <p class="sub">
+      Real‑time sales. Import, share, and chat with your data using AI.
+      Dashboards <span class="soon">(coming soon)</span>.
+    </p>
+
+    <div class="cta">
+      <button class="btn primary" @onclick="GoHome">Get started</button>
+      <button class="btn ghost" disabled title="Coming soon">View dashboards</button>
+    </div>
+
+  </section>
+
+  <section class="features">
+    <a class="card card-link" href="@WithQuery("/realtime/sales-dashboard")">
+      <div class="icon">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2l-2 6h4l-4 8 1-6H8l5-8z"/></svg>
+      </div>
+      <h3>Real‑time sales</h3>
+      <p>Stream updates as they happen with live pipelines and notifications.</p>
+      <ul>
+        <li>Instant updates</li>
+        <li>Signal‑style events</li>
+        <li>Team visibility</li>
+      </ul>
+    </a>
+
+    <a class="card card-link" href="@WithQuery("/data/import")">
+      <div class="icon">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17h16v2H4v-2zm0-6h6v4H4v-4zm8 0h8v4h-8v-4zM4 5h16v4H4V5z"/></svg>
+      </div>
+      <h3>Import, share & chat (AI)</h3>
+      <p>Bring your data (CSV/Excel), share securely, and ask questions with AI.</p>
+      <ul>
+        <li>Fast imports</li>
+        <li>Fine‑grained sharing</li>
+        <li>Natural‑language Q&A</li>
+      </ul>
+    </a>
+
+    <article class="card soonish" title="Dashboards are coming soon">
+      <div class="icon">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h18v2H3V3zm2 4h14v10H5V7zm-2 12h18v2H3v-2z"/></svg>
+      </div>
+      <div class="chip">coming soon</div>
+      <h3>Dashboards</h3>
+      <p>Curate pixel‑clean, data‑first dashboards for your teams.</p>
+      <ul>
+        <li>Composable widgets</li>
+        <li>Shareable views</li>
+        <li>Lightweight theming</li>
+      </ul>
+    </article>
+  </section>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name ="c")]
+    private string CompanyId { get; set; } = "Company";
+    private string _qs = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        var uri = new Uri(_navigationManager.Uri);
+        _qs = uri.Query;
+
+        // Try to get a friendly company name from the query string if provided
+        var query = QueryHelpers.ParseQuery(uri.Query);
+        if (query.TryGetValue("companyName", out var v) && !string.IsNullOrWhiteSpace(v))
+        {
+            CompanyId = v!;
+        }
+        else if (query.TryGetValue("name", out v) && !string.IsNullOrWhiteSpace(v))
+        {
+            CompanyId = v!;
+        }
+    }
+
+    string WithQuery(string path) => string.IsNullOrEmpty(_qs) ? path : $"{path}{_qs}";
+
+    void GoHome() => _navigationManager.NavigateTo("/");
+    }
+
+
+
+
+
+

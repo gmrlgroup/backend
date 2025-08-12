@@ -1,0 +1,410 @@
+@page "/data/datasets/edit/{id}"
+@using Application.Shared.Models
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.FluentUI.AspNetCore.Components
+@inject HttpClient _httpClient
+@inject IToastService _toastService
+@inject NavigationManager _navigationManager
+@inject AuthenticationStateProvider _authenticationStateProvider
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@attribute [Authorize]
+
+<PageTitle>Edit Dataset</PageTitle>
+
+<!-- Full viewport background with gradient -->
+<div style="
+    min-height: 100vh; 
+    width: 100vw; 
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+    padding: 24px; 
+    position: relative; 
+    overflow: hidden;">
+    
+    <!-- Background decoration -->
+    <div style="
+        position: absolute; 
+        top: -50%; 
+        right: -20%; 
+        width: 500px; 
+        height: 500px; 
+        background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%); 
+        border-radius: 50%;"></div>
+    
+    <div style="
+        position: absolute; 
+        bottom: -30%; 
+        left: -10%; 
+        width: 300px; 
+        height: 300px; 
+        background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%); 
+        border-radius: 50%;"></div>
+
+    <!-- Content -->
+    <div style="position: relative; z-index: 1; max-width: 1200px; margin: 0 auto;">
+        <!-- Breadcrumb Navigation -->
+        <FluentBreadcrumb style="
+            background: transparent;
+            margin-bottom: 32px;
+            padding: 16px 0;">
+            <FluentBreadcrumbItem style="color: rgba(255,255,255,0.8);">
+                <FluentIcon Value="@(new Icons.Regular.Size16.Home())" style="margin-right: 8px;" />
+                Dashboard
+            </FluentBreadcrumbItem>
+            <FluentBreadcrumbItem style="color: rgba(255,255,255,0.8);">Data Management</FluentBreadcrumbItem>
+            <FluentBreadcrumbItem style="color: rgba(255,255,255,0.8);">
+                <a href="@($"/data/datasets?c={companyId}")" style="color: rgba(255,255,255,0.8); text-decoration: none;">
+                    Datasets
+                </a>
+            </FluentBreadcrumbItem>
+            <FluentBreadcrumbItem style="color: white; font-weight: 600;">Edit Dataset</FluentBreadcrumbItem>
+        </FluentBreadcrumb>
+
+        <!-- Page Header -->
+        <div style="margin-bottom: 32px;">
+            <h1 style="
+                color: white; 
+                font-size: 3rem; 
+                font-weight: 700; 
+                margin: 0 0 8px 0; 
+                text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                letter-spacing: -0.02em;">
+                Edit Dataset
+            </h1>
+            <p style="
+                color: rgba(255,255,255,0.9); 
+                font-size: 1.125rem; 
+                margin: 0;
+                text-shadow: 0 1px 2px rgba(0,0,0,0.2);">
+                Update your dataset information
+            </p>
+        </div>
+
+        @if (isLoading)
+        {
+            <FluentCard style="
+                background: rgba(255,255,255,0.95); 
+                border-radius: 16px; 
+                border: none; 
+                backdrop-filter: blur(10px); 
+                padding: 64px;
+                text-align: center;">
+                <FluentProgressRing style="width: 48px; height: 48px; margin-bottom: 16px;" />
+                <p style="color: #6b7280; margin: 0;">Loading dataset...</p>
+            </FluentCard>
+        }
+        else if (datasetModel == null)
+        {
+            <FluentCard style="
+                background: rgba(255,255,255,0.95); 
+                border-radius: 16px; 
+                border: none; 
+                backdrop-filter: blur(10px); 
+                padding: 64px;
+                text-align: center;">
+                <FluentIcon Value="@(new Icons.Regular.Size48.ErrorCircle())" style="color: #ef4444; margin-bottom: 16px;" />
+                <h3 style="color: #374151; margin: 0 0 8px 0;">Dataset Not Found</h3>
+                <p style="color: #6b7280; margin: 0 0 24px 0;">The dataset you're looking for could not be found.</p>
+                <FluentButton 
+                    Appearance="Appearance.Accent" 
+                    OnClick="@GoBack"
+                    style="font-weight: 600; border-radius: 8px;">
+                    Go Back
+                </FluentButton>
+            </FluentCard>
+        }
+        else
+        {
+            <FluentGrid Spacing="6" AdaptiveRendering="true">
+                <!-- Main Form -->
+                <FluentGridItem xs="12" lg="8">
+                    <FluentCard style="
+                        background: rgba(255,255,255,0.95); 
+                        border-radius: 16px; 
+                        padding: 40px; 
+                        border: none; 
+                        backdrop-filter: blur(10px); 
+                        box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);">
+                        
+                        <EditForm Model="datasetModel" OnValidSubmit="HandleValidSubmit">
+                            <DataAnnotationsValidator />
+                            
+                            <FluentStack Orientation="Orientation.Vertical" Style="gap: 32px;">
+                                <div>
+                                    <h2 style="
+                                        font-size: 1.5rem; 
+                                        font-weight: 600; 
+                                        color: #1f2937; 
+                                        margin: 0 0 24px 0;">
+                                        Dataset Information
+                                    </h2>
+                                    
+                                    <FluentStack Orientation="Orientation.Vertical" Style="gap: 24px;">
+                                        <div>
+                                            <FluentTextField 
+                                                Label="Dataset Name" 
+                                                @bind-Value="datasetModel.Name" 
+                                                Required="true"
+                                                Placeholder="Enter a descriptive name for your dataset"
+                                                style="width: 100%; font-size: 1rem;" />
+                                            <FluentValidationMessage For="() => datasetModel.Name" style="color: #ef4444; font-size: 0.875rem; margin-top: 4px;" />
+                                        </div>
+
+                                        <div>
+                                            <FluentTextArea 
+                                                Label="Description" 
+                                                @bind-Value="datasetModel.Description" 
+                                                Required="true"
+                                                Placeholder="Provide a detailed description of your dataset"
+                                                Rows="4"
+                                                style="width: 100%; font-size: 1rem; resize: vertical;" />
+                                            <FluentValidationMessage For="() => datasetModel.Description" style="color: #ef4444; font-size: 0.875rem; margin-top: 4px;" />
+                                        </div>
+                                    </FluentStack>
+                                </div>
+
+                                <div style="
+                                    border-top: 1px solid rgba(0,0,0,0.06); 
+                                    padding-top: 32px; 
+                                    display: flex; 
+                                    gap: 16px; 
+                                    justify-content: flex-end;">
+                                    
+                                    <FluentButton 
+                                        Type="ButtonType.Submit" 
+                                        Appearance="Appearance.Accent" 
+                                        Disabled="@isSubmitting"
+                                        style="
+                                            font-weight: 600; 
+                                            border-radius: 8px; 
+                                            padding: 12px 32px;
+                                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                            border: none;">
+                                        @if (isSubmitting)
+                                        {
+                                            <FluentProgressRing style="width: 16px; height: 16px; margin-right: 8px;" />
+                                            <span>Updating...</span>
+                                        }
+                                        else
+                                        {
+                                            <FluentIcon Value="@(new Icons.Regular.Size16.Save())" Color="@Color.Lightweight" style="margin-right: 8px;" />
+                                            <span>Update Dataset</span>
+                                        }
+                                    </FluentButton>
+                                    
+                                    <FluentButton 
+                                        Type="ButtonType.Button" 
+                                        Appearance="Appearance.Outline" 
+                                        OnClick="@Cancel"
+                                        Disabled="@isSubmitting"
+                                        style="font-weight: 600; border-radius: 8px; padding: 12px 32px;">
+                                        Cancel
+                                    </FluentButton>
+                                </div>
+                            </FluentStack>
+                        </EditForm>
+                    </FluentCard>
+                </FluentGridItem>
+
+                <!-- Sidebar with Tips -->
+                <FluentGridItem xs="12" lg="4">
+                    <FluentCard style="background: rgba(255,255,255,0.95); border-radius: 16px; padding: 32px; border: none; backdrop-filter: blur(10px);">
+                        <FluentStack Orientation="Orientation.Vertical" Style="gap: 24px;">
+                            <div>
+                                <h3 style="
+                                    color: #1f2937; 
+                                    font-size: 1.125rem; 
+                                    font-weight: 600; 
+                                    margin: 0 0 16px 0;">
+                                    <FluentIcon Value="@(new Icons.Regular.Size16.Info())" style="margin-right: 8px; vertical-align: text-bottom;" />
+                                    Editing Tips
+                                </h3>
+                                <ul style="
+                                    color: #6b7280; 
+                                    font-size: 0.875rem; 
+                                    line-height: 1.6; 
+                                    margin: 0; 
+                                    padding-left: 16px;">
+                                    <li style="margin-bottom: 8px;">Update the name to better reflect your dataset's purpose</li>
+                                    <li style="margin-bottom: 8px;">Enhance the description with more details about the data structure</li>
+                                    <li style="margin-bottom: 8px;">Consider adding information about data sources and update frequency</li>
+                                    <li>Make sure the description helps others understand the dataset's value</li>
+                                </ul>
+                            </div>
+
+                            <div style="
+                                background: rgba(102, 126, 234, 0.1); 
+                                padding: 20px; 
+                                border-radius: 12px; 
+                                border-left: 4px solid #667eea;">
+                                <h4 style="
+                                    color: #667eea; 
+                                    font-size: 0.875rem; 
+                                    font-weight: 600; 
+                                    margin: 0 0 8px 0;">
+                                    💡 Pro Tip
+                                </h4>
+                                <p style="
+                                    color: #6b7280; 
+                                    font-size: 0.875rem; 
+                                    line-height: 1.5; 
+                                    margin: 0;">
+                                    Changes to your dataset information are immediately saved and will be visible to all team members with access.
+                                </p>
+                            </div>
+                        </FluentStack>
+                    </FluentCard>
+                </FluentGridItem>
+            </FluentGrid>
+        }
+    </div>
+</div>
+
+@code {
+    private Dataset? datasetModel;
+    private bool isSubmitting = false;
+    private bool isLoading = true;
+    private string? companyId;
+
+    [Parameter] public string Id { get; set; } = string.Empty;
+    
+    [SupplyParameterFromQuery]
+    public string? c { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Get company ID from query parameter
+        companyId = c;
+        
+        if (string.IsNullOrEmpty(companyId))
+        {
+            _toastService.ShowError("Company ID is required");
+            _navigationManager.NavigateTo("/");
+            return;
+        }
+
+        if (string.IsNullOrEmpty(Id))
+        {
+            _toastService.ShowError("Dataset ID is required");
+            _navigationManager.NavigateTo($"/data/datasets?c={companyId}");
+            return;
+        }
+
+        await LoadDataset();
+    }
+
+    private async Task LoadDataset()
+    {
+        try
+        {
+            isLoading = true;
+            StateHasChanged();
+
+            // Add user ID to headers for the API call
+            var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    _httpClient.DefaultRequestHeaders.Remove("UserId");
+                    _httpClient.DefaultRequestHeaders.Add("UserId", userId);
+                }
+            }
+
+            var response = await _httpClient.GetAsync($"api/Datasets/item/{Id}");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                datasetModel = await response.Content.ReadFromJsonAsync<Dataset>();
+                
+                // Verify the dataset belongs to the correct company
+                if (datasetModel?.CompanyId != companyId)
+                {
+                    _toastService.ShowError("Access denied: Dataset does not belong to your company");
+                    datasetModel = null;
+                }
+            }
+            else if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                _toastService.ShowError("Dataset not found");
+                datasetModel = null;
+            }
+            else
+            {
+                _toastService.ShowError($"Failed to load dataset: {response.StatusCode}");
+                datasetModel = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error loading dataset: {ex.Message}");
+            datasetModel = null;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        if (datasetModel == null) return;
+
+        try
+        {
+            isSubmitting = true;
+            StateHasChanged();
+
+            // Add user ID to headers for the API call
+            var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    _httpClient.DefaultRequestHeaders.Remove("UserId");
+                    _httpClient.DefaultRequestHeaders.Add("UserId", userId);
+                }
+            }
+
+            var response = await _httpClient.PutAsJsonAsync($"api/Datasets/{Id}", datasetModel);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                _toastService.ShowSuccess("Dataset updated successfully!");
+                
+                // Navigate back to the list
+                _navigationManager.NavigateTo($"/data/datasets?c={companyId}");
+            }
+            else
+            {
+                var errorMessage = await response.Content.ReadAsStringAsync();
+                _toastService.ShowError($"Failed to update dataset: {errorMessage}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error updating dataset: {ex.Message}");
+        }
+        finally
+        {
+            isSubmitting = false;
+            StateHasChanged();
+        }
+    }
+
+    private void Cancel()
+    {
+        _navigationManager.NavigateTo($"/data/datasets?c={companyId}");
+    }
+
+    private void GoBack()
+    {
+        _navigationManager.NavigateTo($"/data/datasets?c={companyId}");
+    }
+}

@@ -1,0 +1,374 @@
+@using Application.Shared.Models.Data
+@using Application.Shared.Models
+@using Microsoft.FluentUI.AspNetCore.Components
+@using System.Linq.Expressions
+@inject IJSRuntime JSRuntime
+@typeparam TItem
+
+<div class="dynamic-table-container" style="background-color:white; border-radius: 8px; padding: 16px; height: @TableHeight; overflow: hidden; border: 1px solid #e5e7eb;">
+    <!-- Table Controls -->
+    <div class="table-controls" style="margin-bottom: 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+        
+        @if (ShowColumnSelector)
+        {
+            <!-- Column Selector -->
+            <FluentButton Appearance="Appearance.Outline" 
+                         OnClick="@(() => ShowColumnDialog = true)"
+                         style="border-radius: 6px;">
+                <FluentIcon Value="@(new Icons.Regular.Size16.Settings())" style="margin-right: 4px;" />
+                Columns
+            </FluentButton>
+        }
+
+        @if (ShowFilterBuilder)
+        {
+            <!-- Filter Builder -->
+            <FluentButton Appearance="Appearance.Outline" 
+                         OnClick="@(() => ShowFilterDialog = true)"
+                         style="border-radius: 6px;">
+                <FluentIcon Value="@(new Icons.Regular.Size16.Filter())" style="margin-right: 4px;" />
+                Filters @if (ActiveFilters.Any()) { <span class="filter-count">(@ActiveFilters.Count)</span> }
+            </FluentButton>
+        }
+
+        @if (ShowSearchBox)
+        {
+            <!-- Search Box -->
+            <FluentTextField @bind-Value="@SearchTerm" 
+                           @onkeypress="@OnSearchKeyPress"
+                           Placeholder="Search..."
+                           style="min-width: 200px;">
+                <FluentIcon Value="@(new Icons.Regular.Size16.Search())" Slot="start" />
+            </FluentTextField>
+        }
+
+        <!-- Row Count Display -->
+        <span style="margin-left: auto; color: #6b7280; font-size: 0.875rem;">
+            Showing @GetDisplayRange() of @TotalRows rows
+        </span>
+    </div>
+
+    <!-- Data Grid -->
+    <div style="height: calc(100% - 60px); overflow: auto; border: 1px solid #e5e7eb; border-radius: 6px;">
+        <FluentDataGrid @ref="DataGrid"
+                       Items="@Items.AsQueryable()"
+                       ResizableColumns="true"
+                       ShowHover="true"
+                       ItemSize="36"
+                       Loading="@IsLoading"
+                       TGridItem="TItem"
+                       Virtualize="@false"
+                       Style="width: 100%; height: 100%;">
+
+            @if (VisibleColumns != null && VisibleColumns.Any())
+            {
+                @foreach (var column in VisibleColumns.OrderBy(c => c.Order))
+                {
+                    @* Add Style="@($"min-width: {column.Width}px; max-width: {column.Width + 100}px;")"
+                        if the column width is fixed
+                    *@
+                    <PropertyColumn Property="@(GetPropertyExpression<TItem>(column.ColumnName))" 
+                                  Title="@column.ColumnName" 
+                                  Sortable="true"
+                                  
+                                  Class="data-column" />
+                }
+            }
+            else
+            {
+                @foreach (var column in DefaultColumns)
+                {
+                    <PropertyColumn Property="@(GetPropertyExpression<TItem>(column))" 
+                                  Title="@column" 
+                                  Sortable="true"
+                                  Style="min-width: 120px;"
+                                  Class="data-column" />
+                }
+            }
+
+        </FluentDataGrid>
+    </div>
+
+    <!-- Pagination -->
+    @if (ShowPagination && TotalRows > PageSize)
+    {
+        <div class="pagination-container" style="margin-top: 16px; display: flex; justify-content: center; align-items: center; gap: 8px;">
+            <FluentButton Appearance="Appearance.Outline" 
+                         Disabled="@(CurrentPage <= 1)"
+                         OnClick="@(() => ChangePage(CurrentPage - 1))"
+                         style="border-radius: 6px;">
+                <FluentIcon Value="@(new Icons.Regular.Size16.ChevronLeft())" />
+            </FluentButton>
+
+            <span style="margin: 0 16px; color: #374151; font-size: 0.875rem;">
+                Page @CurrentPage of @TotalPages
+            </span>
+
+            <FluentButton Appearance="Appearance.Outline" 
+                         Disabled="@(CurrentPage >= TotalPages)"
+                         OnClick="@(() => ChangePage(CurrentPage + 1))"
+                         style="border-radius: 6px;">
+                <FluentIcon Value="@(new Icons.Regular.Size16.ChevronRight())" />
+            </FluentButton>
+        </div>
+    }
+</div>
+
+<!-- Column Configuration Dialog -->
+@* onhidden="@(() => ShowColumnDialog = false)" *@
+<FluentDialog Hidden="@(!ShowColumnDialog)" 
+             Modal="true" 
+             TrapFocus="true"
+             
+             Style="width: 600px; max-width: 90vw;">
+    <div style="padding: 24px;">
+        <h3 style="margin: 0 0 20px 0; color: #1f2937;">Configure Columns</h3>
+        
+        <div style="max-height: 400px; overflow-y: auto;">
+            @if (AllColumns != null)
+            {
+                @foreach (var column in AllColumns)
+                {
+                    var columnSetting = VisibleColumns?.FirstOrDefault(c => c.ColumnName == column) ??
+                    new ColumnSettings { ColumnName = column, IsVisible = true, Order = AllColumns.IndexOf(column) }; // TODO: Add width , Width = 120
+                    
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding: 8px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                        <FluentCheckbox @bind-Value="@columnSetting.IsVisible" />
+                        <span style="flex: 1; font-weight: 500;">@column</span>
+                        @* TODO: Remove comment if the issue with Column Settings Width is foxed*@
+                        @* <FluentNumberField @bind-Value="@columnSetting.Width" 
+                                         Min="80" 
+                                         Max="500" 
+                                         Style="width: 80px;"
+                                         Placeholder="Width" /> *@
+                        <FluentNumberField @bind-Value="@columnSetting.Order" 
+                                         Min="0" 
+                                         Style="width: 60px;"
+                                         Placeholder="Order" />
+                    </div>
+                }
+            }
+        </div>
+
+        <div style="margin-top: 20px; display: flex; gap: 8px; justify-content: flex-end;">
+            <FluentButton Appearance="Appearance.Outline" 
+                         OnClick="@(() => ShowColumnDialog = false)"
+                         style="border-radius: 6px;">
+                Cancel
+            </FluentButton>
+            <FluentButton Appearance="Appearance.Accent" 
+                         OnClick="@ApplyColumnSettings"
+                         style="border-radius: 6px;">
+                Apply
+            </FluentButton>
+        </div>
+    </div>
+</FluentDialog>
+
+<!-- Filter Dialog -->
+@**onhidden="@(() => ShowFilterDialog = false)"*@
+<FluentDialog Hidden="@(!ShowFilterDialog)" 
+             Modal="true" 
+             TrapFocus="true"
+             
+             Style="width: 700px; max-width: 90vw;">
+    <div style="padding: 24px;">
+        <h3 style="margin: 0 0 20px 0; color: #1f2937;">Filter Data</h3>
+        
+        <div style="max-height: 400px; overflow-y: auto;">
+            @foreach (var filter in ActiveFilters.ToList())
+            {
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 6px;">                    <FluentSelect TOption="string" @bind-Value="@filter.ColumnName" 
+                                Style="min-width: 150px;">
+                        @if (AllColumns != null)
+                        {
+                            @foreach (var column in AllColumns)
+                            {
+                                <FluentOption Value="@column">@column</FluentOption>
+                            }
+                        }
+                    </FluentSelect>
+
+                    <FluentSelect TOption="string" @bind-Value="@filter.Operator" 
+                                Style="min-width: 120px;">
+                        <FluentOption Value="equals">Equals</FluentOption>
+                        <FluentOption Value="contains">Contains</FluentOption>
+                        <FluentOption Value="startswith">Starts With</FluentOption>
+                        <FluentOption Value="endswith">Ends With</FluentOption>
+                        <FluentOption Value="greaterthan">Greater Than</FluentOption>
+                        <FluentOption Value="lessthan">Less Than</FluentOption>
+                    </FluentSelect>
+
+                    <FluentTextField @bind-Value="@filter.Value" 
+                                   Placeholder="Value"
+                                   Style="flex: 1;" />
+
+                    <FluentButton Appearance="Appearance.Outline" 
+                                OnClick="@(() => RemoveFilter(filter))"
+                                style="border-radius: 6px;">
+                        <FluentIcon Value="@(new Icons.Regular.Size16.Delete())" />
+                    </FluentButton>
+                </div>
+            }
+
+            <FluentButton Appearance="Appearance.Outline" 
+                         OnClick="@AddFilter"
+                         style="border-radius: 6px; margin-bottom: 16px;">
+                <FluentIcon Value="@(new Icons.Regular.Size16.Add())" style="margin-right: 4px;" />
+                Add Filter
+            </FluentButton>
+        </div>
+
+        <div style="margin-top: 20px; display: flex; gap: 8px; justify-content: flex-end;">
+            <FluentButton Appearance="Appearance.Outline" 
+                         OnClick="@(() => ShowFilterDialog = false)"
+                         style="border-radius: 6px;">
+                Cancel
+            </FluentButton>
+            <FluentButton Appearance="Appearance.Outline" 
+                         OnClick="@ClearAllFilters"
+                         style="border-radius: 6px;">
+                Clear All
+            </FluentButton>
+            <FluentButton Appearance="Appearance.Accent" 
+                         OnClick="@ApplyFilters"
+                         style="border-radius: 6px;">
+                Apply Filters
+            </FluentButton>
+        </div>
+    </div>
+</FluentDialog>
+
+@code {
+    [Parameter] public IEnumerable<TItem> Items { get; set; } = Enumerable.Empty<TItem>();
+    [Parameter] public List<string> DefaultColumns { get; set; } = new();
+    [Parameter] public List<string>? AllColumns { get; set; }
+    [Parameter] public List<ColumnSettings>? VisibleColumns { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public bool ShowColumnSelector { get; set; } = true;
+    [Parameter] public bool ShowFilterBuilder { get; set; } = true;
+    [Parameter] public bool ShowSearchBox { get; set; } = true;
+    [Parameter] public bool ShowPagination { get; set; } = true;
+    [Parameter] public string TableHeight { get; set; } = "70vh";
+    [Parameter] public int CurrentPage { get; set; } = 1;
+    [Parameter] public int PageSize { get; set; } = 50;
+    [Parameter] public int TotalRows { get; set; }
+    [Parameter] public EventCallback<List<ColumnSettings>> OnColumnSettingsChanged { get; set; }
+    [Parameter] public EventCallback<List<FilterCondition>> OnFiltersChanged { get; set; }
+    [Parameter] public EventCallback<string> OnSearchChanged { get; set; }
+    [Parameter] public EventCallback<int> OnPageChanged { get; set; }
+
+    private FluentDataGrid<TItem>? DataGrid;
+    private bool ShowColumnDialog = false;
+    private bool ShowFilterDialog = false;
+    private string SearchTerm = string.Empty;
+    private List<FilterCondition> ActiveFilters = new();
+
+    private int TotalPages => (int)Math.Ceiling((double)TotalRows / PageSize);
+
+    protected override void OnParametersSet()
+    {
+        if (VisibleColumns == null && AllColumns != null)
+        {
+            VisibleColumns = AllColumns.Select((col, index) => new ColumnSettings
+            {
+                ColumnName = col,
+                IsVisible = true,
+                Order = index,
+                // Width = 120 // TODO: Set default width based on column type or other logic if the width is fixed in ColumnSettings
+            }).ToList();
+        }
+    }
+
+    private string GetDisplayRange()
+    {
+        var start = Math.Min((CurrentPage - 1) * PageSize + 1, TotalRows);
+        var end = Math.Min(CurrentPage * PageSize, TotalRows);
+        return $"{start}-{end}";
+    }    private Expression<Func<TItem, object?>> GetPropertyExpression<T>(string propertyName)
+    {
+        var parameter = Expression.Parameter(typeof(TItem), "x");
+        
+        // Handle dictionary access for dynamic data
+        if (typeof(TItem) == typeof(Dictionary<string, object>))
+        {
+            var indexer = typeof(Dictionary<string, object>).GetProperty("Item");
+            var propertyAccess = Expression.Property(parameter, indexer!, Expression.Constant(propertyName));
+            var conversion = Expression.Convert(propertyAccess, typeof(object));
+            return Expression.Lambda<Func<TItem, object?>>(conversion, parameter);
+        }
+        
+        // Handle regular object properties
+        var property = Expression.Property(parameter, propertyName);
+        var objectConversion = Expression.Convert(property, typeof(object));
+        return Expression.Lambda<Func<TItem, object?>>(objectConversion, parameter);
+    }
+
+    private async Task OnSearchKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await OnSearchChanged.InvokeAsync(SearchTerm);
+        }
+    }
+
+    private async Task ChangePage(int newPage)
+    {
+        if (newPage >= 1 && newPage <= TotalPages)
+        {
+            CurrentPage = newPage;
+            await OnPageChanged.InvokeAsync(newPage);
+        }
+    }
+
+    private async Task ApplyColumnSettings()
+    {
+        ShowColumnDialog = false;
+        if (VisibleColumns != null)
+        {
+            await OnColumnSettingsChanged.InvokeAsync(VisibleColumns);
+        }
+    }
+
+    private void AddFilter()
+    {        ActiveFilters.Add(new FilterCondition
+        {
+            ColumnName = AllColumns?.FirstOrDefault() ?? "",
+            Operator = "equals",
+            Value = ""
+        });
+    }
+
+    private void RemoveFilter(FilterCondition filter)
+    {
+        ActiveFilters.Remove(filter);
+    }
+
+    private async Task ApplyFilters()
+    {
+        ShowFilterDialog = false;
+        await OnFiltersChanged.InvokeAsync(ActiveFilters.Where(f => !string.IsNullOrWhiteSpace(f.Value)).ToList());
+    }
+
+    private async Task ClearAllFilters()
+    {
+        ActiveFilters.Clear();
+        await OnFiltersChanged.InvokeAsync(new List<FilterCondition>());
+    }
+}
+
+@* <style>
+    .dynamic-table-container .filter-count {
+        color: #ef4444;
+        font-weight: 600;
+    }
+
+    .dynamic-table-container .data-column {
+        padding: 8px 12px;
+        border-right: 1px solid #f3f4f6;
+    }
+
+    .dynamic-table-container .data-column:last-child {
+        border-right: none;
+    }
+</style> *@

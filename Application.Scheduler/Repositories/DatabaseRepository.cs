@@ -14,6 +14,8 @@ namespace Application.Scheduler.Repositories;
 public interface IDatabaseRepository
 {
     Task<List<Database>> GetDatabaseDetails();
+
+    Task<List<Database>> GetNokNokDatabaseDetails();
 }
 
 
@@ -30,6 +32,13 @@ public class DatabaseRepository : IDatabaseRepository
     {
         return _context.Database
             .Where(d => d.DatabaseType == "RBO")
+            .ToList();
+    }
+
+    public async Task<List<Database>> GetNokNokDatabaseDetails()
+    {
+        return _context.Database
+            .Where(d => d.DatabaseType == "NKDB")
             .ToList();
     }
 }

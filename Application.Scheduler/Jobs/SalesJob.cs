@@ -35,4 +35,34 @@ public class SalesJob
 
 
     }
+
+
+    public async Task RunNokNokAsync(Database database, PerformContext context, CancellationToken ct = default)
+    {
+
+        var rows = await _repo.GetNokNokSalesGroupedByStoreHour(database: database);
+        context.WriteLine(rows.Count + " rows fetched at " + DateTime.UtcNow.ToString("O") + ".");
+
+        // TODO: persist rows, push to cache, publish event, etc.
+        foreach (var r in rows)
+            context.WriteLine(r.StoreCode + " | Hour: " + r.Hour + " | Net: " + r.NetAmountAcy);
+
+
+
+    }
+
+
+    public async Task RunNokNokFoAsync(PerformContext context, CancellationToken ct = default)
+    {
+
+        var rows = await _repo.GetNokNokSalesGroupedByStoreHourFO();
+        context.WriteLine(rows.Count + " rows fetched at " + DateTime.UtcNow.ToString("O") + ".");
+
+        // TODO: persist rows, push to cache, publish event, etc.
+        foreach (var r in rows)
+            context.WriteLine(r.StoreCode + " | Hour: " + r.Hour + " | Net: " + r.NetAmountAcy);
+
+
+
+    }
 }

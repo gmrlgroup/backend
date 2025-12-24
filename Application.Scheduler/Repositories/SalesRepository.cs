@@ -88,8 +88,8 @@ public class SalesRepository : ISalesRepository
             left join [{database.Name}$Store] as s on s.[No_] = tse.[Store No_]
             left join [{database.Name}$Item Category] as ic on ic.Code = tse.[Item Category Code]
             left join [{database.Name}$Division] as d on d.Code = ic.[Division Code]
-            left join cte_stores_transactions as str on str.StoreCode = tse.[Store No_]
-            left join cte_store_categories as stc on stc.StoreCode = tse.[Store No_]
+            inner join cte_stores_transactions as str on str.StoreCode = tse.[Store No_]
+            inner join cte_store_categories as stc on stc.StoreCode = tse.[Store No_]
 
             where tse.[Date] = CONVERT(date,  GETDATE())
             and th.Wastage = 0

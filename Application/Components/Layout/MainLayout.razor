@@ -6,7 +6,7 @@
 @inject AuthenticationStateProvider _authenticationStateProvider
 @inject StateContainer _stateContainer
 @inject ICompanyService _companyService
-
+@inject IConfiguration _configuration
 
 
 <FluentLayout>
@@ -36,7 +36,7 @@
         </FluentBodyContent>
     </FluentStack>
     <FluentFooter>
-        <div>< /> with 💙 by flowbyte</div>
+        <div>< /> with 💙 by @companyName</div>
         <FluentSpacer />
     </FluentFooter>
 </FluentLayout>
@@ -48,6 +48,11 @@
 <FluentMessageBarProvider />
 <FluentDialogProvider @rendermode="@RenderMode.InteractiveWebAssembly" />
 
+@* @if (_stateContainer.Company != null && !string.IsNullOrEmpty(currentUserId))
+{
+    <Application.Client.Components.ConversationWidget CompanyId="@_stateContainer.Company.Id" UserId="@currentUserId" />
+}
+ *@
 
 <div id="blazor-error-ui">
     An unhandled error has occurred.
@@ -66,6 +71,9 @@
     private Task<AuthenticationState>? authenticationState { get; set; }
     private Company Company { get; set; } = new Company();
     private string authMessage = "The user is NOT authenticated.";
+    private string? currentUserId;
+    private string companyName = string.Empty;
+    
 
     private string? surname;
     private IEnumerable<Claim> claims = Enumerable.Empty<Claim>();
@@ -94,11 +102,11 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var userId = await GetUserId();
-
+        companyName = _configuration["CompanyName"] ?? "...";
+        currentUserId = await GetUserId();
 
         // if user is not authenticated, stop here
-        if (userId is null)
+        if (currentUserId is null)
         {
             return;
         }
@@ -121,7 +129,7 @@
 
         else
         {
-            var company = await GetUserDefaultCompany(userId);
+            var company = await GetUserDefaultCompany(currentUserId);
             if(company is null)
             {
                 return;
@@ -139,7 +147,7 @@
 
         if(stateCompany is null)
         {
-            var company = await GetUserDefaultCompany(userId);
+            var company = await GetUserDefaultCompany(currentUserId);
 
             _stateContainer.Company = company;
             

@@ -5,6 +5,8 @@
 @using Microsoft.AspNetCore.SignalR.Client
 @using Microsoft.FluentUI.AspNetCore.Components.Icons
 @using System.Text.Json
+@using System.Linq
+@using System.Globalization
 @inject NavigationManager NavigationManager
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IJSRuntime JSRuntime
@@ -30,13 +32,13 @@
                 <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween" VerticalAlignment="VerticalAlignment.Center">
                     <div>
                         <h1 style="margin: 0; font-size: 1.5rem; font-weight: 600; color: #1f2937;">
-                            Real-Time Sales Dashboard
+                            Real-Time Sales
                         </h1>
                         <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.875rem;">
-                            Live sales data and analytics • Last updated: @(lastUpdated?.ToString("HH:mm:ss") ?? "Loading...")
+                            Live sales data and analytics
                         </p>
                     </div>
-                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Center" Width="15">
                         <FluentBadge Appearance="@(IsConnected ? Appearance.Accent : Appearance.Neutral)"
                                    style="@(IsConnected ? "background: #059669; color: white;" : "background: #f3f4f6; color: #374151;")">
                             @(IsConnected ? "Live" : "Disconnected")
@@ -47,11 +49,22 @@
                             <FluentIcon Value="@(new Icons.Regular.Size20.ArrowClockwise())" />
                         </FluentButton>
                     </FluentStack>
+
                 </FluentStack>
             </div>
-
+            
             <!-- Content -->
             <div class="content" style="flex: 1; padding: 24px; overflow-y: auto;">
+
+                <div style="display: flex; align-items: center; gap: 6px; margin-right: 8px; margin-bottom: 24px; ">
+                    <span style="font-size: 0.875rem; color: #6b7280;">View by</span>
+                    <select @onchange="HandleGroupingChanged" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #d1d5db; font-size: 0.85rem; color: #111827; background: #fff; min-width: 160px;">
+                        @foreach (var option in groupingOptions)
+                        {
+                            <option value="@option.Value" selected="@(option.Value == currentGrouping)">@option.Label</option>
+                        }
+                    </select>
+                </div>
         
                 @if (isLoading)
                 {
@@ -142,8 +155,10 @@
                             <div style="padding: 16px 20px; border-bottom: 1px solid #e5e7eb; background: #f9fafb;">
                                 <h3 style="margin: 0 0 12px 0; font-size: 0.875rem; font-weight: 600; color: #374151;">Show/Hide Columns</h3>
                                 <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="16" Wrap="true">
-                                    <FluentCheckbox @bind-Value="columnSettings.ShowScheme" Label="Scheme" />
-                                    <FluentCheckbox @bind-Value="columnSettings.ShowStoreCode" Label="Store Code" />
+                                    <FluentCheckbox @bind-Value="columnSettings.ShowScheme" Label="Scheme" Disabled="@(currentGrouping != DashboardGrouping.Store)" />
+                                    <FluentCheckbox @bind-Value="columnSettings.ShowStoreCode" Label="Store Code" Disabled="@(currentGrouping != DashboardGrouping.Store)" />
+                                    <FluentCheckbox @bind-Value="columnSettings.ShowDivision" Label="Division" Disabled="@(!(currentGrouping == DashboardGrouping.Division || currentGrouping == DashboardGrouping.DivisionCategory))" />
+                                    <FluentCheckbox @bind-Value="columnSettings.ShowCategory" Label="Category" Disabled="@(!(currentGrouping == DashboardGrouping.Category || currentGrouping == DashboardGrouping.DivisionCategory))" />
                                     <FluentCheckbox @bind-Value="columnSettings.ShowTotalSales" Label="Total Sales" />
                                     <FluentCheckbox @bind-Value="columnSettings.ShowTotalTransactions" Label="Total Transactions" />
                                     <FluentCheckbox @bind-Value="columnSettings.ShowAverageBasket" Label="Average Basket" />
@@ -153,19 +168,32 @@
                         }
 
                         <div style="overflow-x: auto;">
-                            <FluentDataGrid Items="@dashboardData?.AsQueryable()" GridTemplateColumns="@GetGridTemplateColumns()" style="width: 100%;">
-                                @if (columnSettings.ShowScheme)
+                            <FluentDataGrid Items="@GetGridItems().AsQueryable()" GridTemplateColumns="@GetGridTemplateColumns()"
+                                    ResizeColumnOnAllRows="true"
+                                    ShowHover="true"
+                                    ResizableColumns="true" 
+                                    ResizeType="DataGridResizeType.Discrete"
+                                    style="width: 100%;">
+                                @if (currentGrouping == DashboardGrouping.Store && columnSettings.ShowScheme)
                                 {
                                     <PropertyColumn Property="@(c => c.Scheme)" Title="Scheme" Sortable="true" />
                                 }
-                                @if (columnSettings.ShowStoreCode)
+                                @if (currentGrouping == DashboardGrouping.Store && columnSettings.ShowStoreCode)
                                 {
                                     <PropertyColumn Property="@(c => c.StoreCode)" Title="Store Code" Sortable="true" />
+                                }
+                                @if ((currentGrouping == DashboardGrouping.Division || currentGrouping == DashboardGrouping.DivisionCategory) && columnSettings.ShowDivision)
+                                {
+                                    <PropertyColumn Property="@(c => c.DivisionName)" Title="Division" Sortable="true" />
+                                }
+                                @if ((currentGrouping == DashboardGrouping.Category || currentGrouping == DashboardGrouping.DivisionCategory) && columnSettings.ShowCategory)
+                                {
+                                    <PropertyColumn Property="@(c => c.CategoryName)" Title="Category" Sortable="true" />
                                 }
                                 @if (columnSettings.ShowTotalSales)
                                 {
                                     <TemplateColumn Title="Total Sales" Sortable="true" SortBy="@(GridSort<SalesDashboardData>.ByAscending(p => p.TotalSales))">
-                                        <div style="font-weight: 600; color: #059669;">@context.TotalSales.ToString("C")</div>
+                                        <div style="font-weight: 600; color: #059669;">@context.TotalSales.ToString("C", CultureInfo.GetCultureInfo("en-US"))</div>
                                     </TemplateColumn>
                                 }
                                 @if (columnSettings.ShowTotalTransactions)
@@ -177,13 +205,21 @@
                                 @if (columnSettings.ShowAverageBasket)
                                 {
                                     <TemplateColumn Title="Average Basket" Sortable="true" SortBy="@(GridSort<SalesDashboardData>.ByAscending(p => p.AverageBasket))">
-                                        <div style="font-weight: 600; color: #7c3aed;">@context.AverageBasket.ToString("C")</div>
+                                        <div style="font-weight: 600; color: #7c3aed;">@context.AverageBasket.ToString("C", CultureInfo.GetCultureInfo("en-US"))</div>
                                     </TemplateColumn>
                                 }
                                 @if (columnSettings.ShowLastUpdated)
                                 {
                                     <TemplateColumn Title="Last Updated" Sortable="true" SortBy="@(GridSort<SalesDashboardData>.ByAscending(p => p.LastUpdated))">
-                                        <div style="color: #6b7280; font-size: 0.875rem;">@context.LastUpdated.ToString("HH:mm:ss")</div>
+                                        <div style="color: #6b7280; font-size: 0.875rem;">@context.LastUpdated.ToLocalTime().ToString("HH:mm:ss")</div>
+                                    </TemplateColumn>
+                                }
+                                @if (currentGrouping == DashboardGrouping.Store)
+                                {
+                                    <TemplateColumn Title="Details">
+                                        <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => OpenStoreInsights(context))">
+                                            View breakdown
+                                        </FluentButton>
                                     </TemplateColumn>
                                 }
                             </FluentDataGrid>
@@ -192,5 +228,111 @@
                 }
             </div>
         </div>
+        @if (showStoreInsights && selectedStore is not null)
+        {
+            <div style="position: fixed; inset: 0; background: rgba(15,23,42,0.55); display: flex; justify-content: center; align-items: center; z-index: 9999; padding: 24px;">
+                <div style="background: white; border-radius: 12px; padding: 24px; width: min(960px, 100%); max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(15,23,42,0.25);">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
+                        <div>
+                            <h3 style="margin: 0; font-size: 1.25rem; font-weight: 600; color: #111827;">Store insights — @(selectedStore?.StoreCode ?? "Unknown store")</h3>
+                            <p style="margin: 6px 0 0 0; color: #6b7280; font-size: 0.9rem;">Scheme: @(selectedStore?.Scheme ?? "N/A") • Updated @(selectedStore?.LastUpdated.ToString("HH:mm:ss") ?? "-")</p>
+                        </div>
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="CloseStoreInsights">
+                            <FluentIcon Value="@(new Icons.Regular.Size20.Dismiss())" />
+                        </FluentButton>
+                    </div>
+
+                    <div style="margin-top: 24px;">
+                        <h4 style="margin: 0 0 12px 0; font-size: 1rem; font-weight: 600; color: #111827;">Division overview (@(selectedDivisionSummary?.DivisionName ?? UnknownDivisionLabel))</h4>
+                        <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px;">
+                            <div style="flex: 1; min-width: 180px; background: #f8fafc; border-radius: 8px; padding: 12px;">
+                                <div style="font-size: 0.85rem; color: #6b7280;">Sales</div>
+                                <div style="font-size: 1.35rem; font-weight: 600; color: #059669;">@FormatCurrency(selectedDivisionSummary?.TotalSales)</div>
+                            </div>
+                            <div style="flex: 1; min-width: 180px; background: #f8fafc; border-radius: 8px; padding: 12px;">
+                                <div style="font-size: 0.85rem; color: #6b7280;">Transactions</div>
+                                <div style="font-size: 1.35rem; font-weight: 600; color: #2563eb;">@FormatNumber(selectedDivisionSummary?.TotalTransactions)</div>
+                            </div>
+                            <div style="flex: 1; min-width: 180px; background: #f8fafc; border-radius: 8px; padding: 12px;">
+                                <div style="font-size: 0.85rem; color: #6b7280;">Avg basket</div>
+                                <div style="font-size: 1.35rem; font-weight: 600; color: #7c3aed;">@FormatCurrency(selectedDivisionSummary?.AverageBasket)</div>
+                            </div>
+                        </div>
+                        @if (storeDivisionBreakdown?.Any() == true)
+                        {
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                                <thead>
+                                    <tr style="text-align: left; color: #6b7280;">
+                                        <th style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">Category</th>
+                                        <th style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">Sales</th>
+                                        <th style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">Transactions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in storeDivisionBreakdown)
+                                    {
+                                        <tr>
+                                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9;">@(row.CategoryName ?? UnknownCategoryLabel)</td>
+                                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #059669;">@row.TotalSales.ToString("C", CultureInfo.GetCultureInfo("en-US"))</td>
+                                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #2563eb;">@row.TotalTransactions.ToString("N0")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                        else
+                        {
+                            <p style="margin: 0; color: #6b7280;">No category data available for this division.</p>
+                        }
+                    </div>
+
+                    <div style="margin-top: 32px;">
+                        <h4 style="margin: 0 0 12px 0; font-size: 1rem; font-weight: 600; color: #111827;">Category overview (@(selectedCategorySummary?.CategoryName ?? UnknownCategoryLabel))</h4>
+                        <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px;">
+                            <div style="flex: 1; min-width: 180px; background: #f8fafc; border-radius: 8px; padding: 12px;">
+                                <div style="font-size: 0.85rem; color: #6b7280;">Sales</div>
+                                <div style="font-size: 1.35rem; font-weight: 600; color: #059669;">@FormatCurrency(selectedCategorySummary?.TotalSales)</div>
+                            </div>
+                            <div style="flex: 1; min-width: 180px; background: #f8fafc; border-radius: 8px; padding: 12px;">
+                                <div style="font-size: 0.85rem; color: #6b7280;">Transactions</div>
+                                <div style="font-size: 1.35rem; font-weight: 600; color: #2563eb;">@FormatNumber(selectedCategorySummary?.TotalTransactions)</div>
+                            </div>
+                            <div style="flex: 1; min-width: 180px; background: #f8fafc; border-radius: 8px; padding: 12px;">
+                                <div style="font-size: 0.85rem; color: #6b7280;">Avg basket</div>
+                                <div style="font-size: 1.35rem; font-weight: 600; color: #7c3aed;">@FormatCurrency(selectedCategorySummary?.AverageBasket)</div>
+                            </div>
+                        </div>
+                        @if (storeCategoryBreakdown?.Any() == true)
+                        {
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                                <thead>
+                                    <tr style="text-align: left; color: #6b7280;">
+                                        <th style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">Category</th>
+                                        <th style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">Division</th>
+                                        <th style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">Sales</th>
+                                        <th style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">Transactions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in storeCategoryBreakdown)
+                                    {
+                                        <tr>
+                                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9;">@(row.CategoryName ?? UnknownCategoryLabel)</td>
+                                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9;">@(row.DivisionName ?? UnknownDivisionLabel)</td>
+                                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #059669;">@row.TotalSales.ToString("C", CultureInfo.GetCultureInfo("en-US"))</td>
+                                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #2563eb;">@row.TotalTransactions.ToString("N0")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                        else
+                        {
+                            <p style="margin: 0; color: #6b7280;">No category data available for this store.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
 @*     </Authorized>
 </AuthorizeView> *@

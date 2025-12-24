@@ -45,6 +45,35 @@ public class RealTimeDataService : IRealTimeDataService
         }
     }
 
+    public async Task<List<SalesData>?> CreateSalesDataListAsync(List<SalesData> salesData)
+    {
+        try
+        {
+            // salesData.CreatedBy = userId;
+            // salesData.ModifiedBy = userId;
+            foreach (var data in salesData)
+            {
+                data.ReceivedAt = DateTime.UtcNow;
+            }
+            
+
+            _context.SalesData.AddRange(salesData);
+            await _context.SaveChangesAsync();
+
+            // _logger.LogInformation("Sales data created with ID: {SalesDataId}", salesData.Id);
+
+            // Broadcast the new sales data in real-time
+            await BroadcastSalesDataListAsync(salesData, salesData.FirstOrDefault()?.CompanyId ?? "");
+
+            return salesData;
+        }
+        catch (Exception ex)
+        {
+            // _logger.LogError(ex, "Error creating sales data for user: {UserId}", userId);
+            throw;
+        }
+    }
+
     public async Task<List<SalesData>> GetSalesDataAsync(string companyId, string userId, int? fromHour = null, int? toHour = null)
     {
         var query = _context.SalesData
@@ -159,6 +188,30 @@ public class RealTimeDataService : IRealTimeDataService
             // Log the sales data reception for potential SignalR integration
             _logger.LogInformation("Sales data notification prepared for company: {CompanyId}, Store: {StoreCode}, Amount: {Amount}", 
                 companyId, salesData.StoreCode, salesData.NetAmountAcy);
+            
+            await Task.CompletedTask; // Placeholder for async operation
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error preparing sales data notification for company: {CompanyId}", companyId);
+        }
+    }
+
+
+    public async Task BroadcastSalesDataListAsync(List<SalesData> salesData, string companyId)
+    {
+        try
+        {
+            // Create notification message
+            var notification = new Notification<List<SalesData>>
+            {
+                Message = $"New sales data received from store {salesData.FirstOrDefault()?.StoreCode}",
+                Data = salesData
+            };
+
+            // // Log the sales data reception for potential SignalR integration
+            // _logger.LogInformation("Sales data notification prepared for company: {CompanyId}, Store: {StoreCode}, Amount: {Amount}", 
+            //     companyId, salesData.StoreCode, salesData.NetAmountAcy);
             
             await Task.CompletedTask; // Placeholder for async operation
         }

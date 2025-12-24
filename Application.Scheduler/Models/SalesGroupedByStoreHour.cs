@@ -10,7 +10,12 @@ public class SalesGroupedByStoreHour
 
     public int Hour { get; set; }
 
+    public string? DivisionName { get; set; }
+    public string? CategoryName { get; set; }
+
     public decimal NetAmountAcy { get; set; }
     public int TotalTransactions { get; set; }
+
+    public string SalesOrderNumber { get; set; }
 
 }

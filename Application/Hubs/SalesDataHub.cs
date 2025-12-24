@@ -18,7 +18,7 @@ public class SalesDataHub : Hub
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"Company_{companyId}");
     }
 
-    public async Task SendSalesDataUpdate(Notification<SalesData> notification, string companyId)
+    public async Task SendSalesDataUpdate(Notification<List<SalesData>> notification, string companyId)
     {
         await Clients.Group($"Company_{companyId}")
             .SendAsync("ReceiveSalesData", notification);

@@ -29,25 +29,31 @@ public class RealTimeDataController : ControllerBase
 
     [HttpPost("sales")]
     [RequireCompanyHeader]
-    public async Task<ActionResult<SalesData>> CreateSalesData([FromBody] SalesData salesData)
+    public async Task<ActionResult<SalesData>> CreateSalesData([FromBody] List<SalesData> salesData)
     {
         try
         {
             // var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "unknown";
             var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "unknown";
 
-            salesData.CompanyId = companyId;
+            foreach(var rec in salesData)
+            {
+                rec.CompanyId = companyId;
+            }
+            
 
-            var result = await _realTimeDataService.CreateSalesDataAsync(salesData);
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(salesData));
+
+            var result = await _realTimeDataService.CreateSalesDataListAsync(salesData);
             if (result == null)
             {
                 return BadRequest("Failed to create sales data");
             }
 
             // Broadcast the new sales data via SignalR
-            await _salesDataSignalRService.BroadcastSalesDataAsync(result, companyId);
+            await _salesDataSignalRService.BroadcastSalesDataListAsync(salesData, companyId);
 
-            return CreatedAtAction(nameof(GetSalesDataById), new { id = result.Id }, result);
+            return CreatedAtAction(nameof(GetSalesDataById), new { id = result.FirstOrDefault()?.Id }, result);
         }
         catch (Exception ex)
         {

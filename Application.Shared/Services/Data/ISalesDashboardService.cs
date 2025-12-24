@@ -6,6 +6,8 @@ public class SalesDashboardData
 {
     public string? Scheme { get; set; }
     public string? StoreCode { get; set; }
+    public string? DivisionName { get; set; }
+    public string? CategoryName { get; set; }
     public decimal TotalSales { get; set; }
     public int TotalTransactions { get; set; }
     public decimal AverageBasket => TotalTransactions > 0 ? TotalSales / TotalTransactions : 0;
@@ -37,5 +39,5 @@ public interface ISalesDashboardService
     Task<SalesKpiData> GetKpiDataAsync(string companyId, string userId);
     Task<List<SalesBannerKpi>> GetBannerKpiDataAsync(string companyId, string userId);
     Task<List<SalesDashboardData>> GetDashboardDataAsync(string companyId, string userId);
-    Task<List<SalesDashboardData>> GetLatestDataByStoreAndSchemeAsync(string companyId, string userId);
+    Task<List<SalesDashboardData>> GetLatestDataByStoreAndSchemeAsync(string companyId, string userId, bool includeCategory = false);
 }

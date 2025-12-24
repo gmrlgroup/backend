@@ -110,6 +110,7 @@ public class SalesDashboardService : ISalesDashboardService
                             CategoryName = sd.CategoryName,
                             TotalSales = sd.NetAmountAcy,
                             TotalTransactions = sd.TotalTransactions,
+                            TotalStoreTransactions = sd.TotalStoreTransactions.Value,
                             LastUpdated = sd.ReceivedAt
                         })
                     .ToListAsync();

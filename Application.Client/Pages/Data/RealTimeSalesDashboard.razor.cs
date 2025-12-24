@@ -146,6 +146,7 @@ public partial class RealTimeSalesDashboard : IAsyncDisposable
                                 CategoryName = entry.CategoryName,
                                 TotalSales = entry.NetAmountAcy,
                                 TotalTransactions = entry.TotalTransactions,
+                                TotalStoreTransactions = entry.TotalStoreTransactions.Value,
                                 LastUpdated = entry.ReceivedAt
                             });
                         }
@@ -492,6 +493,7 @@ public partial class RealTimeSalesDashboard : IAsyncDisposable
                 StoreCode = g.Key.StoreCode,
                 TotalSales = g.Sum(x => x.TotalSales),
                 TotalTransactions = g.Sum(x => x.TotalTransactions),
+                TotalStoreTransactions = g.Sum(x => x.TotalStoreTransactions),
                 LastUpdated = g.Max(x => x.LastUpdated)
             })
             .OrderByDescending(d => d.TotalSales)
@@ -508,7 +510,7 @@ public partial class RealTimeSalesDashboard : IAsyncDisposable
         overallKpi ??= new SalesKpiData();
 
         overallKpi.TotalSales = dashboardData.Sum(d => d.TotalSales);
-        overallKpi.TotalTransactions = dashboardData.Sum(d => d.TotalTransactions);
+        overallKpi.TotalTransactions = dashboardData.Sum(d => Convert.ToInt32(d.TotalStoreTransactions));
         overallKpi.TotalStores = dashboardData.Count;
         overallKpi.TotalSchemes = dashboardData.Select(d => d.Scheme).Distinct(StringComparer.OrdinalIgnoreCase).Count();
         overallKpi.LastUpdated = DateTime.Now;
@@ -519,7 +521,7 @@ public partial class RealTimeSalesDashboard : IAsyncDisposable
             {
                 Banner = g.Key,
                 TotalSales = g.Sum(x => x.TotalSales),
-                TotalTransactions = g.Sum(x => x.TotalTransactions),
+                TotalTransactions = Convert.ToInt32(g.Sum(x => x.TotalStoreTransactions)),
                 StoreCount = g.Count(),
                 LastUpdated = g.Max(x => x.LastUpdated)
             })
@@ -536,6 +538,7 @@ public partial class RealTimeSalesDashboard : IAsyncDisposable
             CategoryName = source.CategoryName,
             TotalSales = source.TotalSales,
             TotalTransactions = source.TotalTransactions,
+            TotalStoreTransactions = source.TotalStoreTransactions,
             LastUpdated = source.LastUpdated
         };
 

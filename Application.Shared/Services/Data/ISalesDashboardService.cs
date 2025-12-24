@@ -10,7 +10,8 @@ public class SalesDashboardData
     public string? CategoryName { get; set; }
     public decimal TotalSales { get; set; }
     public int TotalTransactions { get; set; }
-    public decimal AverageBasket => TotalTransactions > 0 ? TotalSales / TotalTransactions : 0;
+    public decimal TotalStoreTransactions { get; set; }
+    public decimal AverageBasket => TotalStoreTransactions > 0 ? TotalSales / TotalStoreTransactions : 0;
     public DateTime LastUpdated { get; set; }
 }
 

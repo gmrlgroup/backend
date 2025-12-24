@@ -14,6 +14,7 @@ public class SalesGroupedByStoreHour
     public string? CategoryName { get; set; }
 
     public decimal NetAmountAcy { get; set; }
+    public decimal TotalStoreTransactions {get; set; }
     public int TotalTransactions { get; set; }
 
     public string SalesOrderNumber { get; set; }

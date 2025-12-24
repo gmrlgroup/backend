@@ -33,9 +33,11 @@ public class SalesData : BaseModel
     [Column(TypeName = "decimal(18,2)")]
     [JsonPropertyName("NetAmountAcy")]
     public decimal NetAmountAcy { get; set; }
-
+    
     [Required(ErrorMessage = "Total transactions is required")]
     public int TotalTransactions { get; set; }
+
+    public decimal? TotalStoreTransactions { get; set; } // the value is decimal because it's averaged in the query
 
     // Additional properties for real-time tracking
     [DatabaseGenerated(DatabaseGeneratedOption.Identity)]

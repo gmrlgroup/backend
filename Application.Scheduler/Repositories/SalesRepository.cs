@@ -43,6 +43,66 @@ public class SalesRepository : ISalesRepository
         var databaseName = database.Name;
 
         var sql = @$"
+            with cte_store_categories as (
+                select
+                    tse.[Store No_] as StoreCode,
+                    CONVERT(decimal, COUNT(DISTINCT tse.[Item Category Code])) as CategoryCount
+                from [{database.Name}$Trans_ Sales Entry] tse
+                inner join [{database.Name}$Transaction Header] th
+                    on th.[Store No_] = tse.[Store No_]
+                    and th.[POS Terminal No_] = tse.[POS Terminal No_]
+                    and th.[Transaction No_] = tse.[Transaction No_]
+                where tse.[Date] = CONVERT(date, GETDATE())
+                and th.Wastage = 0
+                and th.[Transaction Type] = 2
+                group by tse.[Store No_]
+            ),
+
+            cte_stores_transactions as (
+
+                select
+                    th.[Store No_] as [StoreCode],
+                    CAST(COUNT(DISTINCT CONCAT(th.[Store No_], th.[POS Terminal No_], th.[Transaction No_])) as decimal) as [TotalTransactions]
+                from [{database.Name}$Transaction Header] as th
+
+                where th.[Date] = CONVERT(date,  GETDATE())
+                and th.Wastage = 0
+                and th.[Transaction Type] = 2
+
+                group by th.[Store No_]
+            )
+
+
+            select s.[Item Store Type] as [Scheme],
+                    tse.[Store No_] as [StoreCode],
+                    d.[Description] as [DivisionName],
+                    ic.[Description] as [CategoryName],
+                    MAX(DATEPART(HOUR, tse.[Time])) as [Hour],
+                    SUM(tse.[Net Amount] / [BM Rate]) * -1 as [NetAmountAc],
+                    AVG(CONVERT(decimal, str.TotalTransactions) / CONVERT(decimal, stc.CategoryCount)) as TotalStoreTransactions,
+                    COUNT(DISTINCT CONCAT(tse.[Store No_], tse.[POS Terminal No_], tse.[Transaction No_])) as [TotalTransactions]
+            from [{database.Name}$Trans_ Sales Entry] as tse
+            left join [{database.Name}$Transaction Header] as th on th.[Store No_] = tse.[Store No_]
+                                            and th.[POS Terminal No_] = tse.[POS Terminal No_]
+                                            and th.[Transaction No_] = tse.[Transaction No_]
+            left join [{database.Name}$Store] as s on s.[No_] = tse.[Store No_]
+            left join [{database.Name}$Item Category] as ic on ic.Code = tse.[Item Category Code]
+            left join [{database.Name}$Division] as d on d.Code = ic.[Division Code]
+            left join cte_stores_transactions as str on str.StoreCode = tse.[Store No_]
+            left join cte_store_categories as stc on stc.StoreCode = tse.[Store No_]
+
+            where tse.[Date] = CONVERT(date,  GETDATE())
+            and th.Wastage = 0
+            and th.[Transaction Type] = 2
+
+            group by s.[Item Store Type],
+                    tse.[Store No_],
+                    d.[Description],
+                    ic.[Description]
+
+            order by tse.[Store No_];";
+
+        var sql_old = @$"
             select s.[Item Store Type] as [Scheme],
                     tse.[Store No_] as [StoreCode],
                     d.[Description] as [DivisionName],
@@ -101,6 +161,7 @@ public class SalesRepository : ISalesRepository
                             CategoryName = reader["CategoryName"].ToString() ?? "",
                             Hour = Convert.ToInt32(reader["Hour"]),
                             NetAmountAcy = reader.GetDecimal(reader.GetOrdinal("NetAmountAc")),
+                            TotalStoreTransactions = reader.GetDecimal(reader.GetOrdinal("TotalStoreTransactions")),
                             TotalTransactions = reader.GetInt32(reader.GetOrdinal("TotalTransactions"))
                         });
                     }
@@ -407,9 +468,12 @@ public class SalesRepository : ISalesRepository
             {
                 Scheme = g.Key.Scheme,
                 StoreCode = g.Key.StoreCode,
+                DivisionName = "UNKNOWN",
+                CategoryName = "UNKNOWN",
                 Hour = g.Key.Hour,
                 NetAmountAcy = g.Sum(x => x.NetAmountAcy),
-                TotalTransactions = g.Where(s => s.StoreCode == g.Key.StoreCode).Select(r => r.SalesOrderNumber).Distinct().Count()
+                TotalTransactions = g.Where(s => s.StoreCode == g.Key.StoreCode).Select(r => r.SalesOrderNumber).Distinct().Count(),
+                TotalStoreTransactions = g.Where(s => s.StoreCode == g.Key.StoreCode).Select(r => r.SalesOrderNumber).Distinct().Count()
             })
             .ToList();
 
@@ -426,7 +490,7 @@ public class SalesRepository : ISalesRepository
         
             foreach(var store in stores)
             {
-                var storeResult = results.Where(r => r.StoreCode == store).FirstOrDefault();
+                var storeResult = results.Where(r => r.StoreCode == store);
 
                 await _httpClient.PostAsJsonAsync("api/RealTimeData/sales", storeResult);
                 Console.WriteLine($"------------- Posted sales data for store {store} to {_salesUri}");

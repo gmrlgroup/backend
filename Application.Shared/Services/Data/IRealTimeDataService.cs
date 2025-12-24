@@ -6,6 +6,7 @@ public interface IRealTimeDataService
 {
     // Sales Data Operations
     Task<SalesData?> CreateSalesDataAsync(SalesData salesData);
+    Task<List<SalesData>?> CreateSalesDataListAsync(List<SalesData> salesData);
     Task<List<SalesData>> GetSalesDataAsync(string companyId, string userId, int? fromHour = null, int? toHour = null);
     Task<List<SalesData>> GetSalesDataByStoreAsync(string companyId, string storeCode, string userId, int? fromHour = null, int? toHour = null);
     Task<List<SalesData>> GetSalesDataBySchemeAsync(string companyId, string scheme, string userId, int? fromHour = null, int? toHour = null);
@@ -15,6 +16,8 @@ public interface IRealTimeDataService
 
     // Real-time Streaming Operations
     Task BroadcastSalesDataAsync(SalesData salesData, string companyId);
+    Task BroadcastSalesDataListAsync(List<SalesData> salesData, string companyId);
+
     Task<List<SalesData>> GetUnprocessedSalesDataAsync(string companyId, string userId);
     Task<int> GetSalesDataCountAsync(string companyId, string userId, int? fromHour = null, int? toHour = null);
 

@@ -30,7 +30,7 @@ public class SalesJob
 
         // TODO: persist rows, push to cache, publish event, etc.
         foreach (var r in rows)
-            context.WriteLine(r.StoreCode + " | Hour: " + r.Hour + " | Net: " + r.NetAmountAcy);
+            context.WriteLine(r.StoreCode + " | Category: " + r.CategoryName  + " | Hour: " + r.Hour + " | Net: " + r.NetAmountAcy);
 
 
 

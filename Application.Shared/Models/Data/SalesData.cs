@@ -18,6 +18,14 @@ public class SalesData : BaseModel
     [StringLength(50, ErrorMessage = "Store code cannot exceed 50 characters")]
     public string? StoreCode { get; set; }
 
+    [StringLength(500, ErrorMessage = "Division code cannot exceed 50 characters")]
+    public string? DivisionName { get; set; }
+
+
+    [StringLength(500, ErrorMessage = "Category code cannot exceed 50 characters")]
+    public string? CategoryName { get; set; }
+
+
     [Required(ErrorMessage = "DateTime is required")]
     public int Hour { get; set; }
 

@@ -79,72 +79,40 @@ public class SalesDashboardService : ISalesDashboardService
         }
     }
 
-    public async Task<List<SalesDashboardData>> GetLatestDataByStoreAndSchemeAsync(string companyId, string userId)
+    public async Task<List<SalesDashboardData>> GetLatestDataByStoreAndSchemeAsync(string companyId, string userId, bool includeCategory = false)
     {
         try
         {
-            //// Get the latest ReceivedAt timestamp for each Store-Scheme combination
-            //var latestTimestamps = await _context.SalesData
-            //    .Where(sd => sd.CompanyId == companyId)
-            //    .GroupBy(sd => new { sd.StoreCode, sd.Scheme })
-            //    .Select(g => new
-            //    {
-            //        StoreCode = g.Key.StoreCode,
-            //        Scheme = g.Key.Scheme,
-            //        LatestReceivedAt = g.Max(sd => sd.ReceivedAt)
-            //    })
-            //    .ToListAsync();
-
-            //// Get the actual data for those latest timestamps
-            //var dashboardData = new List<SalesDashboardData>();
-
-            //foreach (var latest in latestTimestamps)
-            //{
-            //    var salesData = await _context.SalesData
-            //        .Where(sd => sd.CompanyId == companyId 
-            //                  && sd.StoreCode == latest.StoreCode 
-            //                  && sd.Scheme == latest.Scheme 
-            //                  && sd.ReceivedAt == latest.LatestReceivedAt)
-            //        .FirstOrDefaultAsync();
-
-            //    if (salesData != null)
-            //    {
-            //        dashboardData.Add(new SalesDashboardData
-            //        {
-            //            Scheme = salesData.Scheme,
-            //            StoreCode = salesData.StoreCode,
-            //            TotalSales = salesData.NetAmountAcy,
-            //            TotalTransactions = salesData.TotalTransactions,
-            //            LastUpdated = salesData.ReceivedAt
-            //        });
-            //    }
-            //}
 
             var latestPerKey = _context.SalesData
                 .Where(sd => sd.CompanyId == companyId && sd.ReceivedAt.Date == DateTime.Now.Date)
-                .GroupBy(sd => new { sd.StoreCode, sd.Scheme })
+                .GroupBy(sd => new { sd.StoreCode, sd.Scheme, sd.DivisionName, sd.CategoryName })
                 .Select(g => new
                 {
                     g.Key.StoreCode,
                     g.Key.Scheme,
+                    g.Key.DivisionName,
+                    g.Key.CategoryName,
                     ReceivedAt = g.Max(x => x.ReceivedAt)   // latest per (Store, Scheme)
                 });
 
-                        var dashboardData = await _context.SalesData
-                            .Where(sd => sd.CompanyId == companyId)
-                            .Join(
-                                latestPerKey,
-                                sd => new { sd.StoreCode, sd.Scheme, sd.ReceivedAt },
-                                l => new { l.StoreCode, l.Scheme, l.ReceivedAt },
-                                (sd, l) => new SalesDashboardData
-                                {
-                                    Scheme = sd.Scheme,
-                                    StoreCode = sd.StoreCode,
-                                    TotalSales = sd.NetAmountAcy,
-                                    TotalTransactions = sd.TotalTransactions,
-                                    LastUpdated = sd.ReceivedAt
-                                })
-                            .ToListAsync();
+                var dashboardData = await _context.SalesData
+                    .Where(sd => sd.CompanyId == companyId)
+                    .Join(
+                        latestPerKey,
+                        sd => new { sd.StoreCode, sd.Scheme, sd.DivisionName, sd.CategoryName, sd.ReceivedAt },
+                        l => new { l.StoreCode, l.Scheme, l.DivisionName, l.CategoryName, l.ReceivedAt },
+                        (sd, l) => new SalesDashboardData
+                        {
+                            Scheme = sd.Scheme,
+                            StoreCode = sd.StoreCode,
+                            DivisionName = sd.DivisionName,
+                            CategoryName = sd.CategoryName,
+                            TotalSales = sd.NetAmountAcy,
+                            TotalTransactions = sd.TotalTransactions,
+                            LastUpdated = sd.ReceivedAt
+                        })
+                    .ToListAsync();
 
 
             return dashboardData

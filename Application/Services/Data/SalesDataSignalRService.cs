@@ -8,6 +8,7 @@ namespace Application.Services.Data;
 public interface ISalesDataSignalRService
 {
     Task BroadcastSalesDataAsync(SalesData salesData, string companyId);
+    Task BroadcastSalesDataListAsync(List<SalesData> salesData, string companyId);
 }
 
 public class SalesDataSignalRService : ISalesDataSignalRService
@@ -30,6 +31,30 @@ public class SalesDataSignalRService : ISalesDataSignalRService
             var notification = new Notification<SalesData>
             {
                 Message = $"New sales data received from store {salesData.StoreCode}",
+                Data = salesData
+            };
+
+            //await _hubContext.Clients.Group($"Company_{companyId}")
+            //    .SendAsync("ReceiveSalesData", notification);
+
+            await _hubContext.Clients.All.SendAsync("ReceiveSalesData", notification);
+
+            _logger.LogInformation("Sales data broadcasted to company group: {CompanyId}", companyId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error broadcasting sales data for company: {CompanyId}", companyId);
+        }
+    }
+
+
+    public async Task BroadcastSalesDataListAsync(List<SalesData> salesData, string companyId)
+    {
+        try
+        {
+            var notification = new Notification<List<SalesData>>
+            {
+                Message = $"New sales data received from store {salesData.FirstOrDefault()?.StoreCode}",
                 Data = salesData
             };
 

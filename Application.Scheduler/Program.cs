@@ -1,5 +1,6 @@
 ﻿using System.Net.Http.Headers;
 using Application.Scheduler.Jobs;
+using Application.Scheduler.Options;
 using Application.Scheduler.Repositories;
 using Application.Scheduler.Services;
 using Application.Shared.Data;
@@ -8,6 +9,7 @@ using Hangfire;
 using Hangfire.Console;
 using Hangfire.SqlServer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 
 
@@ -71,6 +73,21 @@ builder.Services.AddHangfire(cfg => cfg
 builder.Services.AddScoped<ISalesRepository, SalesRepository>();
 builder.Services.AddScoped<IDatabaseRepository, DatabaseRepository>();
 builder.Services.AddScoped<SalesJob>();
+builder.Services.AddScoped<SalesSnapshotEmailJob>();
+
+builder.Services.Configure<SalesSnapshotEmailOptions>(builder.Configuration.GetSection("SalesSnapshotEmail"));
+
+builder.Services.AddHttpClient("SalesSnapshotEmailApi", (sp, client) =>
+{
+    var emailOptions = sp.GetRequiredService<IOptions<SalesSnapshotEmailOptions>>().Value;
+    if (string.IsNullOrWhiteSpace(emailOptions.ApiBaseUri))
+    {
+        return;
+    }
+
+    client.BaseAddress = new Uri(emailOptions.ApiBaseUri);
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
 
 
 builder.Services.AddHangfireServer();
@@ -90,7 +107,7 @@ app.UseHangfireDashboard("/dashboard");
 
 // Cron: every 10 minutes
 var tz = GetTimeZone("Asia/Beirut"); // or null for server time
-#pragma warning disable CS0618 // Type or member is obsolete
+// #pragma warning disable CS0618 // Type or member is obsolete
 
 List<Database> databases = new List<Database>();
 List<Database> noknokDatabases = new List<Database>();
@@ -112,11 +129,13 @@ using (var scope = app.Services.CreateScope())
 
 
 int offset = 0;
+var minuteOffset = 0;
+
 
 foreach (var db in databases)
 {
 
-    var minuteOffset = offset % 5; // ensure it’s within 0-9
+    minuteOffset = offset % 5; // ensure it’s within 0-9
     //#pragma warning restore CS0618 // Type or member is obsolete
     RecurringJob.AddOrUpdate<SalesJob>(
         recurringJobId: $"sales-grouped-by-store-hour-{db.Name}",
@@ -145,12 +164,19 @@ foreach (var db in databases)
 // }
 
 
-var minuteOffset = 0; // ensure it’s within 0-9
+minuteOffset = 0; // ensure it’s within 0-9
 //#pragma warning restore CS0618 // Type or member is obsolete
 RecurringJob.AddOrUpdate<SalesJob>(
     recurringJobId: $"sales-grouped-by-store-hour_FO", //{db.Name}
     methodCall: job => job.RunNokNokFoAsync(null, CancellationToken.None), // context and ct are not used in this example
     cronExpression: $"{minuteOffset}/15 * * * *",
+    timeZone: tz
+);
+
+RecurringJob.AddOrUpdate<SalesSnapshotEmailJob>(
+    recurringJobId: "sales-snapshot-email",
+    methodCall: job => job.RunAsync(CancellationToken.None),
+    cronExpression: "5 0 * * *",
     timeZone: tz
 );
 

@@ -3,11 +3,11 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.FluentUI.AspNetCore.Components;
-using System.Security.Claims;
-using System.Text.Json;
+using System.Collections.Generic;
 using Application.Shared.Models;
 using Application.Shared.Models.Data;
 using System.Net.Http.Json;
+using System.Linq;
 using System.Web;
 
 namespace Application.Client.Pages.Data;
@@ -25,6 +25,7 @@ public partial class RealTimeSalesDashboard : IAsyncDisposable
     private SalesKpiData? overallKpi;
     private List<SalesBannerKpi>? bannerKpis;
     private List<SalesDashboardData>? dashboardData;
+    private List<SalesDashboardData> storeCategorySnapshots = new();
 
     [Inject]
     public HttpClient HttpClient { get; set; } = default!;
@@ -33,11 +34,43 @@ public partial class RealTimeSalesDashboard : IAsyncDisposable
     {
         ShowScheme = true,
         ShowStoreCode = true,
+        ShowDivision = true,
+        ShowCategory = true,
         ShowTotalSales = true,
         ShowTotalTransactions = true,
         ShowAverageBasket = true,
         ShowLastUpdated = true
     };
+
+    ColumnResizeLabels resizeLabels = ColumnResizeLabels.Default with
+    {
+        DiscreteLabel = "Width (+/- 10px)",
+        ResetAriaLabel = "Restore"
+    };
+
+    private DashboardGrouping currentGrouping = DashboardGrouping.Store;
+    private List<SalesDashboardData> divisionData = new();
+    private List<SalesDashboardData> categoryData = new();
+    private List<SalesDashboardData> divisionCategoryData = new();
+
+    private SalesDashboardData? selectedStore;
+    private SalesDashboardData? selectedDivisionSummary;
+    private SalesDashboardData? selectedCategorySummary;
+    private List<SalesDashboardData> storeDivisionBreakdown = new();
+    private List<SalesDashboardData> storeCategoryBreakdown = new();
+    private bool showStoreInsights;
+
+    private static readonly IReadOnlyList<(DashboardGrouping Value, string Label)> groupingOptions =
+        new List<(DashboardGrouping, string)>
+        {
+            (DashboardGrouping.Store, "Stores"),
+            (DashboardGrouping.Division, "Divisions"),
+            (DashboardGrouping.Category, "Categories"),
+            (DashboardGrouping.DivisionCategory, "Division + Category")
+        };
+
+    private const string UnknownDivisionLabel = "Unassigned Division";
+    private const string UnknownCategoryLabel = "Unassigned Category";
 
     public bool IsConnected =>
         hubConnection?.State == HubConnectionState.Connected;
@@ -88,85 +121,50 @@ public partial class RealTimeSalesDashboard : IAsyncDisposable
                 .WithUrl(NavigationManager.ToAbsoluteUri("/realtime/salesdata"))
                 .Build();
 
-            //hubConnection.On<Notification<SalesData>>("ReceiveSalesData", OnSalesDataReceived);
-
-            hubConnection.On<Notification<SalesData>>("ReceiveSalesData", async (notification) =>
+            hubConnection.On<Notification<List<SalesData>>>("ReceiveSalesData", async (notification) =>
             {
-                if (notification?.Data == null) return;
-                
+                if (notification?.Data == null || notification.Data.Count == 0)
+                {
+                    return;
+                }
+
                 try
                 {
-                    // Debug logging
-                    Console.WriteLine($"Received SignalR data: Store {notification.Data.StoreCode}, Sales {notification.Data.NetAmountAcy}");
-                    
-                    // Update or add the store data
-                    if (dashboardData == null)
-                        dashboardData = new List<SalesDashboardData>();
+                    Console.WriteLine($"Received SignalR batch: {notification.Data.Count} sales rows");
 
-                    var existingStore = dashboardData.FirstOrDefault(d => 
-                        d.Scheme == notification.Data.Scheme && 
-                        d.StoreCode == notification.Data.StoreCode);
+                    foreach (var storeGroup in notification.Data.GroupBy(d => new { d.Scheme, d.StoreCode }))
+                    {
+                        RemoveStoreSlices(storeGroup.Key.Scheme, storeGroup.Key.StoreCode);
 
-                    if (existingStore != null)
-                    {
-                        //var existingNetAmount = existingStore.TotalSales;
-                        //var existingTransactions = existingStore.TotalTransactions;
-                        // Update existing store data
-                        existingStore.TotalSales = notification.Data.NetAmountAcy; // - existingNetAmount;
-                        existingStore.TotalTransactions = notification.Data.TotalTransactions; // - existingTransactions;
-                        existingStore.LastUpdated = DateTime.Now;
-                        Console.WriteLine($"Updated existing store: {existingStore.StoreCode}");
-                    }
-                    else
-                    {
-                        // Add new store data
-                        var newDashboardData = new SalesDashboardData()
+                        foreach (var entry in storeGroup)
                         {
-                            Scheme = notification.Data.Scheme,
-                            StoreCode = notification.Data.StoreCode,
-                            TotalSales = notification.Data.NetAmountAcy,
-                            TotalTransactions = notification.Data.TotalTransactions,
-                            LastUpdated = DateTime.Now
-                        };
-                        dashboardData.Add(newDashboardData);
-                        Console.WriteLine($"Added new store: {newDashboardData.StoreCode}");
+                            storeCategorySnapshots.Add(new SalesDashboardData
+                            {
+                                Scheme = entry.Scheme,
+                                StoreCode = entry.StoreCode,
+                                DivisionName = entry.DivisionName,
+                                CategoryName = entry.CategoryName,
+                                TotalSales = entry.NetAmountAcy,
+                                TotalTransactions = entry.TotalTransactions,
+                                LastUpdated = entry.ReceivedAt
+                            });
+                        }
                     }
 
-                    // Recalculate overall KPIs
-                    if (overallKpi == null)
-                        overallKpi = new SalesKpiData();
-
-                    overallKpi.TotalSales = dashboardData.Sum(d => d.TotalSales);
-                    overallKpi.TotalTransactions = dashboardData.Sum(d => d.TotalTransactions);
-                    overallKpi.TotalStores = dashboardData.Count;
-                    overallKpi.LastUpdated = DateTime.Now;
-
-                    // Update banner KPIs
-                    bannerKpis = dashboardData
-                        .GroupBy(d => d.Scheme)
-                        .Select(g => new SalesBannerKpi
-                        {
-                            Banner = g.Key ?? "Unknown",
-                            TotalSales = g.Sum(x => x.TotalSales),
-                            TotalTransactions = g.Sum(x => x.TotalTransactions),
-                            StoreCount = g.Count()
-                        })
-                        .ToList();
+                    RebuildStoreAggregatesFromSnapshots();
+                    RecalculateDashboardSummaries();
+                    UpdateDerivedDataSets();
 
                     lastUpdated = DateTime.Now;
-                    
-                    Console.WriteLine($"Updated dashboard: Total stores: {overallKpi.TotalStores}, Total sales: {overallKpi.TotalSales}");
-                    
+
+                    Console.WriteLine($"Updated dashboard: Stores={dashboardData?.Count ?? 0}, Categories={storeCategorySnapshots.Count}");
+
                     await InvokeAsync(StateHasChanged);
-                    
-                    // Show a toast notification for debugging
-                    //await InvokeAsync(() => 
-                    //    ToastService.ShowInfo($"New sales data: {notification.Data.StoreCode} - {notification.Data.NetAmountAcy:C}"));
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"Error processing SignalR data: {ex.Message}");
-                    await InvokeAsync(() => 
+                    await InvokeAsync(() =>
                         ToastService.ShowError($"Error processing real-time data: {ex.Message}"));
                 }
             });
@@ -189,20 +187,6 @@ public partial class RealTimeSalesDashboard : IAsyncDisposable
         }
     }
 
-    //private async Task OnSalesDataReceived(Notification<SalesData> notification)
-    //{
-    //    try
-    //    {
-    //        ToastService.ShowInfo($"New sales data: {notification.Message}");
-    //        await LoadData();
-    //        lastUpdated = DateTime.Now;
-    //        StateHasChanged();
-    //    }
-    //    catch (Exception ex)
-    //    {
-    //        ToastService.ShowError($"Error processing real-time data: {ex.Message}");
-    //    }
-    //}
 
     private async Task LoadInitialData()
     {
@@ -228,6 +212,12 @@ public partial class RealTimeSalesDashboard : IAsyncDisposable
             overallKpi = kpiTask;
             bannerKpis = bannerTask;
             dashboardData = dataTask;
+            storeCategorySnapshots = (dashboardData ?? new List<SalesDashboardData>())
+                .Select(CloneDashboardRow)
+                .ToList();
+            RebuildStoreAggregatesFromSnapshots();
+            RecalculateDashboardSummaries();
+            UpdateDerivedDataSets();
         }
         catch (Exception ex)
         {
@@ -267,14 +257,291 @@ public partial class RealTimeSalesDashboard : IAsyncDisposable
     {
         var columns = new List<string>();
         
-        if (columnSettings.ShowScheme) columns.Add("1fr");
-        if (columnSettings.ShowStoreCode) columns.Add("1fr");
+        if (currentGrouping == DashboardGrouping.Store && columnSettings.ShowScheme) columns.Add("1fr");
+        if (currentGrouping == DashboardGrouping.Store && columnSettings.ShowStoreCode) columns.Add("1fr");
+        if ((currentGrouping == DashboardGrouping.Division || currentGrouping == DashboardGrouping.DivisionCategory) && columnSettings.ShowDivision)
+            columns.Add("1fr");
+        if ((currentGrouping == DashboardGrouping.Category || currentGrouping == DashboardGrouping.DivisionCategory) && columnSettings.ShowCategory)
+            columns.Add("2fr");
         if (columnSettings.ShowTotalSales) columns.Add("120px");
         if (columnSettings.ShowTotalTransactions) columns.Add("120px");
         if (columnSettings.ShowAverageBasket) columns.Add("120px");
         if (columnSettings.ShowLastUpdated) columns.Add("100px");
 
         return string.Join(" ", columns);
+    }
+
+    private IEnumerable<SalesDashboardData> GetGridItems()
+    {
+        return currentGrouping switch
+        {
+            DashboardGrouping.Store => dashboardData ?? Enumerable.Empty<SalesDashboardData>(),
+            DashboardGrouping.Division => divisionData,
+            DashboardGrouping.Category => categoryData,
+            DashboardGrouping.DivisionCategory => divisionCategoryData,
+            _ => Enumerable.Empty<SalesDashboardData>()
+        };
+    }
+
+    private void HandleGroupingChanged(ChangeEventArgs args)
+    {
+        if (args?.Value is null)
+        {
+            return;
+        }
+
+        if (Enum.TryParse(typeof(DashboardGrouping), args.Value.ToString(), out var parsed) &&
+            parsed is DashboardGrouping grouping &&
+            grouping != currentGrouping)
+        {
+            currentGrouping = grouping;
+            StateHasChanged();
+        }
+    }
+
+    private void UpdateDerivedDataSets()
+    {
+        var sourceData = storeCategorySnapshots.Any()
+            ? storeCategorySnapshots
+            : dashboardData ?? new List<SalesDashboardData>();
+
+        if (!sourceData.Any())
+        {
+            divisionData = new List<SalesDashboardData>();
+            categoryData = new List<SalesDashboardData>();
+            divisionCategoryData = new List<SalesDashboardData>();
+            return;
+        }
+
+        divisionData = sourceData
+            .GroupBy(d => NormalizeDimension(d.DivisionName, UnknownDivisionLabel))
+            .Select(g => new SalesDashboardData
+            {
+                DivisionName = g.Key,
+                TotalSales = g.Sum(x => x.TotalSales),
+                TotalTransactions = g.Sum(x => x.TotalTransactions),
+                LastUpdated = g.Max(x => x.LastUpdated)
+            })
+            .OrderByDescending(d => d.TotalSales)
+            .ToList();
+
+        categoryData = sourceData
+            .GroupBy(d => NormalizeDimension(d.CategoryName, UnknownCategoryLabel))
+            .Select(g => new SalesDashboardData
+            {
+                CategoryName = g.Key,
+                TotalSales = g.Sum(x => x.TotalSales),
+                TotalTransactions = g.Sum(x => x.TotalTransactions),
+                LastUpdated = g.Max(x => x.LastUpdated)
+            })
+            .OrderByDescending(d => d.TotalSales)
+            .ToList();
+
+        divisionCategoryData = sourceData
+            .GroupBy(d => new
+            {
+                Division = NormalizeDimension(d.DivisionName, UnknownDivisionLabel),
+                Category = NormalizeDimension(d.CategoryName, UnknownCategoryLabel)
+            })
+            .Select(g => new SalesDashboardData
+            {
+                DivisionName = g.Key.Division,
+                CategoryName = g.Key.Category,
+                TotalSales = g.Sum(x => x.TotalSales),
+                TotalTransactions = g.Sum(x => x.TotalTransactions),
+                LastUpdated = g.Max(x => x.LastUpdated)
+            })
+            .OrderByDescending(d => d.TotalSales)
+            .ToList();
+
+        RefreshStoreInsights();
+    }
+
+    private void OpenStoreInsights(SalesDashboardData store)
+    {
+        BuildStoreInsights(store);
+        showStoreInsights = true;
+    }
+
+    private void RefreshStoreInsights()
+    {
+        if (!showStoreInsights || selectedStore is null)
+        {
+            return;
+        }
+
+        BuildStoreInsights(selectedStore);
+    }
+
+    private void BuildStoreInsights(SalesDashboardData store)
+    {
+        var latestStore = FindStoreMatch(store);
+        selectedStore = latestStore ?? store;
+
+        var storeSlices = storeCategorySnapshots
+            .Where(s => string.Equals(s.Scheme, selectedStore?.Scheme, StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(s.StoreCode, selectedStore?.StoreCode, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (!storeSlices.Any() && selectedStore is not null)
+        {
+            storeSlices.Add(CloneDashboardRow(selectedStore));
+        }
+
+        var divisionGroupsForStore = storeSlices
+            .GroupBy(s => NormalizeDimension(s.DivisionName, UnknownDivisionLabel))
+            .Select(g => new SalesDashboardData
+            {
+                DivisionName = g.Key,
+                TotalSales = g.Sum(x => x.TotalSales),
+                TotalTransactions = g.Sum(x => x.TotalTransactions),
+                LastUpdated = g.Max(x => x.LastUpdated)
+            })
+            .OrderByDescending(d => d.TotalSales)
+            .ToList();
+
+        selectedDivisionSummary = divisionGroupsForStore.FirstOrDefault() ?? new SalesDashboardData
+        {
+            DivisionName = UnknownDivisionLabel,
+            TotalSales = selectedStore?.TotalSales ?? 0,
+            TotalTransactions = selectedStore?.TotalTransactions ?? 0,
+            LastUpdated = selectedStore?.LastUpdated ?? DateTime.Now
+        };
+
+        var focusDivisionKey = NormalizeDimension(selectedDivisionSummary?.DivisionName, UnknownDivisionLabel);
+
+        storeDivisionBreakdown = storeSlices
+            .Where(s => string.Equals(NormalizeDimension(s.DivisionName, UnknownDivisionLabel), focusDivisionKey, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(s => NormalizeDimension(s.CategoryName, UnknownCategoryLabel))
+            .Select(g => new SalesDashboardData
+            {
+                CategoryName = g.Key,
+                TotalSales = g.Sum(x => x.TotalSales),
+                TotalTransactions = g.Sum(x => x.TotalTransactions),
+                LastUpdated = g.Max(x => x.LastUpdated)
+            })
+            .OrderByDescending(d => d.TotalSales)
+            .ToList();
+
+        var categoryGroupsForStore = storeSlices
+            .GroupBy(s => NormalizeDimension(s.CategoryName, UnknownCategoryLabel))
+            .Select(g => new SalesDashboardData
+            {
+                CategoryName = g.Key,
+                DivisionName = NormalizeDimension(g.First().DivisionName, UnknownDivisionLabel),
+                TotalSales = g.Sum(x => x.TotalSales),
+                TotalTransactions = g.Sum(x => x.TotalTransactions),
+                LastUpdated = g.Max(x => x.LastUpdated)
+            })
+            .OrderByDescending(d => d.TotalSales)
+            .ToList();
+
+        selectedCategorySummary = categoryGroupsForStore.FirstOrDefault() ?? new SalesDashboardData
+        {
+            CategoryName = UnknownCategoryLabel,
+            DivisionName = selectedDivisionSummary?.DivisionName ?? UnknownDivisionLabel,
+            TotalSales = selectedStore?.TotalSales ?? 0,
+            TotalTransactions = selectedStore?.TotalTransactions ?? 0,
+            LastUpdated = selectedStore?.LastUpdated ?? DateTime.Now
+        };
+
+        storeCategoryBreakdown = categoryGroupsForStore;
+    }
+
+    private SalesDashboardData? FindStoreMatch(SalesDashboardData store)
+    {
+        if (dashboardData is null)
+        {
+            return null;
+        }
+
+        return dashboardData.FirstOrDefault(d =>
+            string.Equals(d.Scheme, store.Scheme, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(d.StoreCode, store.StoreCode, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizeDimension(string? value, string fallback) =>
+        string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+
+    private static string FormatCurrency(decimal? value) =>
+        value.HasValue ? value.Value.ToString("C") : "--";
+
+    private static string FormatNumber(int? value) =>
+        value.HasValue ? value.Value.ToString("N0") : "--";
+
+    private void RemoveStoreSlices(string? scheme, string? storeCode)
+    {
+        storeCategorySnapshots.RemoveAll(s =>
+            string.Equals(s.Scheme, scheme, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(s.StoreCode, storeCode, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void RebuildStoreAggregatesFromSnapshots()
+    {
+        if (!storeCategorySnapshots.Any())
+        {
+            dashboardData = new List<SalesDashboardData>();
+            return;
+        }
+
+        dashboardData = storeCategorySnapshots
+            .GroupBy(s => new { s.Scheme, s.StoreCode })
+            .Select(g => new SalesDashboardData
+            {
+                Scheme = g.Key.Scheme,
+                StoreCode = g.Key.StoreCode,
+                TotalSales = g.Sum(x => x.TotalSales),
+                TotalTransactions = g.Sum(x => x.TotalTransactions),
+                LastUpdated = g.Max(x => x.LastUpdated)
+            })
+            .OrderByDescending(d => d.TotalSales)
+            .ToList();
+    }
+
+    private void RecalculateDashboardSummaries()
+    {
+        if (dashboardData == null)
+        {
+            dashboardData = new List<SalesDashboardData>();
+        }
+
+        overallKpi ??= new SalesKpiData();
+
+        overallKpi.TotalSales = dashboardData.Sum(d => d.TotalSales);
+        overallKpi.TotalTransactions = dashboardData.Sum(d => d.TotalTransactions);
+        overallKpi.TotalStores = dashboardData.Count;
+        overallKpi.TotalSchemes = dashboardData.Select(d => d.Scheme).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        overallKpi.LastUpdated = DateTime.Now;
+
+        bannerKpis = dashboardData
+            .GroupBy(d => d.Scheme ?? "Unknown")
+            .Select(g => new SalesBannerKpi
+            {
+                Banner = g.Key,
+                TotalSales = g.Sum(x => x.TotalSales),
+                TotalTransactions = g.Sum(x => x.TotalTransactions),
+                StoreCount = g.Count(),
+                LastUpdated = g.Max(x => x.LastUpdated)
+            })
+            .OrderByDescending(b => b.TotalSales)
+            .ToList();
+    }
+
+    private static SalesDashboardData CloneDashboardRow(SalesDashboardData source) =>
+        new()
+        {
+            Scheme = source.Scheme,
+            StoreCode = source.StoreCode,
+            DivisionName = source.DivisionName,
+            CategoryName = source.CategoryName,
+            TotalSales = source.TotalSales,
+            TotalTransactions = source.TotalTransactions,
+            LastUpdated = source.LastUpdated
+        };
+
+    private void CloseStoreInsights()
+    {
+        showStoreInsights = false;
     }
 
     public async ValueTask DisposeAsync()
@@ -301,9 +568,19 @@ public partial class RealTimeSalesDashboard : IAsyncDisposable
     {
         public bool ShowScheme { get; set; } = true;
         public bool ShowStoreCode { get; set; } = true;
+        public bool ShowDivision { get; set; } = true;
+        public bool ShowCategory { get; set; } = true;
         public bool ShowTotalSales { get; set; } = true;
         public bool ShowTotalTransactions { get; set; } = true;
         public bool ShowAverageBasket { get; set; } = true;
         public bool ShowLastUpdated { get; set; } = true;
+    }
+
+    private enum DashboardGrouping
+    {
+        Store,
+        Division,
+        Category,
+        DivisionCategory
     }
 }

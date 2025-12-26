@@ -196,7 +196,7 @@
                                         <div style="font-weight: 600; color: #059669;">@context.TotalSales.ToString("C", CultureInfo.GetCultureInfo("en-US"))</div>
                                     </TemplateColumn>
                                 }
-                                @if (columnSettings.ShowTotalTransactions && (currentGrouping == DashboardGrouping.Division || currentGrouping == DashboardGrouping.DivisionCategory))
+                                @if (columnSettings.ShowTotalTransactions && (currentGrouping == DashboardGrouping.Division || currentGrouping == DashboardGrouping.Category || currentGrouping == DashboardGrouping.DivisionCategory))
                                 {
                                     <TemplateColumn Title="Total Transactions" Sortable="true" SortBy="@(GridSort<SalesDashboardData>.ByAscending(p => p.TotalTransactions))">
                                         <div style="font-weight: 600; color: #2563eb;">
@@ -204,7 +204,7 @@
                                         </div>
                                     </TemplateColumn>
                                 }
-                                @if (columnSettings.ShowTotalTransactions && columnSettings.ShowStoreCode)
+                                @if (columnSettings.ShowTotalTransactions && currentGrouping == DashboardGrouping.Store)
                                 {
                                     <TemplateColumn Title="Total Transactions" Sortable="true" SortBy="@(GridSort<SalesDashboardData>.ByAscending(p => p.TotalStoreTransactions))">
                                         <div style="font-weight: 600; color: #2563eb;">

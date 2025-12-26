@@ -48,13 +48,12 @@ public class SalesRepository : ISalesRepository
                     tse.[Store No_] as StoreCode,
                     CONVERT(decimal, COUNT(DISTINCT tse.[Item Category Code])) as CategoryCount
                 from [{database.Name}$Trans_ Sales Entry] tse
-                inner join [{database.Name}$Transaction Header] th
-                    on th.[Store No_] = tse.[Store No_]
-                    and th.[POS Terminal No_] = tse.[POS Terminal No_]
-                    and th.[Transaction No_] = tse.[Transaction No_]
                 where tse.[Date] = CONVERT(date, GETDATE())
-                and th.Wastage = 0
-                and th.[Transaction Type] = 2
+                and tse.[POS Terminal No_] not in
+                (
+                    select [No_] from [{database.Name}$POS Terminal]
+                    where  [Hardware Profile] = 'SPINWASTE'
+                    )
                 group by tse.[Store No_]
             ),
 
@@ -78,13 +77,10 @@ public class SalesRepository : ISalesRepository
                     d.[Description] as [DivisionName],
                     ic.[Description] as [CategoryName],
                     MAX(DATEPART(HOUR, tse.[Time])) as [Hour],
-                    SUM(tse.[Net Amount] / [BM Rate]) * -1 as [NetAmountAc],
+                    SUM(tse.[Net Amount] / 89700) * -1 as [NetAmountAc], -- [BM Rate]
                     AVG(CONVERT(decimal, str.TotalTransactions) / CONVERT(decimal, stc.CategoryCount)) as TotalStoreTransactions,
                     COUNT(DISTINCT CONCAT(tse.[Store No_], tse.[POS Terminal No_], tse.[Transaction No_])) as [TotalTransactions]
             from [{database.Name}$Trans_ Sales Entry] as tse
-            left join [{database.Name}$Transaction Header] as th on th.[Store No_] = tse.[Store No_]
-                                            and th.[POS Terminal No_] = tse.[POS Terminal No_]
-                                            and th.[Transaction No_] = tse.[Transaction No_]
             left join [{database.Name}$Store] as s on s.[No_] = tse.[Store No_]
             left join [{database.Name}$Item Category] as ic on ic.Code = tse.[Item Category Code]
             left join [{database.Name}$Division] as d on d.Code = ic.[Division Code]
@@ -92,8 +88,12 @@ public class SalesRepository : ISalesRepository
             inner join cte_store_categories as stc on stc.StoreCode = tse.[Store No_]
 
             where tse.[Date] = CONVERT(date,  GETDATE())
-            and th.Wastage = 0
-            and th.[Transaction Type] = 2
+            and tse.[POS Terminal No_] != ''
+            and tse.[POS Terminal No_] not in
+            (
+                select [No_] from [{database.Name}$POS Terminal]
+                where  [Hardware Profile] = 'SPINWASTE'
+                )
 
             group by s.[Item Store Type],
                     tse.[Store No_],

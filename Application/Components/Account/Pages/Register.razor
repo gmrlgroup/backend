@@ -14,6 +14,7 @@
 @inject ILogger<Register> Logger
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
+@inject IConfiguration Configuration
 
 <PageTitle>Register</PageTitle>
 
@@ -26,26 +27,31 @@
             <p>Please choose one of the below options</p>
         </div>
 <FluentGrid>
-     <FluentGridItem xs="8" sm="4">
-        <StatusMessage Message="@Message" />
-        <EditForm Model="Input" asp-route-returnUrl="@ReturnUrl" method="post" OnValidSubmit="RegisterUser" FormName="register">
-            <DataAnnotationsValidator />
-            <h2>Create a new account.</h2>
-            <hr />
-            <FluentValidationSummary class="text-danger" role="alert" />
-            <FluentStack Orientation="Orientation.Vertical">
-                <FluentTextField Name="Input.UserName" @bind-Value="Input.UserName" AutoComplete="username" Required="true" Placeholder="username" Label="Username" Style="width: 100%" />
-                <FluentValidationMessage For="() => Input.UserName" class="text-danger" />
-                <FluentTextField Name="Input.Email" @bind-Value="Input.Email" AutoComplete="email" Required="true" Placeholder="name@example.com" Label="Email" Style="width: 100%" />
-                <FluentValidationMessage For="() => Input.Email" class="text-danger" />
-                <FluentTextField type="password" Name="Input.Password" @bind-Value="Input.Password" AutoComplete="new-password" Required="true" Placeholder="password" Label="Password" Style="width: 100%" />
-                <FluentValidationMessage For="() => Input.Password" class="text-danger" />
-                <FluentTextField type="password" Name="Input.ConfirmPassword" @bind-Value="Input.ConfirmPassword" AutoComplete="new-password" Required="true" Placeholder="password" Label="Confirm Password" Style="width: 100%" />
-                <FluentValidationMessage For="() => Input.ConfirmPassword" class="text-danger" />
-                <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent" Style="width: 100%">Log in</FluentButton>
-            </FluentStack>
-        </EditForm>
-    </FluentGridItem>
+    @if (Configuration.GetValue<bool>("UsernamePaswordLogin") == true)
+    {
+        <FluentGridItem xs="8" sm="4">
+            <StatusMessage Message="@Message" />
+            
+            <EditForm Model="Input" asp-route-returnUrl="@ReturnUrl" method="post" OnValidSubmit="RegisterUser" FormName="register">
+                <DataAnnotationsValidator />
+                <h2>Create a new account.</h2>
+                <hr />
+                <FluentValidationSummary class="text-danger" role="alert" />
+                <FluentStack Orientation="Orientation.Vertical">
+                    <FluentTextField Name="Input.UserName" @bind-Value="Input.UserName" AutoComplete="username" Required="true" Placeholder="username" Label="Username" Style="width: 100%" />
+                    <FluentValidationMessage For="() => Input.UserName" class="text-danger" />
+                    <FluentTextField Name="Input.Email" @bind-Value="Input.Email" AutoComplete="email" Required="true" Placeholder="name@example.com" Label="Email" Style="width: 100%" />
+                    <FluentValidationMessage For="() => Input.Email" class="text-danger" />
+                    <FluentTextField type="password" Name="Input.Password" @bind-Value="Input.Password" AutoComplete="new-password" Required="true" Placeholder="password" Label="Password" Style="width: 100%" />
+                    <FluentValidationMessage For="() => Input.Password" class="text-danger" />
+                    <FluentTextField type="password" Name="Input.ConfirmPassword" @bind-Value="Input.ConfirmPassword" AutoComplete="new-password" Required="true" Placeholder="password" Label="Confirm Password" Style="width: 100%" />
+                    <FluentValidationMessage For="() => Input.ConfirmPassword" class="text-danger" />
+                    <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent" Style="width: 100%">Log in</FluentButton>
+                </FluentStack>
+            </EditForm>
+            
+        </FluentGridItem>
+    }
     <FluentGridItem xs="12" sm="8">
         <ExternalLoginPicker />
     </FluentGridItem>

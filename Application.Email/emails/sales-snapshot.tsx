@@ -29,6 +29,7 @@ interface SchemeKpiCard {
   deltaLabel?: string;
   changeDirection?: TrendDirection;
   stores?: number;
+  transactions?: number;
 }
 
 interface SalesSnapshotEmailProps {
@@ -151,8 +152,12 @@ export const SalesSnapshotEmail: React.FC<Readonly<SalesSnapshotEmailProps>> = (
                         {getTrendIcon(scheme.changeDirection)} {scheme.deltaLabel}
                       </div>
                     )}
-                    {typeof scheme.stores === 'number' && (
-                      <div style={helperText}>{scheme.stores} stores</div>
+                    {(typeof scheme.stores === 'number' || typeof scheme.transactions === 'number') && (
+                      <div style={helperText}>
+                        {typeof scheme.stores === 'number' ? `${scheme.stores} stores` : ''}
+                        {typeof scheme.stores === 'number' && typeof scheme.transactions === 'number' ? ' / ' : ''}
+                        {typeof scheme.transactions === 'number' ? `${scheme.transactions.toLocaleString()} transactions` : ''}
+                      </div>
                     )}
                   </div>
                 ))}

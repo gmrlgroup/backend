@@ -19,6 +19,7 @@ body {
     border-radius: 16px;
     width: 400px;
     max-width: 90%;
+    margin: 125px;
 }
 
 .login-header {

@@ -9,6 +9,7 @@
 @inject ILogger<Login> Logger
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
+@inject IConfiguration Configuration
 
 <PageTitle>Log in</PageTitle>
 
@@ -19,34 +20,40 @@
         <p>Please enter your details to sign in</p>
     </div>
 
-         <StatusMessage Message="@errorMessage" />
-        <EditForm Model="Input" method="post" OnValidSubmit="LoginUser" FormName="login">
+        <StatusMessage Message="@errorMessage" />
 
-            <DataAnnotationsValidator />
-            <div class="form-group">
-                <label for="email">Email</label>
-                @* <input type="email" id="email" placeholder="Enter your email"> *@
-                <FluentTextField Name="Input.UserName" @bind-Value="Input.UserName" AutoComplete="username" Required="true" Placeholder="username" Style="width: 100%" />
-                        <FluentValidationMessage For="() => Input.UserName" class="text-danger" />
-            </div>
+        @if(Configuration.GetValue<bool>("UsernamePaswordLogin") == true)
+        {
+            
+            <EditForm Model="Input" method="post" OnValidSubmit="LoginUser" FormName="login">
 
-            <div class="form-group">
-                <label for="password">Password</label>
-                @* <input type="password" id="password" placeholder="Enter your password"> *@
-                <FluentTextField type="password" Name="Input.Password" @bind-Value="Input.Password" AutoComplete="current-password" Required="true" Placeholder="password" Style="width: 100%" />
-                <FluentValidationMessage For="() => Input.Password" class="text-danger" />
-            </div>
+                <DataAnnotationsValidator />
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    @* <input type="email" id="email" placeholder="Enter your email"> *@
+                    <FluentTextField Name="Input.UserName" @bind-Value="Input.UserName" AutoComplete="username" Required="true" Placeholder="username" Style="width: 100%" />
+                            <FluentValidationMessage For="() => Input.UserName" class="text-danger" />
+                </div>
 
-            <div class="form-group">
-                 <FluentCheckbox Name="Input.RememberMe" @bind-Value="Input.RememberMe" Label="Remember me" />
-            </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    @* <input type="password" id="password" placeholder="Enter your password"> *@
+                    <FluentTextField type="password" Name="Input.Password" @bind-Value="Input.Password" AutoComplete="current-password" Required="true" Placeholder="password" Style="width: 100%" />
+                    <FluentValidationMessage For="() => Input.Password" class="text-danger" />
+                </div>
 
-            <div class="forgot-password">
-                    <FluentAnchor Appearance="Appearance.Hypertext" Href="Account/ForgotPassword">Forgot your password?</FluentAnchor>
-            </div>
+                <div class="form-group">
+                    <FluentCheckbox Name="Input.RememberMe" @bind-Value="Input.RememberMe" Label="Remember me" />
+                </div>
 
-            <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent" Style="width: 100%">Sign in</FluentButton>
-        </EditForm>
+                <div class="forgot-password">
+                        <FluentAnchor Appearance="Appearance.Hypertext" Href="Account/ForgotPassword">Forgot your password?</FluentAnchor>
+                </div>
+
+                <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent" Style="width: 100%">Sign in</FluentButton>
+            </EditForm>
+        }
+
         <div class="social-login">
             <ExternalLoginPicker />
 
@@ -58,7 +65,7 @@
         <div class="signup-prompt">
             <a href="Account/ResendEmailConfirmation">Resend email confirmation</a>
         </div>
-</div>
+    </div>
 </div>
 
 @code {

@@ -25,6 +25,7 @@ interface SchemeKpiCard {
   deltaLabel?: string;
   changeDirection?: TrendDirection;
   stores?: number;
+  transactions?: number;
 }
 
 interface SalesSnapshotRequest {

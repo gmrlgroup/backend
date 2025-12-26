@@ -43,52 +43,84 @@ public class SalesSnapshotEmailJob
         var snapshotDateLocal = localNow.Date.AddDays(-1);
         var (startUtc, endUtc) = GetUtcWindow(snapshotDateLocal, timeZone);
 
-        var query = _context.SalesData
-            .AsNoTracking()
-            // .Where(sd => sd.ReceivedAt >= startUtc && sd.ReceivedAt < endUtc);
-            .Where(sd => sd.ReceivedAt.Date == DateTime.Now.Date.AddDays(-1));
+        // var query = _context.SalesData
+        //     .AsNoTracking()
+        //     // .Where(sd => sd.ReceivedAt >= startUtc && sd.ReceivedAt < endUtc);
+        //     .Where(sd => sd.ReceivedAt.Date == DateTime.Now.Date.AddDays(-1));
 
-        if (!string.IsNullOrWhiteSpace(_options.CompanyId))
-        {
-            query = query.Where(sd => sd.CompanyId == _options.CompanyId);
-        }
+        // if (!string.IsNullOrWhiteSpace(_options.CompanyId))
+        // {
+        //     query = query.Where(sd => sd.CompanyId == _options.CompanyId);
+        // }
 
-        var rawData = await query.ToListAsync(cancellationToken);
-        if (!rawData.Any())
-        {
-            _logger.LogInformation("No sales data found for snapshot date {SnapshotDate} (Company: {CompanyId})", snapshotDateLocal, _options.CompanyId ?? "any");
-            return;
-        }
+        // var rawData = await query.ToListAsync(cancellationToken);
+        // if (!rawData.Any())
+        // {
+        //     _logger.LogInformation("No sales data found for snapshot date {SnapshotDate} (Company: {CompanyId})", snapshotDateLocal, _options.CompanyId ?? "any");
+        //     return;
+        // }
 
-        var storeSummaries = rawData
-            .GroupBy(sd => new { sd.Scheme, sd.StoreCode })
-            .Select(group =>
-            {
-                var maxHour = group.Max(x => x.Hour);
-                var hourRows = group.Where(x => x.Hour == maxHour).ToList();
-                var latestRow = hourRows
-                    .OrderByDescending(x => x.ReceivedAt)
-                    .First();
+        // var storeSummaries = rawData
+        //     .GroupBy(sd => new { sd.Scheme, sd.StoreCode })
+        //     .Select(group =>
+        //     {
+        //         var maxHour = group.Max(x => x.Hour);
+        //         var hourRows = group.Where(x => x.Hour == maxHour).ToList();
+        //         var latestRow = hourRows
+        //             .OrderByDescending(x => x.ReceivedAt)
+        //             .First();
 
-                return new StoreSnapshot
+        //         return new StoreSnapshot
+        //         {
+        //             Scheme = latestRow.Scheme ?? "N/A",
+        //             StoreCode = latestRow.StoreCode ?? "N/A",
+        //             DivisionName = latestRow.DivisionName,
+        //             CategoryName = latestRow.CategoryName,
+        //             Hour = maxHour,
+        //             TotalSales = hourRows.Sum(x => x.NetAmountAcy),
+        //             TotalTransactions = hourRows.Sum(x => x.TotalTransactions),
+        //             LastUpdatedUtc = hourRows.Max(x => x.ReceivedAt)
+        //         };
+        //     })
+        //     .OrderByDescending(s => s.TotalSales)
+        //     .ToList();
+
+
+        var latestPerKey = _context.SalesData
+                .Where(sd => sd.CompanyId == _options.CompanyId && sd.ReceivedAt.Date == DateTime.Now.Date.AddDays(-1))
+                .GroupBy(sd => new { sd.StoreCode, sd.Scheme, sd.DivisionName, sd.CategoryName })
+                .Select(g => new
                 {
-                    Scheme = latestRow.Scheme ?? "N/A",
-                    StoreCode = latestRow.StoreCode ?? "N/A",
-                    DivisionName = latestRow.DivisionName,
-                    CategoryName = latestRow.CategoryName,
-                    Hour = maxHour,
-                    TotalSales = hourRows.Sum(x => x.NetAmountAcy),
-                    TotalTransactions = hourRows.Sum(x => x.TotalTransactions),
-                    LastUpdatedUtc = hourRows.Max(x => x.ReceivedAt)
-                };
-            })
-            .OrderByDescending(s => s.TotalSales)
-            .ToList();
+                    g.Key.StoreCode,
+                    g.Key.Scheme,
+                    g.Key.DivisionName,
+                    g.Key.CategoryName,
+                    ReceivedAt = g.Max(x => x.ReceivedAt)   // latest per (Store, Scheme)
+                });
+
+        var storeSummaries = await _context.SalesData
+            .Where(sd => sd.CompanyId == _options.CompanyId)
+            .Join(
+                latestPerKey,
+                sd => new { sd.StoreCode, sd.Scheme, sd.DivisionName, sd.CategoryName, sd.ReceivedAt },
+                l => new { l.StoreCode, l.Scheme, l.DivisionName, l.CategoryName, l.ReceivedAt },
+                (sd, l) => new StoreSnapshot
+                {
+                    Scheme = sd.Scheme,
+                    StoreCode = sd.StoreCode,
+                    DivisionName = sd.DivisionName,
+                    CategoryName = sd.CategoryName,
+                    TotalSales = sd.NetAmountAcy,
+                    TotalTransactions = Convert.ToInt32(sd.TotalStoreTransactions ?? 0),
+                    LastUpdatedUtc = sd.ReceivedAt
+                })
+            .OrderByDescending(s => s.Scheme).ThenByDescending(s => s.TotalSales)
+            .ToListAsync();
 
         var culture = GetCulture(_options.CurrencyCulture);
         var totalSales = storeSummaries.Sum(s => s.TotalSales);
         var totalTransactions = storeSummaries.Sum(s => s.TotalTransactions);
-        var storeCount = storeSummaries.Count;
+        var storeCount = storeSummaries.Select(s => s.StoreCode).Distinct().Count();
         var schemeCount = storeSummaries.Select(s => s.Scheme).Distinct().Count();
         var lastUpdatedUtc = storeSummaries.Max(s => s.LastUpdatedUtc);
         var lastUpdatedLocal = ConvertToTimeZone(lastUpdatedUtc, timeZone);
@@ -121,14 +153,16 @@ public class SalesSnapshotEmailJob
             {
                 Scheme = g.Key,
                 TotalSales = g.Sum(x => x.TotalSales),
-                Stores = g.Count()
+                TotalTransactions = g.Sum(x => x.TotalTransactions),
+                Stores = g.Select(x => x.StoreCode).Distinct().Count()
             })
             .OrderByDescending(s => s.TotalSales)
             .Select(s => new SchemeKpiCard
             {
                 SchemeName = s.Scheme,
                 TotalSales = FormatCurrency(s.TotalSales, culture),
-                Stores = s.Stores
+                Stores = s.Stores,
+                Transactions = s.TotalTransactions
             })
             .ToList();
 
@@ -142,7 +176,29 @@ public class SalesSnapshotEmailJob
             "Avg Basket"
         };
 
-        var rows = storeSummaries.Select(store => new DataTableRowPayload
+        // group by store and scheme, take latest hour without category and division
+        var rows = storeSummaries
+        
+        .GroupBy(s => new { s.StoreCode, s.Scheme })
+        .Select(g =>
+        {
+            var maxHour = g.Max(x => x.Hour);
+            var hourRows = g.Where(x => x.Hour == maxHour).ToList();
+            var latestRow = hourRows
+                .OrderByDescending(x => x.LastUpdatedUtc)
+                .First();
+
+            return new StoreSnapshot
+            {
+                Scheme = latestRow.Scheme ?? "N/A",
+                StoreCode = latestRow.StoreCode ?? "N/A",
+                Hour = maxHour,
+                TotalSales = hourRows.Sum(x => x.TotalSales),
+                TotalTransactions = hourRows.Sum(x => x.TotalTransactions),
+                LastUpdatedUtc = hourRows.Max(x => x.LastUpdatedUtc)
+            };
+        })
+        .Select(store => new DataTableRowPayload
         {
             Data = new Dictionary<string, object?>
             {
@@ -351,6 +407,9 @@ public class SalesSnapshotEmailJob
 
         [JsonPropertyName("stores")]
         public int? Stores { get; set; }
+
+        [JsonPropertyName("transactions")]
+        public int? Transactions { get; set; }
     }
 
     private sealed class DataTableRowPayload

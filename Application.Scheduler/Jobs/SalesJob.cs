@@ -35,8 +35,6 @@ public class SalesJob
 
 
     }
-
-
     public async Task RunNokNokAsync(Database database, PerformContext context, CancellationToken ct = default)
     {
 
@@ -50,7 +48,6 @@ public class SalesJob
 
 
     }
-
 
     public async Task RunNokNokFoAsync(PerformContext context, CancellationToken ct = default)
     {

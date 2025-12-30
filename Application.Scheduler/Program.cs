@@ -135,12 +135,12 @@ var minuteOffset = 0;
 foreach (var db in databases)
 {
 
-    minuteOffset = offset % 5; // ensure it’s within 0-9
+    minuteOffset = offset % 10; // ensure it’s within 0-9
     //#pragma warning restore CS0618 // Type or member is obsolete
     RecurringJob.AddOrUpdate<SalesJob>(
         recurringJobId: $"sales-grouped-by-store-hour-{db.Name}",
         methodCall: job => job.RunAsync(db, null, CancellationToken.None), // context and ct are not used in this example
-        cronExpression: $"{minuteOffset}/5 * * * *",
+        cronExpression: $"{minuteOffset}/10 * * * *",
         timeZone: tz
     );
 

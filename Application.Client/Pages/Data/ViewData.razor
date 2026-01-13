@@ -76,17 +76,6 @@
                         <span style="margin-left: 4px; background: #ef4444; color: white; border-radius: 10px; padding: 2px 6px; font-size: 0.75rem;">@CommentsCount</span>
                     }
                 </FluentButton>
-                
-                @* <FluentButton Appearance="Appearance.Outline" 
-                            OnClick="@(() => ShowCommentsPanel = !ShowCommentsPanel)"
-                            style="border-radius: 6px;">
-                    <FluentIcon Value="@(new Icons.Regular.Size16.Comment())" style="margin-right: 4px;" />
-                    Comments
-                    @if (CommentsCount > 0)
-                    {
-                        <span style="margin-left: 4px; background: #ef4444; color: white; border-radius: 10px; padding: 2px 6px; font-size: 0.75rem;">@CommentsCount</span>
-                    }
-                </FluentButton> *@
             </FluentStack>
         </FluentStack>
     </div>
@@ -149,8 +138,8 @@
     </div>
 </div>
 
-<!-- AI Chat Widget -->
-<AIChatWidget CompanyId="@c" UserId="@CurrentUserId" />
+@* <!-- AI Chat Widget -->
+<AIChatWidget CompanyId="@c" UserId="@CurrentUserId" /> *@
 
 @code {
     // Query parameters

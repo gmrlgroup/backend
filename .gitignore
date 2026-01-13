@@ -413,3 +413,7 @@ Migrations/
 
 # Migration files
 Migrations/*.cs
+
+
+# NEXT JS
+.next/

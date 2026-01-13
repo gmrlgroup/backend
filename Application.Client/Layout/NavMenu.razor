@@ -37,6 +37,12 @@
                 </Authorized>
             </AuthorizeView>
 
+            <AuthorizeView Roles="@($"{companyId}_ADMIN, {companyId}_DATA")">
+                <Authorized>
+                    <FluentNavLink Href="@($"datawarehouse{queryParameter}")" Icon="@(new Icons.Regular.Size20.Database())" IconColor="Color.Accent">Data Warehouse</FluentNavLink>
+                </Authorized>
+            </AuthorizeView>
+
             <AuthorizeView Roles="@($"{companyId}_ADMIN")">
                 <Authorized>
                     <FluentNavGroup Title="Admin" Tooltip="Admin" Icon="@(new Icons.Regular.Size24.PersonAccounts())">

@@ -3,6 +3,7 @@ using Application.Components;
 using Application.Components.Account;
 using Application.Helpers;
 using Application.Hubs;
+using Application.Services;
 using Application.Services.Data;
 using Application.Shared.Data;
 using Application.Shared.Models;
@@ -115,7 +116,13 @@ var connectionString = builder.Configuration.GetConnectionString("ApplicationDbC
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString, b => b.MigrationsAssembly("Application")));
 
-
+// Add Data Warehouse DbContext
+var dataWarehouseConnectionString = builder.Configuration.GetConnectionString("DataWarehouseDbContext");
+if (!string.IsNullOrEmpty(dataWarehouseConnectionString))
+{
+    builder.Services.AddDbContext<DataWarehouseDbContext>(options =>
+        options.UseSqlServer(dataWarehouseConnectionString));
+}
 
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
@@ -150,6 +157,9 @@ builder.Services.AddScoped<IDuckdbService, DuckdbService>();
 builder.Services.AddScoped<ICommentService, CommentService>();
 builder.Services.AddScoped<IUserPreferencesService, UserPreferencesService>();
 builder.Services.AddScoped<IUserSearchService, UserSearchService>();
+
+// Add Data Warehouse Service
+builder.Services.AddScoped<DataWarehouseService>();
 
 // Add Dataset Sharing Services
 builder.Services.AddScoped<IDatasetSharingService, DatasetSharingService>();

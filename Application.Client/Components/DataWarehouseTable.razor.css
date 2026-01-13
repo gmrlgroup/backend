@@ -1,0 +1,234 @@
+/* Streamlit-inspired Data Table Styles */
+
+.datawarehouse-table-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem;
+    background: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.table-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid #f0f2f6;
+}
+
+.table-info h3 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #262730;
+}
+
+.row-count {
+    font-size: 0.875rem;
+    color: #808495;
+    margin-left: 0.5rem;
+}
+
+.table-controls {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+/* Column Selector Panel */
+.column-selector-panel {
+    position: absolute;
+    right: 1rem;
+    top: 5rem;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    min-width: 300px;
+    max-height: 500px;
+    display: flex;
+    flex-direction: column;
+}
+
+.column-selector-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid #f0f2f6;
+}
+
+.column-selector-header h4 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.column-selector-body {
+    padding: 1rem;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.column-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+/* Data Grid Wrapper */
+.data-grid-wrapper {
+    position: relative;
+    min-height: 400px;
+    max-height: 65vh;
+    border: 1px solid #e6e9ef;
+    border-radius: 4px;
+    overflow: auto;
+}
+
+.loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.9);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    z-index: 10;
+}
+
+.no-data {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    padding: 3rem;
+    color: #808495;
+}
+
+/* Streamlit-style Grid */
+::deep .streamlit-style-grid {
+    width: 100%;
+    background: white;
+}
+
+::deep .streamlit-style-grid .fluent-data-grid-row {
+    border-bottom: 1px solid #f0f2f6;
+}
+
+::deep .streamlit-style-grid .fluent-data-grid-row:hover {
+    background-color: #f8f9fa;
+}
+
+::deep .streamlit-style-grid .fluent-data-grid-cell {
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    color: #262730;
+    border-right: 1px solid #f0f2f6;
+}
+
+::deep .streamlit-style-grid .column-header {
+    background: #fafafa;
+    font-weight: 600;
+    color: #262730;
+    padding: 0.75rem 1rem;
+    border-bottom: 2px solid #e6e9ef;
+    font-size: 0.875rem;
+    text-transform: none;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+}
+
+/* Column Type Specific Styles */
+::deep .numeric-column {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+::deep .date-column {
+    font-family: 'Courier New', monospace;
+    font-size: 0.813rem;
+}
+
+::deep .boolean-column {
+    text-align: center;
+}
+
+::deep .text-column {
+    text-align: left;
+}
+
+/* Column Filter */
+.column-filter {
+    padding: 0.5rem;
+    background: white;
+    border-top: 1px solid #e6e9ef;
+}
+
+/* Pagination Controls */
+.pagination-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid #f0f2f6;
+}
+
+.page-info {
+    margin: 0 1rem;
+    font-size: 0.875rem;
+    color: #262730;
+    min-width: 120px;
+    text-align: center;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .table-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .table-controls {
+        width: 100%;
+        flex-direction: column;
+    }
+
+    .column-selector-panel {
+        right: 0;
+        left: 0;
+        margin: 0 1rem;
+    }
+}
+
+/* Scrollbar Styling */
+.data-grid-wrapper::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.data-grid-wrapper::-webkit-scrollbar-track {
+    background: #f0f2f6;
+}
+
+.data-grid-wrapper::-webkit-scrollbar-thumb {
+    background: #c4c4c4;
+    border-radius: 4px;
+}
+
+.data-grid-wrapper::-webkit-scrollbar-thumb:hover {
+    background: #a0a0a0;
+}

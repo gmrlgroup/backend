@@ -38,56 +38,18 @@ public class SalesSnapshotEmailJob
             return;
         }
 
-        var timeZone = ResolveTimeZone(_options.TimeZoneId);
+        // var timeZone = ResolveTimeZone(_options.TimeZoneId);
+        var timeZone = TimeZoneInfo.FindSystemTimeZoneById("Middle East Standard Time");
         var localNow = ConvertToTimeZone(DateTime.UtcNow, timeZone);
         var snapshotDateLocal = localNow.Date.AddDays(-1);
         var (startUtc, endUtc) = GetUtcWindow(snapshotDateLocal, timeZone);
 
-        // var query = _context.SalesData
-        //     .AsNoTracking()
-        //     // .Where(sd => sd.ReceivedAt >= startUtc && sd.ReceivedAt < endUtc);
-        //     .Where(sd => sd.ReceivedAt.Date == DateTime.Now.Date.AddDays(-1));
-
-        // if (!string.IsNullOrWhiteSpace(_options.CompanyId))
-        // {
-        //     query = query.Where(sd => sd.CompanyId == _options.CompanyId);
-        // }
-
-        // var rawData = await query.ToListAsync(cancellationToken);
-        // if (!rawData.Any())
-        // {
-        //     _logger.LogInformation("No sales data found for snapshot date {SnapshotDate} (Company: {CompanyId})", snapshotDateLocal, _options.CompanyId ?? "any");
-        //     return;
-        // }
-
-        // var storeSummaries = rawData
-        //     .GroupBy(sd => new { sd.Scheme, sd.StoreCode })
-        //     .Select(group =>
-        //     {
-        //         var maxHour = group.Max(x => x.Hour);
-        //         var hourRows = group.Where(x => x.Hour == maxHour).ToList();
-        //         var latestRow = hourRows
-        //             .OrderByDescending(x => x.ReceivedAt)
-        //             .First();
-
-        //         return new StoreSnapshot
-        //         {
-        //             Scheme = latestRow.Scheme ?? "N/A",
-        //             StoreCode = latestRow.StoreCode ?? "N/A",
-        //             DivisionName = latestRow.DivisionName,
-        //             CategoryName = latestRow.CategoryName,
-        //             Hour = maxHour,
-        //             TotalSales = hourRows.Sum(x => x.NetAmountAcy),
-        //             TotalTransactions = hourRows.Sum(x => x.TotalTransactions),
-        //             LastUpdatedUtc = hourRows.Max(x => x.ReceivedAt)
-        //         };
-        //     })
-        //     .OrderByDescending(s => s.TotalSales)
-        //     .ToList();
-
 
         var latestPerKey = _context.SalesData
-                .Where(sd => sd.CompanyId == _options.CompanyId && sd.ReceivedAt.Date == DateTime.Now.Date.AddDays(-1))
+                // .Where(sd => sd.CompanyId == _options.CompanyId && sd.ReceivedAt.Date == snapshotDateLocal.Date)
+                .Where(sd => sd.CompanyId == _options.CompanyId 
+                            && sd.ReceivedAt >= startUtc 
+                            && sd.ReceivedAt < endUtc)
                 .GroupBy(sd => new { sd.StoreCode, sd.Scheme, sd.DivisionName, sd.CategoryName })
                 .Select(g => new
                 {

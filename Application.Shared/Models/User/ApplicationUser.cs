@@ -9,9 +9,11 @@ namespace Application.Shared.Models.User;
 // Add profile data for application users by adding properties to the ApplicationUser class
 public class ApplicationUser : IdentityUser
 {
-    //public string Email { get; set; }
+    [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
     public DateTime? CreatedOn { get; set; }
 
+
+    [DatabaseGenerated(DatabaseGeneratedOption.Computed)]
     public DateTime? ModifiedOn { get; set; }
 
     public string? CreatedBy { get; set; }
@@ -19,6 +21,8 @@ public class ApplicationUser : IdentityUser
     public string? ModifiedBy { get; set; }
 
     public bool? IsDeleted { get; set; }
+    public string? DeletedBy { get; set; }
+    public DateTime? DeletedAt { get; set; }
 
 
     //public string UserName { get; set;  }

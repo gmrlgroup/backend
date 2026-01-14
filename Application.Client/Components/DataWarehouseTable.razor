@@ -1,0 +1,287 @@
+@using Microsoft.FluentUI.AspNetCore.Components
+@using System.Text.Json
+
+<div class="datawarehouse-table-container">
+    <!-- Header Controls -->
+    <div class="table-header">
+        <div class="table-info">
+            <h3>@TableName</h3>
+            <span class="row-count">@TotalRows rows</span>
+        </div>
+        
+        <div class="table-controls">
+            <!-- Column Selector -->
+            <FluentButton Appearance="Appearance.Outline" OnClick="@(() => showColumnSelector = !showColumnSelector)">
+                <FluentIcon Value="@(new Icons.Regular.Size20.TableSettings())" />
+                Columns (@VisibleColumns.Count/@AllColumns.Count)
+            </FluentButton>
+
+            <!-- Search/Filter -->
+            <FluentSearch @bind-Value="@searchText" 
+                         Placeholder="Search all columns..."
+                         @bind-Value:after="OnSearchChanged"
+                         style="width: 300px;" />
+        </div>
+    </div>
+
+    <!-- Column Selector Panel -->
+    @if (showColumnSelector)
+    {
+        <div class="column-selector-panel">
+            <div class="column-selector-header">
+                <h4>Select Columns</h4>
+                <FluentButton Appearance="Appearance.Lightweight" OnClick="@(() => showColumnSelector = false)">
+                    <FluentIcon Value="@(new Icons.Regular.Size20.Dismiss())" />
+                </FluentButton>
+            </div>
+            <div class="column-selector-body">
+                <FluentButton Appearance="Appearance.Lightweight" OnClick="SelectAllColumns">Select All</FluentButton>
+                <FluentButton Appearance="Appearance.Lightweight" OnClick="DeselectAllColumns">Deselect All</FluentButton>
+                <div class="column-list">
+                    @foreach (var column in AllColumns)
+                    {
+                        <FluentCheckbox 
+                            @bind-Value="column.IsVisible"
+                            @bind-Value:after="UpdateVisibleColumns"
+                            Label="@($"{column.Name} ({column.DataType})")" />
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Data Grid -->
+    <div class="data-grid-wrapper">
+        @if (IsLoading)
+        {
+            <div class="loading-overlay">
+                <FluentProgressRing />
+                <p>Loading data...</p>
+            </div>
+        }
+        else if (FilteredData.Any())
+        {
+            <FluentDataGrid Items="@FilteredData.AsQueryable()" 
+                           GridTemplateColumns="@GetGridTemplateColumns()"
+                           Class="streamlit-style-grid"
+                           Virtualize="true"
+                           ResizableColumns="true">
+                @foreach (var column in VisibleColumns)
+                {
+                    <PropertyColumn Property="@(row => GetCellValue(row, column.Name))" 
+                                  Title="@column.Name" 
+                                  Sortable="true"
+                                  Class="@GetColumnClass(column.DataType)">
+                        <ColumnOptions>
+                            <div class="column-filter">
+                                <FluentSearch @bind-Value="@column.FilterValue"
+                                            @bind-Value:after="ApplyFilters"
+                                            Placeholder="Filter..."
+                                            style="width: 100%;" />
+                            </div>
+                        </ColumnOptions>
+                    </PropertyColumn>
+                }
+            </FluentDataGrid>
+        }
+        else
+        {
+            <div class="no-data">
+                <FluentIcon Value="@(new Icons.Regular.Size24.TableSimple())" />
+                <p>No data available</p>
+            </div>
+        }
+    </div>
+
+    <!-- Pagination -->
+    @if (TotalPages > 1)
+    {
+        <div class="pagination-controls">
+            <FluentButton Appearance="Appearance.Outline" 
+                         Disabled="@(CurrentPage <= 1)"
+                         OnClick="@(() => ChangePage(1))">
+                <FluentIcon Value="@(new Icons.Regular.Size20.ChevronDoubleLeft())" />
+            </FluentButton>
+            
+            <FluentButton Appearance="Appearance.Outline" 
+                         Disabled="@(CurrentPage <= 1)"
+                         OnClick="@(() => ChangePage(CurrentPage - 1))">
+                <FluentIcon Value="@(new Icons.Regular.Size20.ChevronLeft())" />
+            </FluentButton>
+
+            <span class="page-info">
+                Page @CurrentPage of @TotalPages
+            </span>
+
+            <FluentButton Appearance="Appearance.Outline" 
+                         Disabled="@(CurrentPage >= TotalPages)"
+                         OnClick="@(() => ChangePage(CurrentPage + 1))">
+                <FluentIcon Value="@(new Icons.Regular.Size20.ChevronRight())" />
+            </FluentButton>
+
+            <FluentButton Appearance="Appearance.Outline" 
+                         Disabled="@(CurrentPage >= TotalPages)"
+                         OnClick="@(() => ChangePage(TotalPages))">
+                <FluentIcon Value="@(new Icons.Regular.Size20.ChevronDoubleRight())" />
+            </FluentButton>
+
+            @* <FluentSelect @bind-Value="@PageSize" 
+                        TOption="@int"
+                         @bind-Value:after="OnPageSizeChanged"
+                         style="width: 100px;">
+                <FluentOption Value="50">50 rows</FluentOption>
+                <FluentOption Value="100">100 rows</FluentOption>
+                <FluentOption Value="250">250 rows</FluentOption>
+                <FluentOption Value="500">500 rows</FluentOption>
+            </FluentSelect> *@
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string TableName { get; set; } = string.Empty;
+    [Parameter] public List<ColumnDefinition> AllColumns { get; set; } = new();
+    [Parameter] public List<Dictionary<string, object?>> Data { get; set; } = new();
+    [Parameter] public int TotalRows { get; set; }
+    [Parameter] public int CurrentPage { get; set; } = 1;
+    [Parameter] public int TotalPages { get; set; }
+    [Parameter] public int PageSize { get; set; } = 100;
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback<int> OnPageChanged { get; set; }
+    [Parameter] public EventCallback<int> OnPageSizeChanged { get; set; }
+
+    private List<ColumnDefinition> VisibleColumns => AllColumns.Where(c => c.IsVisible).ToList();
+    private List<Dictionary<string, object?>> FilteredData => ApplyClientSideFilters();
+    
+    private bool showColumnSelector = false;
+    private string searchText = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        // Initialize column visibility on first load
+        if (AllColumns.Any() && AllColumns.All(c => !c.IsVisible))
+        {
+            foreach (var column in AllColumns)
+            {
+                column.IsVisible = true;
+            }
+        }
+    }
+
+    private void UpdateVisibleColumns()
+    {
+        StateHasChanged();
+    }
+
+    private void SelectAllColumns()
+    {
+        foreach (var column in AllColumns)
+        {
+            column.IsVisible = true;
+        }
+        StateHasChanged();
+    }
+
+    private void DeselectAllColumns()
+    {
+        foreach (var column in AllColumns)
+        {
+            column.IsVisible = false;
+        }
+        StateHasChanged();
+    }
+
+    private void OnSearchChanged()
+    {
+        StateHasChanged();
+    }
+
+    private void ApplyFilters()
+    {
+        StateHasChanged();
+    }
+
+    private List<Dictionary<string, object?>> ApplyClientSideFilters()
+    {
+        var filtered = Data.AsEnumerable();
+
+        // Apply global search
+        if (!string.IsNullOrWhiteSpace(searchText))
+        {
+            filtered = filtered.Where(row =>
+                row.Values.Any(value =>
+                    value?.ToString()?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+
+        // Apply column-specific filters
+        foreach (var column in AllColumns.Where(c => !string.IsNullOrWhiteSpace(c.FilterValue)))
+        {
+            var filterValue = column.FilterValue;
+            filtered = filtered.Where(row =>
+            {
+                if (row.TryGetValue(column.Name, out var value))
+                {
+                    return value?.ToString()?.Contains(filterValue, StringComparison.OrdinalIgnoreCase) ?? false;
+                }
+                return false;
+            });
+        }
+
+        return filtered.ToList();
+    }
+
+    private string GetCellValue(Dictionary<string, object?> row, string columnName)
+    {
+        if (row.TryGetValue(columnName, out var value))
+        {
+            if (value == null)
+                return "NULL";
+            
+            if (value is DateTime dt)
+                return dt.ToString("yyyy-MM-dd HH:mm:ss");
+            
+            if (value is decimal || value is double || value is float)
+                return string.Format("{0:N2}", value);
+            
+            return value.ToString() ?? string.Empty;
+        }
+        return string.Empty;
+    }
+
+    private string GetGridTemplateColumns()
+    {
+        var columnCount = VisibleColumns.Count;
+        if (columnCount == 0) return "1fr";
+        
+        return string.Join(" ", Enumerable.Repeat("1fr", columnCount));
+    }
+
+    private string GetColumnClass(string dataType)
+    {
+        return dataType.ToLower() switch
+        {
+            var t when t.Contains("int") || t.Contains("decimal") || t.Contains("double") || t.Contains("float") => "numeric-column",
+            var t when t.Contains("date") || t.Contains("time") => "date-column",
+            var t when t.Contains("bool") => "boolean-column",
+            _ => "text-column"
+        };
+    }
+
+    private async Task ChangePage(int page)
+    {
+        await OnPageChanged.InvokeAsync(page);
+    }
+
+    @* private async Task OnPageSizeChanged()
+    {
+        await this.OnPageSizeChanged.InvokeAsync(PageSize);
+    } *@
+
+    public class ColumnDefinition
+    {
+        public string Name { get; set; } = string.Empty;
+        public string DataType { get; set; } = string.Empty;
+        public bool IsVisible { get; set; } = true;
+        public string FilterValue { get; set; } = string.Empty;
+    }
+}

@@ -43,64 +43,100 @@ public class SalesRepository : ISalesRepository
         var databaseName = database.Name;
 
         var sql = @$"
-            with cte_store_categories as (
-                select
-                    tse.[Store No_] as StoreCode,
-                    CONVERT(decimal, COUNT(DISTINCT tse.[Item Category Code])) as CategoryCount
-                from [{database.Name}$Trans_ Sales Entry] tse
-                where tse.[Date] = CONVERT(date, GETDATE())
-                and tse.[POS Terminal No_] not in
-                (
-                    select [No_] from [{database.Name}$POS Terminal]
-                    where  [Hardware Profile] = 'SPINWASTE'
-                    )
-                group by tse.[Store No_]
-            ),
-
-            cte_stores_transactions as (
-
-                select
-                    th.[Store No_] as [StoreCode],
-                    CAST(COUNT(DISTINCT CONCAT(th.[Store No_], th.[POS Terminal No_], th.[Transaction No_])) as decimal) as [TotalTransactions]
-                from [{database.Name}$Transaction Header] as th
-
-                where th.[Date] = CONVERT(date,  GETDATE())
-                and th.Wastage = 0
-                and th.[Transaction Type] = 2
-
-                group by th.[Store No_]
-            )
-
-
-            select s.[Item Store Type] as [Scheme],
-                    tse.[Store No_] as [StoreCode],
-                    d.[Description] as [DivisionName],
-                    ic.[Description] as [CategoryName],
-                    MAX(DATEPART(HOUR, tse.[Time])) as [Hour],
-                    SUM(tse.[Net Amount] / 89700) * -1 as [NetAmountAc], -- [BM Rate]
-                    AVG(CONVERT(decimal, str.TotalTransactions) / CONVERT(decimal, stc.CategoryCount)) as TotalStoreTransactions,
-                    COUNT(DISTINCT CONCAT(tse.[Store No_], tse.[POS Terminal No_], tse.[Transaction No_])) as [TotalTransactions]
-            from [{database.Name}$Trans_ Sales Entry] as tse
-            left join [{database.Name}$Store] as s on s.[No_] = tse.[Store No_]
-            left join [{database.Name}$Item Category] as ic on ic.Code = tse.[Item Category Code]
-            left join [{database.Name}$Division] as d on d.Code = ic.[Division Code]
-            inner join cte_stores_transactions as str on str.StoreCode = tse.[Store No_]
-            inner join cte_store_categories as stc on stc.StoreCode = tse.[Store No_]
-
-            where tse.[Date] = CONVERT(date,  GETDATE())
-            and tse.[POS Terminal No_] != ''
-            and tse.[POS Terminal No_] not in
+            DECLARE @Today date = CONVERT(date, GETDATE());
+ 
+            /* 1) Materialize today's sales once */
+            IF OBJECT_ID('tempdb..#SalesBase') IS NOT NULL DROP TABLE #SalesBase;
+            
+            SELECT
+                tse.[Store No_]          AS StoreCode,
+                tse.[Item Category Code] AS ItemCategoryCode,
+                tse.[POS Terminal No_]   AS PosNo,
+                tse.[Transaction No_]    AS TransNo,
+                tse.[Time]               AS [Time],
+                tse.[Net Amount]         AS NetAmount
+            INTO #SalesBase
+            FROM [{database.Name}$Trans_ Sales Entry] tse
+            WHERE tse.[Date] = @Today
+            AND tse.[POS Terminal No_] <> ''
+            AND NOT EXISTS
             (
-                select [No_] from [{database.Name}$POS Terminal]
-                where  [Hardware Profile] = 'SPINWASTE'
-                )
+                SELECT 1
+                FROM [{database.Name}$POS Terminal] pt
+                WHERE pt.[Hardware Profile] = 'SPINWASTE'
+                    AND pt.[No_] = tse.[POS Terminal No_]
+            );
+            
+            -- 2) Index the temp table for your GROUP BY / DISTINCT patterns
+            CREATE CLUSTERED INDEX CX_SalesBase
+            ON #SalesBase (StoreCode, ItemCategoryCode, PosNo, TransNo);
+            
+            CREATE NONCLUSTERED INDEX IX_SalesBase_Store_Time
+            ON #SalesBase (StoreCode, [Time])
+            INCLUDE (NetAmount);
+            
+            /* 3) Pre-aggregate once from temp table */
+            ;WITH StoreCategories AS
+            (
+                SELECT StoreCode, COUNT(DISTINCT ItemCategoryCode) * 1.0 AS CategoryCount
+                FROM #SalesBase
+                GROUP BY StoreCode
+            ),
+            StoreTransactions AS
+            (
+                SELECT th.[Store No_] AS StoreCode, COUNT(*) * 1.0 AS TotalTransactions
+                FROM [{database.Name}$Transaction Header] th
+                WHERE th.[Date] = @Today
+                AND th.Wastage = 0
+                AND th.[Transaction Type] = 2
+                GROUP BY th.[Store No_]
+            ),
+            DistinctTxn AS
+            (
+                -- NO string concat: distinct keyset
+                SELECT StoreCode, PosNo, TransNo
+                FROM #SalesBase
+                GROUP BY StoreCode, PosNo, TransNo
+            )
+            SELECT
+                s.[Item Store Type] AS [Scheme],
+                sb.StoreCode,
+                d.[Description]     AS [DivisionName],
+                ic.[Description]    AS [CategoryName],
+                MAX(DATEPART(HOUR, sb.[Time])) AS [Hour],
+                SUM(sb.NetAmount / 89700.0) * -1 AS [NetAmountAc],
+            
+                (str.TotalTransactions / NULLIF(stc.CategoryCount, 0)) AS TotalStoreTransactions,
+            
+                -- count distinct transactions without CONCAT
+                COUNT(dt.TransNo) AS [TotalTransactions]
+            FROM #SalesBase sb
+            LEFT JOIN [{database.Name}$Store] s
+                ON s.[No_] = sb.StoreCode
+            LEFT JOIN [{database.Name}$Item Category] ic
+                ON ic.Code = sb.ItemCategoryCode
+            LEFT JOIN [{database.Name}$Division] d
+                ON d.Code = ic.[Division Code]
+            INNER JOIN StoreTransactions str
+                ON str.StoreCode = sb.StoreCode
+            INNER JOIN StoreCategories stc
+                ON stc.StoreCode = sb.StoreCode
+            LEFT JOIN DistinctTxn dt
+                ON dt.StoreCode = sb.StoreCode
+            AND dt.PosNo     = sb.PosNo
+            AND dt.TransNo   = sb.TransNo
+            GROUP BY
+                s.[Item Store Type],
+                sb.StoreCode,
+                d.[Description],
+                ic.[Description],
+                (str.TotalTransactions / NULLIF(stc.CategoryCount, 0))
+            ORDER BY
+                sb.StoreCode
+            OPTION (RECOMPILE);";
 
-            group by s.[Item Store Type],
-                    tse.[Store No_],
-                    d.[Description],
-                    ic.[Description]
 
-            order by tse.[Store No_];";
+            
 
         var sql_old = @$"
             select s.[Item Store Type] as [Scheme],

@@ -3,6 +3,7 @@ using Application.Components;
 using Application.Components.Account;
 using Application.Helpers;
 using Application.Hubs;
+using Application.Services;
 using Application.Services.Data;
 using Application.Shared.Data;
 using Application.Shared.Models;
@@ -116,17 +117,30 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString, b => b.MigrationsAssembly("Application")));
 
 
+var userManagementConnectionString = builder.Configuration.GetConnectionString("UserManagementDbContext") ?? throw new InvalidOperationException("Connection string 'ApplicationDbContext' not found.");
+builder.Services.AddDbContext<UserManagementDbContext>(options =>
+    options.UseSqlServer(userManagementConnectionString, b => b.MigrationsAssembly("Application")));
+
+
+// Add Data Warehouse DbContext
+var dataWarehouseConnectionString = builder.Configuration.GetConnectionString("DataWarehouseDbContext");
+if (!string.IsNullOrEmpty(dataWarehouseConnectionString))
+{
+    builder.Services.AddDbContext<DataWarehouseDbContext>(options =>
+        options.UseSqlServer(dataWarehouseConnectionString));
+}
 
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
 builder.Services.AddIdentityCore<ApplicationUser>(options => options.SignIn.RequireConfirmedAccount = true)
-    .AddEntityFrameworkStores<ApplicationDbContext>()
+    .AddEntityFrameworkStores<UserManagementDbContext>()
     .AddSignInManager()
     .AddRoles<IdentityRole>()
     .AddRoleManager<RoleManager<IdentityRole>>()
-    .AddRoleStore<RoleStore<IdentityRole, ApplicationDbContext>>()
-    .AddUserStore<UserStore<ApplicationUser, IdentityRole, ApplicationDbContext>>()
+    .AddRoleStore<RoleStore<IdentityRole, UserManagementDbContext>>()
+    .AddUserStore<UserStore<ApplicationUser, IdentityRole, UserManagementDbContext>>()
     .AddDefaultTokenProviders();
+
 
 // Add services to the container.
 builder.Services.AddMemoryCache();
@@ -150,6 +164,9 @@ builder.Services.AddScoped<IDuckdbService, DuckdbService>();
 builder.Services.AddScoped<ICommentService, CommentService>();
 builder.Services.AddScoped<IUserPreferencesService, UserPreferencesService>();
 builder.Services.AddScoped<IUserSearchService, UserSearchService>();
+
+// Add Data Warehouse Service
+builder.Services.AddScoped<DataWarehouseService>();
 
 // Add Dataset Sharing Services
 builder.Services.AddScoped<IDatasetSharingService, DatasetSharingService>();

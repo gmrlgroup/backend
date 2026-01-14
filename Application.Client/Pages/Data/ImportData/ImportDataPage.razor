@@ -109,18 +109,19 @@
 
 @code {
     private int currentStep = 1;
-    private string? companyId;
+    // private string? companyId;
     private Dataset? selectedDataset;
     private IBrowserFile? uploadedFile;
     private string fileName = string.Empty;
     private List<string> csvHeaders = new();
     private Table tableModel = new();
-    private bool isProcessing = false;    [SupplyParameterFromQuery]
-    public string? c { get; set; } // Company ID
+    private bool isProcessing = false;    
+    
+    [SupplyParameterFromQuery(Name = "c")]
+    public string? companyId { get; set; } // Company ID
 
     protected override Task OnInitializedAsync()
     {
-        companyId = c;
 
         // Remove and add company ID to headers
         _httpClient.DefaultRequestHeaders.Remove("CompanyId");

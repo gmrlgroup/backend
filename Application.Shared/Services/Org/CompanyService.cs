@@ -8,9 +8,9 @@ namespace Application.Shared.Services.Org
 {
     public class CompanyService : ICompanyService
     {
-        private readonly ApplicationDbContext _context;
+        private readonly UserManagementDbContext _context;
 
-        public CompanyService(ApplicationDbContext context)
+        public CompanyService(UserManagementDbContext context)
         {
             _context = context;
         }

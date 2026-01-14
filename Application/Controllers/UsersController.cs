@@ -21,13 +21,13 @@ namespace Application.Controllers
     [RequireCompanyHeader]
     public class UsersController : ControllerBase
     {
-        private readonly ApplicationDbContext _context;
+        private readonly UserManagementDbContext _context;
         private readonly IUserService _userService;
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly RoleManager<IdentityRole> _roleManager;
 
 
-        public UsersController(ApplicationDbContext context, 
+        public UsersController(UserManagementDbContext context, 
                                 IUserService userService, 
                                 UserManager<ApplicationUser> userManager,
                                 RoleManager<IdentityRole> roleManager

@@ -10,6 +10,7 @@ using Application.Shared.Models;
 using Application.Shared.Models.User;
 using Microsoft.AspNetCore.Identity;
 using Application.Shared.Services.Org;
+using System.Security.Claims;
 
 namespace Application.Controllers
 {
@@ -17,21 +18,24 @@ namespace Application.Controllers
     [ApiController]
     public class CompaniesController : ControllerBase
     {
-        private readonly ApplicationDbContext _context;
+        private readonly UserManagementDbContext _context;
         private readonly ICompanyService _companyService;
         private readonly UserManager<ApplicationUser> _userManager;
 
-        public CompaniesController(ApplicationDbContext context, ICompanyService companyService, UserManager<ApplicationUser> userManager)
+        public CompaniesController(UserManagementDbContext context, ICompanyService companyService, UserManager<ApplicationUser> userManager)
         {
             _context = context;
             _companyService = companyService;
             _userManager = userManager;
-        }        // GET: api/Companies
+        }
+                // GET: api/Companies
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Company>>> GetCompanies()
         {
-            // get userId from header
-            var userId = Request.Headers["UserId"].ToString();
+            // get userId from claim
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+            Console.WriteLine($"----------------------------------- {userId}");
 
             if (string.IsNullOrEmpty(userId))
             {
@@ -41,14 +45,16 @@ namespace Application.Controllers
             var companies = await _companyService.GetCompanies(userId);
 
             return Ok(companies);
-        }        // POST: api/Companies
+        }        
+        
+        // POST: api/Companies
         [HttpPost]
         public async Task<ActionResult<Company>> CreateCompany(Company company)
         {
             try
             {
-                // get userId from header
-                var userId = Request.Headers["UserId"].ToString();
+                // get userId from claim
+                var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
                 if (string.IsNullOrEmpty(userId))
                 {

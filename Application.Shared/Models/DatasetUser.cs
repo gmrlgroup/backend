@@ -14,7 +14,7 @@ public class DatasetUser
 
     [Required]
     public string UserId { get; set; } = string.Empty;
-    public ApplicationUser? User { get; set; }
+    // public ApplicationUser? User { get; set; }
 
     [Required]
     public DatasetUserType Type { get; set; } = DatasetUserType.Viewer;

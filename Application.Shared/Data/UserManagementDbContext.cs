@@ -9,12 +9,12 @@ using System.Text;
 
 namespace Application.Shared.Data
 {
-    //public delegate ApplicationDbContext DbContextFactory(string companyId);
+    //public delegate UserManagementDbContext DbContextFactory(string companyId);
 
-    public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : DbContext(options)
+    public class UserManagementDbContext(DbContextOptions<UserManagementDbContext> options) : IdentityDbContext<ApplicationUser>(options)
     {
 
-        // public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : base(options)
+        // public UserManagementDbContext(DbContextOptions<UserManagementDbContext> options) : base(options)
         // {
         // }
 
@@ -23,6 +23,41 @@ namespace Application.Shared.Data
         {
             // Configure the model to use snake case naming
             base.OnModelCreating(modelBuilder);
+
+            modelBuilder.Entity<ApplicationUser>(b =>
+            {
+                b.ToTable("application_user");
+            });
+            modelBuilder.Entity<IdentityUserClaim<string>>(b =>
+            {
+                b.ToTable("user_claim");
+            });
+
+            modelBuilder.Entity<IdentityUserLogin<string>>(b =>
+            {
+                b.ToTable("user_login");
+            });
+
+            modelBuilder.Entity<IdentityUserToken<string>>(b =>
+            {
+                b.ToTable("token");
+            });
+
+            modelBuilder.Entity<IdentityRole>(b =>
+            {
+                b.ToTable("role");
+            });
+
+            modelBuilder.Entity<IdentityRoleClaim<string>>(b =>
+            {
+                b.ToTable("role_claim");
+            });
+
+            modelBuilder.Entity<IdentityUserRole<string>>(b =>
+            {
+                b.ToTable("user_role");
+            });
+
 
 
 
@@ -73,17 +108,6 @@ namespace Application.Shared.Data
         public DbSet<CompanyDomain> CompanyDomain { get; set; }
 
         public DbSet<ApplicationUser> ApplicationUser { get; set; }
-
-
-        // DATA MODELS
-        public DbSet<Database> Database { get; set; }
-        public DbSet<Dataset> Dataset { get; set; }
-        
-        public DbSet<DatasetUser> DatasetUser { get; set; }
-        
-        public DbSet<DataTableComment> DataTableComment { get; set; }
-        
-        public DbSet<SalesData> SalesData { get; set; }
 
 
 

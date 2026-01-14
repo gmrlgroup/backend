@@ -116,6 +116,12 @@ var connectionString = builder.Configuration.GetConnectionString("ApplicationDbC
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString, b => b.MigrationsAssembly("Application")));
 
+
+var userManagementConnectionString = builder.Configuration.GetConnectionString("UserManagementDbContext") ?? throw new InvalidOperationException("Connection string 'ApplicationDbContext' not found.");
+builder.Services.AddDbContext<UserManagementDbContext>(options =>
+    options.UseSqlServer(userManagementConnectionString, b => b.MigrationsAssembly("Application")));
+
+
 // Add Data Warehouse DbContext
 var dataWarehouseConnectionString = builder.Configuration.GetConnectionString("DataWarehouseDbContext");
 if (!string.IsNullOrEmpty(dataWarehouseConnectionString))
@@ -127,13 +133,14 @@ if (!string.IsNullOrEmpty(dataWarehouseConnectionString))
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
 builder.Services.AddIdentityCore<ApplicationUser>(options => options.SignIn.RequireConfirmedAccount = true)
-    .AddEntityFrameworkStores<ApplicationDbContext>()
+    .AddEntityFrameworkStores<UserManagementDbContext>()
     .AddSignInManager()
     .AddRoles<IdentityRole>()
     .AddRoleManager<RoleManager<IdentityRole>>()
-    .AddRoleStore<RoleStore<IdentityRole, ApplicationDbContext>>()
-    .AddUserStore<UserStore<ApplicationUser, IdentityRole, ApplicationDbContext>>()
+    .AddRoleStore<RoleStore<IdentityRole, UserManagementDbContext>>()
+    .AddUserStore<UserStore<ApplicationUser, IdentityRole, UserManagementDbContext>>()
     .AddDefaultTokenProviders();
+
 
 // Add services to the container.
 builder.Services.AddMemoryCache();

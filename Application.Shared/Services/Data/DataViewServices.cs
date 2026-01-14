@@ -7,6 +7,7 @@ namespace Application.Shared.Services.Data;
 public class CommentService : ICommentService
 {
     private readonly ApplicationDbContext _context;
+    
 
     public CommentService(ApplicationDbContext context)
     {
@@ -97,16 +98,18 @@ public class UserPreferencesService : IUserPreferencesService
 public class UserSearchService : IUserSearchService
 {
     private readonly ApplicationDbContext _context;
+    private readonly UserManagementDbContext _userContext;
 
-    public UserSearchService(ApplicationDbContext context)
+    public UserSearchService(ApplicationDbContext context, UserManagementDbContext userContext)
     {
         _context = context;
+        _userContext = userContext;
     }
 
     public async Task<List<UserMention>> SearchUsersAsync(string companyId, string searchTerm, int maxResults = 5)
     {
         // Get users from the company that match the search term
-        var users = await _context.Users
+        var users = await _userContext.ApplicationUser
             .Where(u => (u.UserName!.Contains(searchTerm) || 
                         u.Email!.Contains(searchTerm) ||
                         (u.UserName != null && u.UserName.Contains(searchTerm))))

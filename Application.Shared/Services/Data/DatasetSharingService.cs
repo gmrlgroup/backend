@@ -28,19 +28,40 @@ public class DatasetSharingService : IDatasetSharingService
 
     public async Task<List<DatasetUserDto>> GetDatasetUsersAsync(string datasetId)
     {
+        // var datasetUsers = await _context.DatasetUser
+        //     .Include(du => du.User)
+        //     .Where(du => du.DatasetId == datasetId)
+        //     .Select(du => new DatasetUserDto
+        //     {
+        //         UserId = du.UserId,
+        //         Email = du.User!.Email!,
+        //         UserName = du.User!.UserName!,
+        //         Type = du.Type,
+        //         CreatedAt = du.CreatedAt
+        //     })
+        //     .OrderBy(du => du.Email)
+        //     .ToListAsync();
+
         var datasetUsers = await _context.DatasetUser
-            .Include(du => du.User)
             .Where(du => du.DatasetId == datasetId)
             .Select(du => new DatasetUserDto
             {
                 UserId = du.UserId,
-                Email = du.User!.Email!,
-                UserName = du.User!.UserName!,
                 Type = du.Type,
                 CreatedAt = du.CreatedAt
             })
-            .OrderBy(du => du.Email)
             .ToListAsync();
+
+        // Populate user details using IUserService
+        foreach (var du in datasetUsers)
+        {
+            var user = await _userService.GetUser(du.UserId);
+            if (user != null)
+            {
+                du.Email = user.Email;
+                du.UserName = user.UserName;
+            }
+        }
 
         return datasetUsers;
     }

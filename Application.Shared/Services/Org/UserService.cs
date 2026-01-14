@@ -13,12 +13,12 @@ namespace Application.Shared.Services.Org
 {
     public class UserService : IUserService
     {
-        private readonly ApplicationDbContext _context;
+        private readonly UserManagementDbContext _context;
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly IUserStore<ApplicationUser> _userStore;
         private readonly ICompanyService _companyService;
 
-        public UserService(ApplicationDbContext context,
+        public UserService(UserManagementDbContext context,
                             UserManager<ApplicationUser> userManager,
                             IUserStore<ApplicationUser> userStore,
                             ICompanyService companyService)

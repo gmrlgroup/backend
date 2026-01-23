@@ -1,0 +1,331 @@
+@using Application.Shared.Models
+@using Application.Shared.Enums
+@using Microsoft.FluentUI.AspNetCore.Components
+@implements IDialogContentComponent<Metric>
+
+<FluentDialogBody>
+    <FluentStack Orientation="Orientation.Vertical" VerticalGap="20">
+        
+        <!-- Functions Section -->
+        <FluentCard Style="box-shadow: none;">
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
+                    📋 Functions
+                </FluentLabel>
+                <FluentDivider Style="width: 100%;" />
+                
+                @if (Content.Functions.Any())
+                {
+                    @foreach (var func in Content.Functions)
+                    {
+                        <FluentCard Style="background: #f8fafc; padding: 12px; box-shadow: none;">
+                            <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                                <div class="detail-row">
+                                    <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Function:</FluentLabel>
+                                    <FluentLabel Class="detail-value">@func.Function</FluentLabel>
+                                </div>
+                                @if (!string.IsNullOrEmpty(func.SubFunction))
+                                {
+                                    <div class="detail-row">
+                                        <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Sub-Function:</FluentLabel>
+                                        <FluentLabel Class="detail-value">@func.SubFunction</FluentLabel>
+                                    </div>
+                                }
+                                @if (!string.IsNullOrEmpty(func.FunctionHead))
+                                {
+                                    <div class="detail-row">
+                                        <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Function Head:</FluentLabel>
+                                        <FluentLabel Class="detail-value">@func.FunctionHead</FluentLabel>
+                                    </div>
+                                }
+                            </FluentStack>
+                        </FluentCard>
+                    }
+                }
+                else
+                {
+                    <FluentLabel Color="Color.Neutral">No functions defined</FluentLabel>
+                }
+            </FluentStack>
+        </FluentCard>
+
+        <!-- Owners Section -->
+        <FluentCard Style="box-shadow: none;">
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
+                    👤 KPI Owners
+                </FluentLabel>
+                <FluentDivider Style="width: 100%;" />
+                
+                @if (Content.Owners.Any())
+                {
+                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                        @foreach (var owner in Content.Owners)
+                        {
+                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                                <FluentIcon Value="@(new Icons.Regular.Size16.Person())" Color="Color.Accent" />
+                                <FluentLabel>@owner.OwnerName</FluentLabel>
+                            </FluentStack>
+                        }
+                    </FluentStack>
+                }
+                else
+                {
+                    <FluentLabel Color="Color.Neutral">No owners defined</FluentLabel>
+                }
+            </FluentStack>
+        </FluentCard>
+
+        <!-- Recipients Section -->
+        <FluentCard Style="box-shadow: none;">
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
+                    📧 Intended Recipients
+                </FluentLabel>
+                <FluentDivider Style="width: 100%;" />
+                
+                @if (Content.Recipients.Any())
+                {
+                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                        @foreach (var recipient in Content.Recipients)
+                        {
+                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                                <FluentIcon Value="@(new Icons.Regular.Size16.Mail())" Color="Color.Accent" />
+                                <FluentLabel>@recipient.RecipientName</FluentLabel>
+                            </FluentStack>
+                        }
+                    </FluentStack>
+                }
+                else
+                {
+                    <FluentLabel Color="Color.Neutral">No recipients defined</FluentLabel>
+                }
+            </FluentStack>
+        </FluentCard>
+
+        <!-- Verifiers Section -->
+        <FluentCard Style="box-shadow: none;">
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
+                    ✅ KPI Verifiers
+                </FluentLabel>
+                <FluentDivider Style="width: 100%;" />
+
+                @if (Content.Verifiers.Any())
+                {
+                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                        @foreach (var verifier in Content.Verifiers)
+                        {
+                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                                <FluentIcon Value="@(new Icons.Regular.Size16.CheckmarkCircle())" Color="Color.Success" />
+                                <FluentLabel>@verifier.VerifierName</FluentLabel>
+                            </FluentStack>
+                        }
+                    </FluentStack>
+                }
+                else
+                {
+                    <FluentLabel Color="Color.Neutral">No verifiers defined</FluentLabel>
+                }
+            </FluentStack>
+        </FluentCard>
+
+        <!-- Dimensions Section -->
+        <FluentCard Style="box-shadow: none;">
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
+                    📐 Dimensions
+                </FluentLabel>
+                <FluentDivider Style="width: 100%;" />
+
+                @if (Content.Dimensions.Any())
+                {
+                    @foreach (var dimension in Content.Dimensions)
+                    {
+                        <FluentCard Style="background: #f8fafc; padding: 12px; box-shadow: none;">
+                            <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                                <div class="detail-row">
+                                    <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Name:</FluentLabel>
+                                    <FluentLabel Class="detail-value">@dimension.Name</FluentLabel>
+                                </div>
+                                @if (!string.IsNullOrEmpty(dimension.Description))
+                                {
+                                    <div class="detail-row">
+                                        <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Description:</FluentLabel>
+                                        <FluentLabel Class="detail-value">@dimension.Description</FluentLabel>
+                                    </div>
+                                }
+                                @if (!string.IsNullOrEmpty(dimension.SourceTable))
+                                {
+                                    <div class="detail-row">
+                                        <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Source Table:</FluentLabel>
+                                        <FluentLabel Class="detail-value">@dimension.SourceTable</FluentLabel>
+                                    </div>
+                                }
+                                @if (!string.IsNullOrEmpty(dimension.SourceColumn))
+                                {
+                                    <div class="detail-row">
+                                        <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Source Column:</FluentLabel>
+                                        <FluentLabel Class="detail-value">@dimension.SourceColumn</FluentLabel>
+                                    </div>
+                                }
+                            </FluentStack>
+                        </FluentCard>
+                    }
+                }
+                else
+                {
+                    <FluentLabel Color="Color.Neutral">No dimensions defined</FluentLabel>
+                }
+            </FluentStack>
+        </FluentCard>
+
+        <!-- Data Source Section -->
+        <FluentCard Style="box-shadow: none;">
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
+                    🔌 Data Source Connection
+                </FluentLabel>
+                <FluentDivider Style="width: 100%;" />
+
+                @if (Content.MetricDataSource != null)
+                {
+                    <FluentCard Style="background: #f8fafc; padding: 12px; box-shadow: none;">
+                        <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                            @if (!string.IsNullOrEmpty(Content.MetricDataSource.ConnectionName))
+                            {
+                                <div class="detail-row">
+                                    <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Connection:</FluentLabel>
+                                    <FluentLabel Class="detail-value">@Content.MetricDataSource.ConnectionName</FluentLabel>
+                                </div>
+                            }
+                            <div class="detail-row">
+                                <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Type:</FluentLabel>
+                                <FluentBadge Appearance="Appearance.Accent">@Content.MetricDataSource.Type</FluentBadge>
+                            </div>
+                            <div class="detail-row">
+                                <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Host:</FluentLabel>
+                                <FluentLabel Class="detail-value">@Content.MetricDataSource.Host:@Content.MetricDataSource.Port</FluentLabel>
+                            </div>
+                            <div class="detail-row">
+                                <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Database:</FluentLabel>
+                                <FluentLabel Class="detail-value">@Content.MetricDataSource.Database</FluentLabel>
+                            </div>
+                            <div class="detail-row">
+                                <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Username:</FluentLabel>
+                                <FluentLabel Class="detail-value">@Content.MetricDataSource.Username</FluentLabel>
+                            </div>
+                            <div class="detail-row">
+                                <FluentLabel Weight="FontWeight.Bold" Class="detail-label">SSL/TLS:</FluentLabel>
+                                <FluentLabel Class="detail-value">@(Content.MetricDataSource.UseSSL ? "Enabled" : "Disabled")</FluentLabel>
+                            </div>
+                        </FluentStack>
+                    </FluentCard>
+
+                    @if (!string.IsNullOrEmpty(Content.Query))
+                    {
+                        <FluentLabel Weight="FontWeight.Bold">SQL Query</FluentLabel>
+                        <FluentCard Style="background: #1e293b; padding: 12px; box-shadow: none;">
+                            <FluentLabel Style="font-family: monospace; white-space: pre-wrap; word-break: break-word; color: #e2e8f0;">@Content.Query</FluentLabel>
+                        </FluentCard>
+                    }
+                }
+                else
+                {
+                    <FluentLabel Color="Color.Neutral">No data source configured</FluentLabel>
+                }
+            </FluentStack>
+        </FluentCard>
+
+        <!-- Formula Section -->
+        @if (!string.IsNullOrEmpty(Content.Formula))
+        {
+            <FluentCard Style="box-shadow: none;">
+                <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                    <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
+                        🔢 Formula
+                    </FluentLabel>
+                    <FluentDivider Style="width: 100%;" />
+                    
+                    <FluentCard Style="background: #f8fafc; padding: 12px; box-shadow: none;">
+                        <FluentLabel Style="font-family: monospace; white-space: pre-wrap; word-break: break-word;">@Content.Formula</FluentLabel>
+                    </FluentCard>
+                </FluentStack>
+            </FluentCard>
+        }
+
+        <!-- Additional Information -->
+        <FluentCard Style="box-shadow: none;">
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
+                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
+                    ℹ️ Additional Information
+                </FluentLabel>
+                <FluentDivider Style="width: 100%;" />
+                
+                <div class="detail-row">
+                    <FluentLabel Weight="FontWeight.Bold" Class="detail-label-wide">KPA:</FluentLabel>
+                    <FluentLabel Class="detail-value">@Content.KeyPerformanceArea</FluentLabel>
+                </div>
+
+                <div class="detail-row">
+                    <FluentLabel Weight="FontWeight.Bold" Class="detail-label-wide">Type:</FluentLabel>
+                    <FluentLabel Class="detail-value">@Content.Type</FluentLabel>
+                </div>
+
+                <div class="detail-row">
+                    <FluentLabel Weight="FontWeight.Bold" Class="detail-label-wide">Perspective:</FluentLabel>
+                    <FluentLabel Class="detail-value">@Content.Perspective</FluentLabel>
+                </div>
+
+                <div class="detail-row">
+                    <FluentLabel Weight="FontWeight.Bold" Class="detail-label-wide">Level:</FluentLabel>
+                    <FluentLabel Class="detail-value">@Content.KPILevel</FluentLabel>
+                </div>
+
+                @if (!string.IsNullOrEmpty(Content.Target))
+                {
+                    <div class="detail-row">
+                        <FluentLabel Weight="FontWeight.Bold" Class="detail-label-wide">Target:</FluentLabel>
+                        <FluentLabel Class="detail-value">@Content.Target</FluentLabel>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(Content.ContactEmail))
+                {
+                    <div class="detail-row">
+                        <FluentLabel Weight="FontWeight.Bold" Class="detail-label-wide">Contact Email:</FluentLabel>
+                        <FluentLabel Class="detail-value">@Content.ContactEmail</FluentLabel>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(Content.ContactNumber))
+                {
+                    <div class="detail-row">
+                        <FluentLabel Weight="FontWeight.Bold" Class="detail-label-wide">Contact Number:</FluentLabel>
+                        <FluentLabel Class="detail-value">@Content.ContactNumber</FluentLabel>
+                    </div>
+                }
+            </FluentStack>
+        </FluentCard>
+
+    </FluentStack>
+</FluentDialogBody>
+
+<FluentDialogFooter>
+    <FluentButton Appearance="Appearance.Neutral" OnClick="@CloseAsync">
+        Close
+    </FluentButton>
+</FluentDialogFooter>
+
+@code {
+    [Parameter]
+    public Metric Content { get; set; } = new();
+
+    [CascadingParameter]
+    public FluentDialog Dialog { get; set; } = default!;
+
+    private async Task CloseAsync()
+    {
+        await Dialog.CloseAsync();
+    }
+}

@@ -108,6 +108,37 @@ builder.Services.AddAuthentication(options =>
         options.TokenValidationParameters.NameClaimType = JwtRegisteredClaimNames.Name;
         options.TokenValidationParameters.RoleClaimType = "role";
 
+        // CRITICAL: Use Object ID (oid) as NameIdentifier instead of sub
+        options.Events = new OpenIdConnectEvents
+        {
+            OnTokenValidated = context =>
+            {
+                var identity = context.Principal.Identity as ClaimsIdentity;
+                
+                if (identity != null)
+                {
+                    // Get the Object ID claim
+                    var oidClaim = context.Principal.FindFirst(
+                        "http://schemas.microsoft.com/identity/claims/objectidentifier");
+                    
+                    if (oidClaim != null)
+                    {
+                        // Remove existing NameIdentifier (sub claim)
+                        var existingNameId = identity.FindFirst(ClaimTypes.NameIdentifier);
+                        if (existingNameId != null)
+                        {
+                            identity.RemoveClaim(existingNameId);
+                        }
+                        
+                        // Add Object ID as NameIdentifier
+                        identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, oidClaim.Value));
+                    }
+                }
+                
+                return Task.CompletedTask;
+            }
+        };
+
     });
 
 
@@ -164,6 +195,12 @@ builder.Services.AddScoped<IDuckdbService, DuckdbService>();
 builder.Services.AddScoped<ICommentService, CommentService>();
 builder.Services.AddScoped<IUserPreferencesService, UserPreferencesService>();
 builder.Services.AddScoped<IUserSearchService, UserSearchService>();
+
+// Metrics Services
+builder.Services.AddScoped<IMetricService, MetricService>();
+builder.Services.AddScoped<IMetricTargetService, MetricTargetService>();
+builder.Services.AddScoped<IMetricValueService, MetricValueService>();
+builder.Services.AddScoped<IClickHouseService, ClickHouseService>();
 
 // Add Data Warehouse Service
 builder.Services.AddScoped<DataWarehouseService>();

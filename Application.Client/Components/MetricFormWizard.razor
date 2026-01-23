@@ -1,0 +1,576 @@
+@using Application.Shared.Models
+@using Application.Shared.Enums
+@using Microsoft.FluentUI.AspNetCore.Components
+@using System.Net.Http.Json
+@inject HttpClient HttpClient
+@implements IDialogContentComponent<Metric>
+
+<FluentDialogHeader ShowDismiss="true">
+    <FluentStack Orientation="Orientation.Vertical">
+        <FluentLabel Typo="Typography.PaneHeader">
+            @Dialog.Instance.Parameters.Title
+        </FluentLabel>
+        <FluentLabel Typo="Typography.Body" Color="Color.Neutral">
+            Step @(currentStep + 1) of @totalSteps
+        </FluentLabel>
+    </FluentStack>
+</FluentDialogHeader>
+
+<FluentDialogBody>
+    <FluentStack Orientation="Orientation.Vertical" VerticalGap="20">
+        <!-- Progress Indicator -->
+        <FluentProgress Min="1" Max="@totalSteps" Value="@(currentStep + 1)"
+                        Width="100%"
+                        Color="Color.Info" />
+        
+        <!-- Step Content -->
+        @if (currentStep == 0)
+        {
+            <!-- Step 1: Function Information -->
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="16">
+                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
+                    📋 Function Information
+                </FluentLabel>
+                <FluentDivider Style="width: 100%;" />
+                
+                <FluentLabel Weight="FontWeight.Bold">Functions</FluentLabel>
+                @foreach (var func in Content.Functions.ToList())
+                {
+                    var currentFunc = func;
+                    <FluentCard Style="background: #f8fafc; padding: 12px;">
+                        <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                            <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween">
+                                <FluentLabel>Function Entry</FluentLabel>
+                                <FluentButton IconEnd="@(new Icons.Regular.Size16.Delete())" 
+                                              Appearance="Appearance.Lightweight"
+                                              OnClick="@(() => Content.Functions.Remove(currentFunc))" />
+                            </FluentStack>
+                            <FluentTextField @bind-Value="currentFunc.Function" Label="Function *" Required Style="width: 100%;" 
+                                Placeholder="e.g., Finance, Operations, Marketing" />
+                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="12">
+                                <FluentTextField @bind-Value="currentFunc.SubFunction" Label="Sub-Function" Style="flex: 1;" 
+                                    Placeholder="e.g., Accounting, Logistics" />
+                                <FluentTextField @bind-Value="currentFunc.FunctionHead" Label="Function Head" Style="flex: 1;" 
+                                    Placeholder="Name of department head" />
+                            </FluentStack>
+                        </FluentStack>
+                    </FluentCard>
+                }
+                <FluentButton IconStart="@(new Icons.Regular.Size16.Add())" 
+                              Appearance="Appearance.Outline"
+                              OnClick="@AddFunction">
+                    Add Function
+                </FluentButton>
+                
+                <FluentTextField @bind-Value="Content.KeyPerformanceArea" Label="Key Performance Area *" Required Style="width: 100%;" 
+                    Placeholder="Primary area of performance measurement" />
+                
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="12">
+                    <FluentTextField @bind-Value="Content.ContactEmail" Label="Contact Email" Style="flex: 1;" 
+                        Placeholder="contact@example.com" />
+                    <FluentTextField @bind-Value="Content.ContactNumber" Label="Contact Number" Style="flex: 1;" 
+                        Placeholder="+1234567890" />
+                </FluentStack>
+            </FluentStack>
+        }
+        else if (currentStep == 1)
+        {
+            <!-- Step 2: KPI Details -->
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="16">
+                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
+                    🎯 KPI Details
+                </FluentLabel>
+                <FluentDivider Style="width: 100%;" />
+                
+                <FluentTextField @bind-Value="Content.KPI" Label="KPI Name *" Required Style="width: 100%;" 
+                    Placeholder="e.g., Customer Satisfaction Score, Revenue Growth Rate" />
+                
+                <FluentTextArea @bind-Value="Content.Formula" Label="Formula" Rows="4" Style="width: 100%;" 
+                    Placeholder="Describe how this KPI is calculated" />
+                
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="12">
+                    <FluentSelect TOption="MetricType" Items="@metricTypes" @bind-SelectedOption="Content.Type" 
+                        Label="Type *" Style="flex: 1;" />
+                    <FluentSelect TOption="MetricPerspective" Items="@metricPerspectives" @bind-SelectedOption="Content.Perspective" 
+                        Label="Perspective *" Style="flex: 1;" />
+                </FluentStack>
+                
+                <FluentSelect TOption="MetricLevel" Items="@metricLevels" @bind-SelectedOption="Content.KPILevel" 
+                    Label="KPI Level *" Style="width: 100%;" />
+            </FluentStack>
+        }
+        else if (currentStep == 2)
+        {
+            <!-- Step 3: Target & Ownership -->
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="16">
+                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
+                    👥 Target & Ownership
+                </FluentLabel>
+                <FluentDivider Style="width: 100%;" />
+                
+                <FluentTextField @bind-Value="Content.Target" Label="Target" Style="width: 100%;" 
+                    Placeholder="e.g., 95%, $1M, 100 units" />
+                
+                <!-- Recipients -->
+                <FluentLabel Weight="FontWeight.Bold">Intended Recipients</FluentLabel>
+                @foreach (var recipient in Content.Recipients.ToList())
+                {
+                    var currentRecipient = recipient;
+                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                        <FluentTextField @bind-Value="currentRecipient.RecipientName" Placeholder="Who receives the reports" Style="flex: 1;" />
+                        <FluentButton IconEnd="@(new Icons.Regular.Size16.Delete())" 
+                                      Appearance="Appearance.Lightweight"
+                                      OnClick="@(() => Content.Recipients.Remove(currentRecipient))" />
+                    </FluentStack>
+                }
+                <FluentButton IconStart="@(new Icons.Regular.Size16.Add())" 
+                              Appearance="Appearance.Outline"
+                              OnClick="@AddRecipient">
+                    Add Recipient
+                </FluentButton>
+                
+                <!-- Owners -->
+                <FluentLabel Weight="FontWeight.Bold">KPI Owners</FluentLabel>
+                @foreach (var owner in Content.Owners.ToList())
+                {
+                    var currentOwner = owner;
+                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                        <FluentTextField @bind-Value="currentOwner.OwnerName" Placeholder="Person responsible for the KPI" Style="flex: 1;" />
+                        <FluentButton IconEnd="@(new Icons.Regular.Size16.Delete())" 
+                                      Appearance="Appearance.Lightweight"
+                                      OnClick="@(() => Content.Owners.Remove(currentOwner))" />
+                    </FluentStack>
+                }
+                <FluentButton IconStart="@(new Icons.Regular.Size16.Add())" 
+                              Appearance="Appearance.Outline"
+                              OnClick="@AddOwner">
+                    Add Owner
+                </FluentButton>
+                
+                <!-- Verifiers -->
+                <FluentLabel Weight="FontWeight.Bold">KPI Verifiers</FluentLabel>
+                @foreach (var verifier in Content.Verifiers.ToList())
+                {
+                    var currentVerifier = verifier;
+                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
+                        <FluentTextField @bind-Value="currentVerifier.VerifierName" Placeholder="Person who validates the data" Style="flex: 1;" />
+                        <FluentButton IconEnd="@(new Icons.Regular.Size16.Delete())" 
+                                      Appearance="Appearance.Lightweight"
+                                      OnClick="@(() => Content.Verifiers.Remove(currentVerifier))" />
+                    </FluentStack>
+                }
+                <FluentButton IconStart="@(new Icons.Regular.Size16.Add())" 
+                              Appearance="Appearance.Outline"
+                              OnClick="@AddVerifier">
+                    Add Verifier
+                </FluentButton>
+                
+                <FluentTextArea @bind-Value="Content.UnintendedConsequences" Label="Unintended Consequences" Rows="3" Style="width: 100%;" 
+                    Placeholder="Potential negative side effects of optimizing this KPI" />
+            </FluentStack>
+        }
+        else if (currentStep == 3)
+        {
+            <!-- Step 4: Dimensions -->
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="16">
+                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
+                    📐 Dimensions
+                </FluentLabel>
+                <FluentDivider Style="width: 100%;" />
+
+                <FluentLabel Color="Color.Neutral">
+                    Define the dimensions by which this metric can be broken down (e.g., by Store, by Item, by Region).
+                </FluentLabel>
+
+                @foreach (var dimension in Content.Dimensions.ToList())
+                {
+                    var currentDimension = dimension;
+                    <FluentCard Style="background: #f8fafc; padding: 12px;">
+                        <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                            <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween">
+                                <FluentLabel>Dimension Entry</FluentLabel>
+                                <FluentButton IconEnd="@(new Icons.Regular.Size16.Delete())"
+                                              Appearance="Appearance.Lightweight"
+                                              OnClick="@(() => Content.Dimensions.Remove(currentDimension))" />
+                            </FluentStack>
+                            <FluentTextField @bind-Value="currentDimension.Name" Label="Dimension Name *" Required Style="width: 100%;"
+                                Placeholder="e.g., Store, Item, Region, Product Category" />
+                            <FluentTextArea @bind-Value="currentDimension.Description" Label="Description" Rows="2" Style="width: 100%;"
+                                Placeholder="Describe what this dimension represents" />
+                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="12">
+                                <FluentTextField @bind-Value="currentDimension.SourceTable" Label="Source Table" Style="flex: 1;"
+                                    Placeholder="Table containing dimension data" />
+                                <FluentTextField @bind-Value="currentDimension.SourceColumn" Label="Source Column" Style="flex: 1;"
+                                    Placeholder="Column name for dimension values" />
+                            </FluentStack>
+                        </FluentStack>
+                    </FluentCard>
+                }
+                <FluentButton IconStart="@(new Icons.Regular.Size16.Add())"
+                              Appearance="Appearance.Outline"
+                              OnClick="@AddDimension">
+                    Add Dimension
+                </FluentButton>
+            </FluentStack>
+        }
+        else if (currentStep == 4)
+        {
+            <!-- Step 5: Data Source Connection -->
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="16">
+                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
+                    🔌 Data Source Connection
+                </FluentLabel>
+                <FluentDivider Style="width: 100%;" />
+
+                <FluentLabel Color="Color.Neutral">
+                    Configure a database connection to fetch metric data. This is optional.
+                </FluentLabel>
+
+                <FluentCheckbox @bind-Value="hasDataSource" Label="Enable Data Source Connection" />
+
+                @if (hasDataSource)
+                {
+                    @if (AvailableDataSources.Any())
+                    {
+                        <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
+                            <FluentRadioGroup @bind-Value="useExistingDataSource" Orientation="Orientation.Horizontal">
+                                <FluentRadio Value="true">Use Existing Data Source</FluentRadio>
+                                <FluentRadio Value="false">Create New Data Source</FluentRadio>
+                            </FluentRadioGroup>
+                        </FluentStack>
+
+                        @if (useExistingDataSource)
+                        {
+                            <FluentSelect TOption="string"
+                                          Label="Select Data Source *"
+                                          Style="width: 100%;"
+                                          Value="selectedDataSourceIdString"
+                                          ValueChanged="@OnDataSourceSelectionChangedFromString"
+                                          SelectedOption="selectedDataSourceIdString">
+                                <FluentOption TOption="string" Value="">-- Select a data source --</FluentOption>
+                                @foreach (var ds in AvailableDataSources)
+                                {
+                                    <FluentOption TOption="string" Value="@ds.Id.ToString()">
+                                        @(string.IsNullOrEmpty(ds.ConnectionName) ? $"{ds.Type}: {ds.Host}:{ds.Port}/{ds.Database}" : $"{ds.ConnectionName} ({ds.Type})")
+                                    </FluentOption>
+                                }
+                            </FluentSelect>
+
+                            @if (selectedDataSourceId != null)
+                            {
+                                <FluentCard Style="background: #f8fafc; padding: 12px;">
+                                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="4">
+                                        <FluentLabel Weight="FontWeight.Bold">Selected Data Source Details</FluentLabel>
+                                        <FluentLabel>Type: @DataSourceModel.Type</FluentLabel>
+                                        <FluentLabel>Host: @DataSourceModel.Host:@DataSourceModel.Port</FluentLabel>
+                                        <FluentLabel>Database: @DataSourceModel.Database</FluentLabel>
+                                        <FluentLabel>Username: @DataSourceModel.Username</FluentLabel>
+                                        <FluentLabel>SSL/TLS: @(DataSourceModel.UseSSL ? "Enabled" : "Disabled")</FluentLabel>
+                                    </FluentStack>
+                                </FluentCard>
+                            }
+                        }
+                    }
+
+                    @if (!useExistingDataSource || !AvailableDataSources.Any())
+                    {
+                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="12">
+                            <FluentTextField @bind-Value="DataSourceModel.ConnectionName" Label="Connection Name" Style="flex: 1;"
+                                Placeholder="e.g., Sales Database" />
+                            <FluentSelect TOption="DataSourceType" Items="@dataSourceTypes" @bind-SelectedOption="DataSourceModel.Type"
+                                Label="Database Type *" Style="flex: 1;" />
+                        </FluentStack>
+
+                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="12">
+                            <FluentTextField @bind-Value="DataSourceModel.Host" Label="Host *" Required Style="flex: 2;"
+                                Placeholder="e.g., localhost or db.example.com" />
+                            <FluentNumberField @bind-Value="DataSourceModel.Port" Label="Port *" Style="flex: 1;"
+                                Placeholder="8123" />
+                        </FluentStack>
+
+                        <FluentTextField @bind-Value="DataSourceModel.Database" Label="Database *" Required Style="width: 100%;"
+                            Placeholder="Database name" />
+
+                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="12">
+                            <FluentTextField @bind-Value="DataSourceModel.Username" Label="Username *" Required Style="flex: 1;"
+                                Placeholder="Database username" />
+                            <FluentTextField @bind-Value="DataSourceModel.Password" Label="Password" Style="flex: 1;"
+                                Placeholder="Database password" TextFieldType="TextFieldType.Password" />
+                        </FluentStack>
+
+                        <FluentCheckbox @bind-Value="DataSourceModel.UseSSL" Label="Use SSL/TLS" />
+                    }
+
+                    <FluentDivider Style="width: 100%;" />
+
+                    <FluentLabel Weight="FontWeight.Bold">Query</FluentLabel>
+                    <FluentLabel Color="Color.Neutral">
+                        Write the SQL query to fetch the metric data from your data source.
+                    </FluentLabel>
+
+                    <FluentTextArea @bind-Value="Content.Query" Label="SQL Query" Rows="6" Style="width: 100%; font-family: monospace;"
+                        Placeholder="SELECT SUM(sales_amount) as total_sales FROM sales WHERE date >= start_date" />
+                }
+            </FluentStack>
+        }
+        else if (currentStep == 5)
+        {
+            <!-- Step 6: Measurement & Data -->
+            <FluentStack Orientation="Orientation.Vertical" VerticalGap="16">
+                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
+                    📊 Measurement & Data Management
+                </FluentLabel>
+                <FluentDivider Style="width: 100%;" />
+
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="12">
+                    <FluentTextField @bind-Value="Content.UnitOfMeasure" Label="Unit of Measure" Style="flex: 1;"
+                        Placeholder="%, $, units, etc." />
+                    <FluentSelect TOption="MetricPolarity" Items="@metricPolarities" @bind-SelectedOption="Content.Polarity"
+                        Label="Polarity" Style="flex: 1;" />
+                </FluentStack>
+
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="12">
+                    <FluentSelect TOption="ReportingFrequency?" Items="@reportingFrequenciesNullable" @bind-SelectedOption="Content.DataCapture"
+                        Label="Data Capture Frequency" Style="flex: 1;" />
+                    <FluentSelect TOption="ReportingFrequency?" Items="@reportingFrequenciesNullable" @bind-SelectedOption="Content.DataReporting"
+                        Label="Data Reporting Frequency" Style="flex: 1;" />
+                </FluentStack>
+
+                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="12">
+                    <FluentTextField @bind-Value="Content.DataSource" Label="Data Source" Style="flex: 1;"
+                        Placeholder="Where does the data come from?" />
+                    <FluentSelect TOption="DataIntegrityLevel?" Items="@dataIntegrityLevelsNullable" @bind-SelectedOption="Content.DataIntegrity"
+                        Label="Data Integrity" Style="flex: 1;" />
+                </FluentStack>
+
+                <FluentCheckbox @bind-Value="Content.DataReady" Label="Data Ready" />
+
+                <FluentTextField @bind-Value="Content.Report" Label="Report" Style="width: 100%;"
+                    Placeholder="Report name or location" />
+            </FluentStack>
+        }
+    </FluentStack>
+</FluentDialogBody>
+
+<FluentDialogFooter>
+    <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.Right" HorizontalGap="12">
+        @if (currentStep > 0)
+        {
+            <FluentButton Appearance="Appearance.Neutral" OnClick="@PreviousStep">
+                ← Previous
+            </FluentButton>
+        }
+        
+        <FluentButton Appearance="Appearance.Neutral" OnClick="@CancelAsync">
+            Cancel
+        </FluentButton>
+        
+        @if (currentStep < totalSteps - 1)
+        {
+            <FluentButton Appearance="Appearance.Accent" OnClick="@NextStep">
+                Next →
+            </FluentButton>
+        }
+        else
+        {
+            <FluentButton Appearance="Appearance.Accent" OnClick="@SaveAsync">
+                💾 Save Metric
+            </FluentButton>
+        }
+    </FluentStack>
+</FluentDialogFooter>
+
+@code {
+    [Parameter]
+    public Metric Content { get; set; } = new();
+
+    [CascadingParameter]
+    public FluentDialog Dialog { get; set; } = default!;
+
+    private int currentStep = 0;
+    private int totalSteps = 6;
+
+    // Enum arrays for dropdowns
+    private MetricType[] metricTypes = Enum.GetValues<MetricType>();
+    private MetricPerspective[] metricPerspectives = Enum.GetValues<MetricPerspective>();
+    private MetricLevel[] metricLevels = Enum.GetValues<MetricLevel>();
+    private MetricPolarity[] metricPolarities = Enum.GetValues<MetricPolarity>();
+
+    // Nullable arrays - include null as first option
+    private ReportingFrequency?[] reportingFrequenciesNullable = new ReportingFrequency?[] { null }.Concat(Enum.GetValues<ReportingFrequency>().Cast<ReportingFrequency?>()).ToArray();
+    private DataIntegrityLevel?[] dataIntegrityLevelsNullable = new DataIntegrityLevel?[] { null }.Concat(Enum.GetValues<DataIntegrityLevel>().Cast<DataIntegrityLevel?>()).ToArray();
+
+    // Data source types
+    private DataSourceType[] dataSourceTypes = Enum.GetValues<DataSourceType>();
+
+    // Data source state
+    private bool hasDataSource = false;
+    private bool useExistingDataSource = false;
+    private int? selectedDataSourceId = null;
+    private string selectedDataSourceIdString = "";
+    private MetricDataSource DataSourceModel = new MetricDataSource { Port = 8123, Type = DataSourceType.ClickHouse };
+    private List<MetricDataSource> AvailableDataSources = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Load available data sources
+        await LoadDataSources();
+
+        // Initialize data source from existing metric if editing
+        if (Content.MetricDataSourceId != null && Content.MetricDataSource != null)
+        {
+            hasDataSource = true;
+            useExistingDataSource = true;
+            selectedDataSourceId = Content.MetricDataSourceId;
+            selectedDataSourceIdString = Content.MetricDataSourceId.Value.ToString();
+            DataSourceModel = Content.MetricDataSource;
+        }
+    }
+
+    private async Task LoadDataSources()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(Content.CompanyId))
+            {
+                HttpClient.DefaultRequestHeaders.Remove("X-Company-Id");
+                HttpClient.DefaultRequestHeaders.Add("X-Company-Id", Content.CompanyId);
+            }
+
+            var response = await HttpClient.GetFromJsonAsync<List<MetricDataSource>>("api/metrics/datasources");
+            if (response != null)
+            {
+                AvailableDataSources = response;
+            }
+        }
+        catch
+        {
+            // Silently fail - data sources loading is not critical
+            AvailableDataSources = new();
+        }
+    }
+
+    private void OnDataSourceSelectionChangedFromString(string value)
+    {
+        selectedDataSourceIdString = value;
+     
+        if (int.TryParse(selectedDataSourceIdString, out var id))
+        {
+            selectedDataSourceId = id;
+            var selected = AvailableDataSources.FirstOrDefault(ds => ds.Id == id);
+            Console.WriteLine("Selected Data Source ID: " + id);
+            if (selected != null)
+            {
+                DataSourceModel = selected;
+            }
+        }
+        else
+        {
+            selectedDataSourceId = null;
+        }
+    }
+
+    private void OnDataSourceSelectionChanged(int? dataSourceId)
+    {
+        selectedDataSourceId = dataSourceId;
+        if (dataSourceId != null)
+        {
+            var selected = AvailableDataSources.FirstOrDefault(ds => ds.Id == dataSourceId);
+            if (selected != null)
+            {
+                DataSourceModel = selected;
+            }
+        }
+    }
+
+    private void NextStep()
+    {
+        if (currentStep < totalSteps - 1)
+        {
+            currentStep++;
+        }
+    }
+
+    private void PreviousStep()
+    {
+        if (currentStep > 0)
+        {
+            currentStep--;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        // Set the data source if enabled
+        if (hasDataSource)
+        {
+            if (useExistingDataSource && selectedDataSourceId != null)
+            {
+                // Use existing data source - only set the ID reference, do NOT include the data source object
+                // This ensures the backend only updates the foreign key without creating a new data source
+                Content.MetricDataSourceId = selectedDataSourceId;
+                Console.WriteLine("Using existing data source ID: " + selectedDataSourceId);
+                Content.MetricDataSource = null;
+            }
+            else if (!useExistingDataSource)
+            {
+                // Create new data source - pass a fresh object without an ID
+                Content.MetricDataSourceId = null;
+                Content.MetricDataSource = new MetricDataSource
+                {
+                    ConnectionName = DataSourceModel.ConnectionName,
+                    Type = DataSourceModel.Type,
+                    Host = DataSourceModel.Host,
+                    Port = DataSourceModel.Port,
+                    Database = DataSourceModel.Database,
+                    Username = DataSourceModel.Username,
+                    Password = DataSourceModel.Password,
+                    UseSSL = DataSourceModel.UseSSL
+                };
+            }
+            else
+            {
+                // useExistingDataSource is true but no selection made - clear data source
+                Content.MetricDataSourceId = null;
+                Content.MetricDataSource = null;
+            }
+        }
+        else
+        {
+            Content.MetricDataSourceId = null;
+            Content.MetricDataSource = null;
+        }
+
+        await Dialog.CloseAsync(Content);
+    }
+
+    private async Task CancelAsync()
+    {
+        await Dialog.CancelAsync();
+    }
+
+    private void AddFunction()
+    {
+        Content.Functions.Add(new MetricFunction { Function = string.Empty });
+    }
+
+    private void AddOwner()
+    {
+        Content.Owners.Add(new MetricOwner { OwnerName = string.Empty });
+    }
+
+    private void AddRecipient()
+    {
+        Content.Recipients.Add(new MetricRecipient { RecipientName = string.Empty });
+    }
+
+    private void AddVerifier()
+    {
+        Content.Verifiers.Add(new MetricVerifier { VerifierName = string.Empty });
+    }
+
+    private void AddDimension()
+    {
+        Content.Dimensions.Add(new MetricDimension { Name = string.Empty });
+    }
+}

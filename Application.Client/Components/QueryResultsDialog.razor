@@ -1,67 +1,99 @@
 @using Application.Shared.Models
 @using Application.Client.Models
-@using Microsoft.FluentUI.AspNetCore.Components
-@implements IDialogContentComponent<QueryResultsDialogData>
 @inject HttpClient HttpClient
-@inject IToastService ToastService
 
-<FluentDialogBody>
-    <div style="min-height: 400px; max-height: 70vh; display: flex; flex-direction: column;">
-        @if (IsLoading)
-        {
-            <div style="display: flex; justify-content: center; align-items: center; height: 300px;">
-                <div style="text-align: center;">
-                    <FluentProgressRing style="margin-bottom: 16px;" />
-                    <p style="color: #6b7280; margin: 0;">Executing query...</p>
-                </div>
+<style>
+    .qrd-backdrop {
+        position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000;
+        display: flex; align-items: center; justify-content: center; padding: 16px;
+        animation: qrd-fade 0.15s ease;
+    }
+    @@keyframes qrd-fade { from { opacity: 0; } to { opacity: 1; } }
+    .qrd-modal {
+        background: white; border-radius: 10px; width: 100%; max-width: 1100px;
+        height: 80vh; display: flex; flex-direction: column;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+        animation: qrd-pop 0.2s ease;
+        font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    }
+    @@keyframes qrd-pop { from { transform: scale(0.97) translateY(8px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
+    .qrd-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 16px 22px; border-bottom: 1px solid #e5e7eb; flex-shrink: 0;
+    }
+    .qrd-header-left { display: flex; flex-direction: column; gap: 2px; }
+    .qrd-title { font-size: 15px; font-weight: 700; color: #111827; margin: 0; }
+    .qrd-subtitle { font-size: 12px; color: #6b7280; }
+    .qrd-header-actions { display: flex; gap: 8px; align-items: center; }
+    .qrd-close { width: 32px; height: 32px; border: none; background: none; cursor: pointer; color: #9ca3af; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+    .qrd-close:hover { background: #f3f4f6; color: #374151; }
+    .qrd-body { flex: 1; overflow: hidden; padding: 16px 22px; display: flex; flex-direction: column; }
+    .qrd-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; height: 100%; color: #6b7280; font-size: 13.5px; }
+    .qrd-spinner { width: 36px; height: 36px; border: 3px solid #e5e7eb; border-top-color: #6366f1; border-radius: 50%; animation: qrd-spin 0.8s linear infinite; }
+    @@keyframes qrd-spin { to { transform: rotate(360deg); } }
+    .qrd-error { background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 14px; color: #dc2626; font-size: 13.5px; display: flex; flex-direction: column; gap: 10px; }
+    .qrd-btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 7px; font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid #e5e7eb; background: white; color: #374151; transition: all 0.15s; }
+    .qrd-btn:hover { background: #f9fafb; }
+    .qrd-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .qrd-btn-primary { background: #6366f1; color: white; border-color: #6366f1; }
+    .qrd-btn-primary:hover { background: #4f46e5; border-color: #4f46e5; }
+</style>
+
+<div class="qrd-backdrop">
+    <div class="qrd-modal" @onclick:stopPropagation="true">
+        <div class="qrd-header">
+            <div class="qrd-header-left">
+                <h3 class="qrd-title">Query Results</h3>
+                <span class="qrd-subtitle">@Metric.KPI</span>
             </div>
-        }
-        else if (!string.IsNullOrEmpty(ErrorMessage))
-        {
-            <FluentMessageBar Title="Error" Intent="@MessageIntent.Error" Style="margin-bottom: 16px;">
-                @ErrorMessage
-            </FluentMessageBar>
-            <FluentButton IconStart="@(new Icons.Regular.Size16.ArrowClockwise())"
-                          OnClick="@ExecuteQuery"
-                          Appearance="Appearance.Outline">
-                Retry
-            </FluentButton>
-        }
-        else
-        {
-            <DataResultsTable Data="@QueryResults"
-                              ColumnFormats="@ColumnFormats"
-                              EmptyMessage="No results returned from query"
-                              ShowGlobalFilter="true"
-                              ShowColumnFilters="true"
-                              ShowPagination="true"
-                              ShowExport="true"
-                              PageSize="50">
-                <AdditionalToolbarContent>
-                    <FluentButton IconStart="@(new Icons.Regular.Size16.ArrowClockwise())"
-                                  OnClick="@ExecuteQuery"
-                                  Appearance="Appearance.Outline"
-                                  Size="ButtonSize.Small">
-                        Re-run
-                    </FluentButton>
-                </AdditionalToolbarContent>
-            </DataResultsTable>
-        }
-    </div>
-</FluentDialogBody>
+            <div class="qrd-header-actions">
+                <button class="qrd-btn" @onclick="ExecuteQuery" disabled="@IsLoading">
+                    <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    Re-run
+                </button>
+                <button class="qrd-close" @onclick="() => OnClose.InvokeAsync()">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+        </div>
 
-<FluentDialogFooter>
-    <FluentButton Appearance="Appearance.Neutral" OnClick="@CloseAsync">
-        Close
-    </FluentButton>
-</FluentDialogFooter>
+        <div class="qrd-body">
+            @if (IsLoading)
+            {
+                <div class="qrd-loading">
+                    <div class="qrd-spinner"></div>
+                    <span>Executing query…</span>
+                </div>
+            }
+            else if (!string.IsNullOrEmpty(ErrorMessage))
+            {
+                <div class="qrd-error">
+                    <strong>Query failed</strong>
+                    <span>@ErrorMessage</span>
+                    <div><button class="qrd-btn" @onclick="ExecuteQuery">
+                        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                        Retry
+                    </button></div>
+                </div>
+            }
+            else
+            {
+                <DataResultsTable Data="@QueryResults"
+                                  ColumnFormats="@ColumnFormats"
+                                  EmptyMessage="No results returned from query"
+                                  ShowGlobalFilter="true"
+                                  ShowColumnFilters="true"
+                                  ShowPagination="true"
+                                  ShowExport="true"
+                                  PageSize="50" />
+            }
+        </div>
+    </div>
+</div>
 
 @code {
-    [Parameter]
-    public QueryResultsDialogData Content { get; set; } = new();
-
-    [CascadingParameter]
-    public FluentDialog Dialog { get; set; } = default!;
+    [Parameter] public QueryResultsDialogData Content { get; set; } = new();
+    [Parameter] public EventCallback OnClose { get; set; }
 
     private Metric Metric => Content.Metric;
     private List<MetricFilterValue>? FilterValues => Content.FilterValues;
@@ -192,10 +224,5 @@
         }
 
         return null;
-    }
-
-    private async Task CloseAsync()
-    {
-        await Dialog.CloseAsync();
     }
 }

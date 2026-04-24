@@ -1,331 +1,331 @@
 @using Application.Shared.Models
 @using Application.Shared.Enums
-@using Microsoft.FluentUI.AspNetCore.Components
-@implements IDialogContentComponent<Metric>
 
-<FluentDialogBody>
-    <FluentStack Orientation="Orientation.Vertical" VerticalGap="20">
-        
-        <!-- Functions Section -->
-        <FluentCard Style="box-shadow: none;">
-            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
-                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
-                    📋 Functions
-                </FluentLabel>
-                <FluentDivider Style="width: 100%;" />
-                
-                @if (Content.Functions.Any())
+<style>
+    .mdp-backdrop {
+        position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 1000;
+        animation: mdp-fade-in 0.2s ease;
+    }
+    .mdp-panel {
+        position: fixed; top: 0; right: 0; bottom: 0; width: min(640px, 100vw);
+        background: white; box-shadow: -4px 0 24px rgba(0,0,0,0.12);
+        display: flex; flex-direction: column; z-index: 1001;
+        animation: mdp-slide-in 0.25s ease;
+        font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    }
+    @@keyframes mdp-fade-in { from { opacity: 0; } to { opacity: 1; } }
+    @@keyframes mdp-slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+    .mdp-header {
+        display: flex; align-items: flex-start; justify-content: space-between;
+        padding: 20px 24px; border-bottom: 1px solid #e5e7eb; gap: 12px; flex-shrink: 0;
+    }
+    .mdp-header-left { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .mdp-title { font-size: 18px; font-weight: 700; color: #111827; margin: 0; word-break: break-word; }
+    .mdp-subtitle { font-size: 13px; color: #6b7280; }
+    .mdp-header-actions { display: flex; gap: 8px; flex-shrink: 0; }
+    .mdp-close-btn {
+        width: 32px; height: 32px; border: none; background: none; cursor: pointer;
+        color: #9ca3af; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+        transition: all 0.15s;
+    }
+    .mdp-close-btn:hover { background: #f3f4f6; color: #374151; }
+
+    .mdp-body { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 20px; }
+
+    .mdp-section { display: flex; flex-direction: column; gap: 10px; }
+    .mdp-section-title {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 11px; font-weight: 600; color: #6366f1; text-transform: uppercase; letter-spacing: 0.08em;
+        padding-bottom: 6px; border-bottom: 1px solid #e5e7eb;
+    }
+    .mdp-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .mdp-field { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 140px; }
+    .mdp-field-label { font-size: 11px; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.04em; }
+    .mdp-field-value { font-size: 14px; color: #111827; }
+    .mdp-field-value.mono { font-family: 'Fira Code', 'Courier New', monospace; font-size: 13px; }
+    .mdp-full { width: 100%; flex: unset; }
+
+    .mdp-code-block {
+        background: #111827; color: #e5e7eb; border-radius: 8px; padding: 12px 14px;
+        font-family: 'Fira Code', 'Courier New', monospace; font-size: 12px;
+        white-space: pre-wrap; word-break: break-word; line-height: 1.6;
+    }
+
+    .mdp-chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
+    .mdp-chip {
+        display: inline-flex; align-items: center; gap: 5px;
+        background: #f3f4f6; color: #374151; border-radius: 20px;
+        padding: 3px 10px; font-size: 13px; border: 1px solid #e5e7eb;
+    }
+
+    .mdp-badge {
+        display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 4px;
+        font-size: 12px; font-weight: 500;
+    }
+    .mdp-badge-ready { background: #dcfce7; color: #15803d; }
+    .mdp-badge-not-ready { background: #f3f4f6; color: #6b7280; }
+
+    .mdp-info-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    }
+    .mdp-kv { display: flex; flex-direction: column; gap: 2px; }
+    .mdp-kv-label { font-size: 11px; color: #9ca3af; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+    .mdp-kv-value { font-size: 13px; color: #111827; }
+
+    .mdp-ds-card {
+        background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px;
+        display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+
+    .mdp-footer {
+        padding: 16px 24px; border-top: 1px solid #e5e7eb; display: flex; gap: 8px; flex-shrink: 0;
+    }
+    .mdp-btn {
+        display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 16px;
+        border-radius: 8px; font-size: 13.5px; font-weight: 500; cursor: pointer; border: none; transition: all 0.15s;
+    }
+    .mdp-btn-primary { background: #6366f1; color: white; }
+    .mdp-btn-primary:hover { background: #4f46e5; }
+    .mdp-btn-secondary { background: white; color: #374151; border: 1px solid #e5e7eb; }
+    .mdp-btn-secondary:hover { background: #f9fafb; }
+    .mdp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .mdp-btn-ghost { background: none; border: none; color: #9ca3af; margin-left: auto; }
+    .mdp-btn-ghost:hover { color: #374151; background: #f3f4f6; }
+</style>
+
+<div class="mdp-backdrop" @onclick="HandleClose"></div>
+<div class="mdp-panel" @onclick:stopPropagation="true">
+
+    <!-- Header -->
+    <div class="mdp-header">
+        <div class="mdp-header-left">
+            <h2 class="mdp-title">@Content.KPI</h2>
+            <span class="mdp-subtitle">@Content.KeyPerformanceArea</span>
+        </div>
+        <button class="mdp-close-btn" @onclick="HandleClose" title="Close">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+    </div>
+
+    <!-- Body -->
+    <div class="mdp-body">
+
+        <!-- Key Badges -->
+        <div class="mdp-row">
+            <span class="mdp-badge @(Content.DataReady ? "mdp-badge-ready" : "mdp-badge-not-ready")">
+                @if (Content.DataReady)
                 {
-                    @foreach (var func in Content.Functions)
-                    {
-                        <FluentCard Style="background: #f8fafc; padding: 12px; box-shadow: none;">
-                            <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
-                                <div class="detail-row">
-                                    <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Function:</FluentLabel>
-                                    <FluentLabel Class="detail-value">@func.Function</FluentLabel>
-                                </div>
-                                @if (!string.IsNullOrEmpty(func.SubFunction))
-                                {
-                                    <div class="detail-row">
-                                        <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Sub-Function:</FluentLabel>
-                                        <FluentLabel Class="detail-value">@func.SubFunction</FluentLabel>
-                                    </div>
-                                }
-                                @if (!string.IsNullOrEmpty(func.FunctionHead))
-                                {
-                                    <div class="detail-row">
-                                        <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Function Head:</FluentLabel>
-                                        <FluentLabel Class="detail-value">@func.FunctionHead</FluentLabel>
-                                    </div>
-                                }
-                            </FluentStack>
-                        </FluentCard>
-                    }
+                    <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+                    <span>Data Ready</span>
                 }
                 else
                 {
-                    <FluentLabel Color="Color.Neutral">No functions defined</FluentLabel>
+                    <span>Not Ready</span>
                 }
-            </FluentStack>
-        </FluentCard>
+            </span>
+        </div>
 
-        <!-- Owners Section -->
-        <FluentCard Style="box-shadow: none;">
-            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
-                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
-                    👤 KPI Owners
-                </FluentLabel>
-                <FluentDivider Style="width: 100%;" />
-                
-                @if (Content.Owners.Any())
-                {
-                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
-                        @foreach (var owner in Content.Owners)
-                        {
-                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
-                                <FluentIcon Value="@(new Icons.Regular.Size16.Person())" Color="Color.Accent" />
-                                <FluentLabel>@owner.OwnerName</FluentLabel>
-                            </FluentStack>
-                        }
-                    </FluentStack>
-                }
-                else
-                {
-                    <FluentLabel Color="Color.Neutral">No owners defined</FluentLabel>
-                }
-            </FluentStack>
-        </FluentCard>
-
-        <!-- Recipients Section -->
-        <FluentCard Style="box-shadow: none;">
-            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
-                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
-                    📧 Intended Recipients
-                </FluentLabel>
-                <FluentDivider Style="width: 100%;" />
-                
-                @if (Content.Recipients.Any())
-                {
-                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
-                        @foreach (var recipient in Content.Recipients)
-                        {
-                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
-                                <FluentIcon Value="@(new Icons.Regular.Size16.Mail())" Color="Color.Accent" />
-                                <FluentLabel>@recipient.RecipientName</FluentLabel>
-                            </FluentStack>
-                        }
-                    </FluentStack>
-                }
-                else
-                {
-                    <FluentLabel Color="Color.Neutral">No recipients defined</FluentLabel>
-                }
-            </FluentStack>
-        </FluentCard>
-
-        <!-- Verifiers Section -->
-        <FluentCard Style="box-shadow: none;">
-            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
-                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
-                    ✅ KPI Verifiers
-                </FluentLabel>
-                <FluentDivider Style="width: 100%;" />
-
-                @if (Content.Verifiers.Any())
-                {
-                    <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
-                        @foreach (var verifier in Content.Verifiers)
-                        {
-                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
-                                <FluentIcon Value="@(new Icons.Regular.Size16.CheckmarkCircle())" Color="Color.Success" />
-                                <FluentLabel>@verifier.VerifierName</FluentLabel>
-                            </FluentStack>
-                        }
-                    </FluentStack>
-                }
-                else
-                {
-                    <FluentLabel Color="Color.Neutral">No verifiers defined</FluentLabel>
-                }
-            </FluentStack>
-        </FluentCard>
-
-        <!-- Dimensions Section -->
-        <FluentCard Style="box-shadow: none;">
-            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
-                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
-                    📐 Dimensions
-                </FluentLabel>
-                <FluentDivider Style="width: 100%;" />
-
-                @if (Content.Dimensions.Any())
-                {
-                    @foreach (var dimension in Content.Dimensions)
-                    {
-                        <FluentCard Style="background: #f8fafc; padding: 12px; box-shadow: none;">
-                            <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
-                                <div class="detail-row">
-                                    <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Name:</FluentLabel>
-                                    <FluentLabel Class="detail-value">@dimension.Name</FluentLabel>
-                                </div>
-                                @if (!string.IsNullOrEmpty(dimension.Description))
-                                {
-                                    <div class="detail-row">
-                                        <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Description:</FluentLabel>
-                                        <FluentLabel Class="detail-value">@dimension.Description</FluentLabel>
-                                    </div>
-                                }
-                                @if (!string.IsNullOrEmpty(dimension.SourceTable))
-                                {
-                                    <div class="detail-row">
-                                        <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Source Table:</FluentLabel>
-                                        <FluentLabel Class="detail-value">@dimension.SourceTable</FluentLabel>
-                                    </div>
-                                }
-                                @if (!string.IsNullOrEmpty(dimension.SourceColumn))
-                                {
-                                    <div class="detail-row">
-                                        <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Source Column:</FluentLabel>
-                                        <FluentLabel Class="detail-value">@dimension.SourceColumn</FluentLabel>
-                                    </div>
-                                }
-                            </FluentStack>
-                        </FluentCard>
-                    }
-                }
-                else
-                {
-                    <FluentLabel Color="Color.Neutral">No dimensions defined</FluentLabel>
-                }
-            </FluentStack>
-        </FluentCard>
-
-        <!-- Data Source Section -->
-        <FluentCard Style="box-shadow: none;">
-            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
-                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
-                    🔌 Data Source Connection
-                </FluentLabel>
-                <FluentDivider Style="width: 100%;" />
-
-                @if (Content.MetricDataSource != null)
-                {
-                    <FluentCard Style="background: #f8fafc; padding: 12px; box-shadow: none;">
-                        <FluentStack Orientation="Orientation.Vertical" VerticalGap="8">
-                            @if (!string.IsNullOrEmpty(Content.MetricDataSource.ConnectionName))
-                            {
-                                <div class="detail-row">
-                                    <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Connection:</FluentLabel>
-                                    <FluentLabel Class="detail-value">@Content.MetricDataSource.ConnectionName</FluentLabel>
-                                </div>
-                            }
-                            <div class="detail-row">
-                                <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Type:</FluentLabel>
-                                <FluentBadge Appearance="Appearance.Accent">@Content.MetricDataSource.Type</FluentBadge>
-                            </div>
-                            <div class="detail-row">
-                                <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Host:</FluentLabel>
-                                <FluentLabel Class="detail-value">@Content.MetricDataSource.Host:@Content.MetricDataSource.Port</FluentLabel>
-                            </div>
-                            <div class="detail-row">
-                                <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Database:</FluentLabel>
-                                <FluentLabel Class="detail-value">@Content.MetricDataSource.Database</FluentLabel>
-                            </div>
-                            <div class="detail-row">
-                                <FluentLabel Weight="FontWeight.Bold" Class="detail-label">Username:</FluentLabel>
-                                <FluentLabel Class="detail-value">@Content.MetricDataSource.Username</FluentLabel>
-                            </div>
-                            <div class="detail-row">
-                                <FluentLabel Weight="FontWeight.Bold" Class="detail-label">SSL/TLS:</FluentLabel>
-                                <FluentLabel Class="detail-value">@(Content.MetricDataSource.UseSSL ? "Enabled" : "Disabled")</FluentLabel>
-                            </div>
-                        </FluentStack>
-                    </FluentCard>
-
-                    @if (!string.IsNullOrEmpty(Content.Query))
-                    {
-                        <FluentLabel Weight="FontWeight.Bold">SQL Query</FluentLabel>
-                        <FluentCard Style="background: #1e293b; padding: 12px; box-shadow: none;">
-                            <FluentLabel Style="font-family: monospace; white-space: pre-wrap; word-break: break-word; color: #e2e8f0;">@Content.Query</FluentLabel>
-                        </FluentCard>
-                    }
-                }
-                else
-                {
-                    <FluentLabel Color="Color.Neutral">No data source configured</FluentLabel>
-                }
-            </FluentStack>
-        </FluentCard>
-
-        <!-- Formula Section -->
-        @if (!string.IsNullOrEmpty(Content.Formula))
-        {
-            <FluentCard Style="box-shadow: none;">
-                <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
-                    <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
-                        🔢 Formula
-                    </FluentLabel>
-                    <FluentDivider Style="width: 100%;" />
-                    
-                    <FluentCard Style="background: #f8fafc; padding: 12px; box-shadow: none;">
-                        <FluentLabel Style="font-family: monospace; white-space: pre-wrap; word-break: break-word;">@Content.Formula</FluentLabel>
-                    </FluentCard>
-                </FluentStack>
-            </FluentCard>
-        }
-
-        <!-- Additional Information -->
-        <FluentCard Style="box-shadow: none;">
-            <FluentStack Orientation="Orientation.Vertical" VerticalGap="12">
-                <FluentLabel Typo="Typography.Subject" Style="color: var(--accent-fill-rest);">
-                    ℹ️ Additional Information
-                </FluentLabel>
-                <FluentDivider Style="width: 100%;" />
-                
-                <div class="detail-row">
-                    <FluentLabel Weight="FontWeight.Bold" Class="detail-label-wide">KPA:</FluentLabel>
-                    <FluentLabel Class="detail-value">@Content.KeyPerformanceArea</FluentLabel>
-                </div>
-
-                <div class="detail-row">
-                    <FluentLabel Weight="FontWeight.Bold" Class="detail-label-wide">Type:</FluentLabel>
-                    <FluentLabel Class="detail-value">@Content.Type</FluentLabel>
-                </div>
-
-                <div class="detail-row">
-                    <FluentLabel Weight="FontWeight.Bold" Class="detail-label-wide">Perspective:</FluentLabel>
-                    <FluentLabel Class="detail-value">@Content.Perspective</FluentLabel>
-                </div>
-
-                <div class="detail-row">
-                    <FluentLabel Weight="FontWeight.Bold" Class="detail-label-wide">Level:</FluentLabel>
-                    <FluentLabel Class="detail-value">@Content.KPILevel</FluentLabel>
-                </div>
-
+        <!-- Core KPI Info -->
+        <div class="mdp-section">
+            <div class="mdp-section-title">
+                <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+                KPI Details
+            </div>
+            <div class="mdp-info-grid">
+                <div class="mdp-kv"><span class="mdp-kv-label">Type</span><span class="mdp-kv-value">@Content.Type</span></div>
+                <div class="mdp-kv"><span class="mdp-kv-label">Perspective</span><span class="mdp-kv-value">@Content.Perspective</span></div>
+                <div class="mdp-kv"><span class="mdp-kv-label">Level</span><span class="mdp-kv-value">@Content.KPILevel</span></div>
+                <div class="mdp-kv"><span class="mdp-kv-label">Polarity</span><span class="mdp-kv-value">@Content.Polarity</span></div>
                 @if (!string.IsNullOrEmpty(Content.Target))
                 {
-                    <div class="detail-row">
-                        <FluentLabel Weight="FontWeight.Bold" Class="detail-label-wide">Target:</FluentLabel>
-                        <FluentLabel Class="detail-value">@Content.Target</FluentLabel>
-                    </div>
+                    <div class="mdp-kv"><span class="mdp-kv-label">Target</span><span class="mdp-kv-value">@Content.Target</span></div>
                 }
-
-                @if (!string.IsNullOrEmpty(Content.ContactEmail))
+                @if (!string.IsNullOrEmpty(Content.UnitOfMeasure))
                 {
-                    <div class="detail-row">
-                        <FluentLabel Weight="FontWeight.Bold" Class="detail-label-wide">Contact Email:</FluentLabel>
-                        <FluentLabel Class="detail-value">@Content.ContactEmail</FluentLabel>
-                    </div>
+                    <div class="mdp-kv"><span class="mdp-kv-label">Unit</span><span class="mdp-kv-value">@Content.UnitOfMeasure</span></div>
                 }
-
-                @if (!string.IsNullOrEmpty(Content.ContactNumber))
+                @if (Content.DataCapture.HasValue)
                 {
-                    <div class="detail-row">
-                        <FluentLabel Weight="FontWeight.Bold" Class="detail-label-wide">Contact Number:</FluentLabel>
-                        <FluentLabel Class="detail-value">@Content.ContactNumber</FluentLabel>
+                    <div class="mdp-kv"><span class="mdp-kv-label">Data Capture</span><span class="mdp-kv-value">@Content.DataCapture</span></div>
+                }
+                @if (Content.DataReporting.HasValue)
+                {
+                    <div class="mdp-kv"><span class="mdp-kv-label">Reporting Freq.</span><span class="mdp-kv-value">@Content.DataReporting</span></div>
+                }
+            </div>
+        </div>
+
+        <!-- Formula -->
+        @if (!string.IsNullOrEmpty(Content.Formula))
+        {
+            <div class="mdp-section">
+                <div class="mdp-section-title">
+                    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                    Formula
+                </div>
+                <div class="mdp-code-block">@Content.Formula</div>
+            </div>
+        }
+
+        <!-- Functions -->
+        @if (Content.Functions.Any())
+        {
+            <div class="mdp-section">
+                <div class="mdp-section-title">
+                    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                    Functions
+                </div>
+                @foreach (var func in Content.Functions)
+                {
+                    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;">
+                        <div style="font-weight:600;font-size:13px;color:#111827;">@func.Function</div>
+                        @if (!string.IsNullOrEmpty(func.SubFunction))
+                        {
+                            <div style="font-size:12px;color:#6b7280;margin-top:2px;">@func.SubFunction</div>
+                        }
+                        @if (!string.IsNullOrEmpty(func.FunctionHead))
+                        {
+                            <div style="font-size:12px;color:#6b7280;">Head: @func.FunctionHead</div>
+                        }
                     </div>
                 }
-            </FluentStack>
-        </FluentCard>
+            </div>
+        }
 
-    </FluentStack>
-</FluentDialogBody>
+        <!-- People -->
+        @if (Content.Owners.Any() || Content.Recipients.Any() || Content.Verifiers.Any())
+        {
+            <div class="mdp-section">
+                <div class="mdp-section-title">
+                    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    People
+                </div>
+                @if (Content.Owners.Any())
+                {
+                    <div><div class="mdp-kv-label" style="margin-bottom:4px;">Owners</div>
+                    <div class="mdp-chip-list">@foreach(var o in Content.Owners){<span class="mdp-chip">@o.OwnerName</span>}</div></div>
+                }
+                @if (Content.Recipients.Any())
+                {
+                    <div><div class="mdp-kv-label" style="margin-bottom:4px;">Recipients</div>
+                    <div class="mdp-chip-list">@foreach(var r in Content.Recipients){<span class="mdp-chip">@r.RecipientName</span>}</div></div>
+                }
+                @if (Content.Verifiers.Any())
+                {
+                    <div><div class="mdp-kv-label" style="margin-bottom:4px;">Verifiers</div>
+                    <div class="mdp-chip-list">@foreach(var v in Content.Verifiers){<span class="mdp-chip">@v.VerifierName</span>}</div></div>
+                }
+            </div>
+        }
 
-<FluentDialogFooter>
-    <FluentButton Appearance="Appearance.Neutral" OnClick="@CloseAsync">
-        Close
-    </FluentButton>
-</FluentDialogFooter>
+        <!-- Dimensions -->
+        @if (Content.Dimensions.Any())
+        {
+            <div class="mdp-section">
+                <div class="mdp-section-title">
+                    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                    Dimensions
+                </div>
+                <div class="mdp-chip-list">
+                    @foreach (var d in Content.Dimensions)
+                    {
+                        <span class="mdp-chip" title="@d.Description">@d.Name</span>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- Data Source -->
+        @if (Content.MetricDataSource != null)
+        {
+            <div class="mdp-section">
+                <div class="mdp-section-title">
+                    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                    Data Source
+                </div>
+                <div class="mdp-ds-card">
+                    @if (!string.IsNullOrEmpty(Content.MetricDataSource.ConnectionName))
+                    {
+                        <div class="mdp-kv" style="grid-column:span 2"><span class="mdp-kv-label">Connection</span><span class="mdp-kv-value">@Content.MetricDataSource.ConnectionName</span></div>
+                    }
+                    <div class="mdp-kv"><span class="mdp-kv-label">Type</span><span class="mdp-kv-value">@Content.MetricDataSource.Type</span></div>
+                    <div class="mdp-kv"><span class="mdp-kv-label">SSL</span><span class="mdp-kv-value">@(Content.MetricDataSource.UseSSL ? "Enabled" : "Disabled")</span></div>
+                    <div class="mdp-kv"><span class="mdp-kv-label">Host</span><span class="mdp-kv-value">@Content.MetricDataSource.Host:@Content.MetricDataSource.Port</span></div>
+                    <div class="mdp-kv"><span class="mdp-kv-label">Database</span><span class="mdp-kv-value">@Content.MetricDataSource.Database</span></div>
+                </div>
+                @if (!string.IsNullOrEmpty(Content.Query))
+                {
+                    <div><div class="mdp-kv-label" style="margin-bottom:6px;">SQL Query</div>
+                    <div class="mdp-code-block">@Content.Query</div></div>
+                }
+            </div>
+        }
+
+        <!-- Filters -->
+        @if (Content.Filters.Any())
+        {
+            <div class="mdp-section">
+                <div class="mdp-section-title">
+                    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                    Query Filters (@Content.Filters.Count)
+                </div>
+                <div class="mdp-chip-list">
+                    @foreach (var f in Content.Filters.OrderBy(x => x.SortOrder))
+                    {
+                        <span class="mdp-chip">@f.FilterLabel <span style="color:#9ca3af;font-size:11px;">(@f.FilterType)</span></span>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- Additional Info -->
+        @if (!string.IsNullOrEmpty(Content.KPIControls) || !string.IsNullOrEmpty(Content.UnintendedConsequences) || !string.IsNullOrEmpty(Content.Comment))
+        {
+            <div class="mdp-section">
+                <div class="mdp-section-title">
+                    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    Additional
+                </div>
+                @if (!string.IsNullOrEmpty(Content.KPIControls))
+                {
+                    <div class="mdp-kv"><span class="mdp-kv-label">KPI Controls</span><span class="mdp-kv-value">@Content.KPIControls</span></div>
+                }
+                @if (!string.IsNullOrEmpty(Content.UnintendedConsequences))
+                {
+                    <div class="mdp-kv"><span class="mdp-kv-label">Unintended Consequences</span><span class="mdp-kv-value">@Content.UnintendedConsequences</span></div>
+                }
+                @if (!string.IsNullOrEmpty(Content.Comment))
+                {
+                    <div class="mdp-kv"><span class="mdp-kv-label">Comments</span><span class="mdp-kv-value">@Content.Comment</span></div>
+                }
+            </div>
+        }
+
+    </div>
+
+    <!-- Footer -->
+    <div class="mdp-footer">
+        <button class="mdp-btn mdp-btn-secondary" @onclick="() => OnEdit.InvokeAsync(Content)">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Edit
+        </button>
+        <button class="mdp-btn mdp-btn-primary"
+                disabled="@(string.IsNullOrEmpty(Content.Query) || Content.MetricDataSource == null)"
+                @onclick="() => OnRunQuery.InvokeAsync(Content)">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Run Query
+        </button>
+        <button class="mdp-btn mdp-btn-ghost" @onclick="HandleClose">Close</button>
+    </div>
+</div>
 
 @code {
-    [Parameter]
-    public Metric Content { get; set; } = new();
+    [Parameter] public Metric Content { get; set; } = new();
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback<Metric> OnEdit { get; set; }
+    [Parameter] public EventCallback<Metric> OnRunQuery { get; set; }
 
-    [CascadingParameter]
-    public FluentDialog Dialog { get; set; } = default!;
-
-    private async Task CloseAsync()
-    {
-        await Dialog.CloseAsync();
-    }
+    private async Task HandleClose() => await OnClose.InvokeAsync();
 }
+

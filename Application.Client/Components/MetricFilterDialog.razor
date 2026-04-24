@@ -1,192 +1,192 @@
 @using Application.Shared.Models
-@using Microsoft.FluentUI.AspNetCore.Components
-@implements IDialogContentComponent<Metric>
 
-<FluentDialogBody>
-    <div style="min-height: 300px; display: flex; flex-direction: column; gap: 16px;">
-        @if (!Content.Filters.Any())
-        {
-            <FluentMessageBar Title="No Filters" Intent="@MessageIntent.Info">
-                This metric does not have any filters configured. The query will run with default settings.
-            </FluentMessageBar>
-        }
-        else
-        {
-            <FluentMessageBar Title="Configure Filters" Intent="@MessageIntent.Info">
-                Adjust the filter values below before executing the metric query.
-            </FluentMessageBar>
+<style>
+    .mfd-backdrop {
+        position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000;
+        display: flex; align-items: center; justify-content: center; padding: 16px;
+        animation: mfd-fade 0.15s ease;
+    }
+    @@keyframes mfd-fade { from { opacity: 0; } to { opacity: 1; } }
+    .mfd-modal {
+        background: white; border-radius: 10px; width: 100%; max-width: 560px;
+        max-height: 85vh; display: flex; flex-direction: column;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+        animation: mfd-pop 0.2s ease;
+        font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    }
+    @@keyframes mfd-pop { from { transform: scale(0.96) translateY(8px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
+    .mfd-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 18px 22px; border-bottom: 1px solid #e5e7eb; flex-shrink: 0;
+    }
+    .mfd-header h3 { margin: 0; font-size: 15px; font-weight: 700; color: #111827; }
+    .mfd-header-sub { font-size: 13px; color: #6b7280; margin-top: 2px; }
+    .mfd-close { width: 32px; height: 32px; border: none; background: none; cursor: pointer; color: #9ca3af; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+    .mfd-close:hover { background: #f3f4f6; color: #374151; }
+    .mfd-body { overflow-y: auto; padding: 20px 22px; display: flex; flex-direction: column; gap: 16px; flex: 1; }
+    .mfd-info { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 8px; padding: 10px 14px; font-size: 13px; color: #4338ca; display: flex; align-items: flex-start; gap: 8px; }
+    .mfd-info svg { flex-shrink: 0; margin-top: 1px; }
+    .mfd-filter-group { display: flex; flex-direction: column; gap: 6px; }
+    .mfd-filter-label { font-size: 13px; font-weight: 600; color: #374151; display: flex; align-items: center; gap: 4px; }
+    .mfd-filter-op { font-size: 11px; font-weight: 400; color: #9ca3af; }
+    .mfd-required { color: #ef4444; }
+    .mfd-filter-desc { font-size: 12px; color: #6b7280; margin: 0; }
+    .mfd-filter-hint { font-size: 11px; color: #9ca3af; margin: 0; }
+    .mfd-between { display: flex; align-items: center; gap: 8px; }
+    .mfd-between-sep { font-size: 13px; color: #6b7280; flex-shrink: 0; }
+    .mfd-input { width: 100%; height: 36px; padding: 0 12px; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 13.5px; color: #111827; outline: none; transition: border-color 0.15s; box-sizing: border-box; }
+    .mfd-input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
+    .mfd-select { width: 100%; height: 36px; padding: 0 10px; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 13.5px; color: #111827; background: white; outline: none; cursor: pointer; }
+    .mfd-select:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
+    .mfd-footer { padding: 16px 22px; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
+    .mfd-btn { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 16px; border-radius: 8px; font-size: 13.5px; font-weight: 500; cursor: pointer; border: none; transition: all 0.15s; }
+    .mfd-btn-primary { background: #6366f1; color: white; }
+    .mfd-btn-primary:hover { background: #4f46e5; }
+    .mfd-btn-secondary { background: white; color: #374151; border: 1px solid #e5e7eb; }
+    .mfd-btn-secondary:hover { background: #f9fafb; }
+    .mfd-error { background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 10px 14px; font-size: 13px; color: #dc2626; }
+</style>
 
-            @foreach (var filter in Content.Filters.OrderBy(f => f.SortOrder))
+<div class="mfd-backdrop">
+    <div class="mfd-modal" @onclick:stopPropagation="true">
+        <div class="mfd-header">
+            <div>
+                <h3>Configure Filters</h3>
+                <div class="mfd-header-sub">@Content.KPI</div>
+            </div>
+            <button class="mfd-close" @onclick="() => OnCancel.InvokeAsync()">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+
+        <div class="mfd-body">
+            @if (!Content.Filters.Any())
             {
-                var columnName = filter.ColumnName;
-                <div style="display: flex; flex-direction: column; gap: 8px;">
-                    <FluentLabel>
-                        @filter.FilterLabel
-                        <span style="color: #6b7280; font-weight: normal; font-size: 0.875rem;"> (@GetOperatorLabel(filter.Operator))</span>
-                        @if (filter.IsRequired)
+                <div class="mfd-info">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    No filters configured — the query will run with default settings.
+                </div>
+            }
+            else
+            {
+                <div class="mfd-info">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    Adjust filter values below before running the query.
+                </div>
+
+                @foreach (var filter in Content.Filters.OrderBy(f => f.SortOrder))
+                {
+                    var columnName = filter.ColumnName;
+                    <div class="mfd-filter-group">
+                        <div class="mfd-filter-label">
+                            @filter.FilterLabel
+                            <span class="mfd-filter-op">(@GetOperatorLabel(filter.Operator))</span>
+                            @if (filter.IsRequired) { <span class="mfd-required">*</span> }
+                        </div>
+                        @if (!string.IsNullOrEmpty(filter.Description))
                         {
-                            <span style="color: #ef4444;"> *</span>
+                            <p class="mfd-filter-desc">@filter.Description</p>
                         }
-                    </FluentLabel>
-
-                    @if (!string.IsNullOrEmpty(filter.Description))
-                    {
-                        <p style="margin: 0; font-size: 0.875rem; color: #6b7280;">@filter.Description</p>
-                    }
-
-                    @switch (filter.FilterType.ToLowerInvariant())
-                    {
-                        case "date":
-                            @if (filter.Operator == "BETWEEN")
-                            {
-                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
-                                    <FluentTextField Type="TextFieldType.Date"
-                                                   Value="@GetBetweenStartValue(columnName)"
-                                                   ValueChanged="@(val => SetBetweenStartValue(columnName, val))"
-                                                   Placeholder="Start date"
-                                                   Required="@filter.IsRequired"
-                                                   Style="flex: 1;" />
-                                    <span style="align-self: center;">to</span>
-                                    <FluentTextField Type="TextFieldType.Date"
-                                                   Value="@GetBetweenEndValue(columnName)"
-                                                   ValueChanged="@(val => SetBetweenEndValue(columnName, val))"
-                                                   Placeholder="End date"
-                                                   Required="@filter.IsRequired"
-                                                   Style="flex: 1;" />
-                                </FluentStack>
-                            }
-                            else
-                            {
-                                <FluentTextField Type="TextFieldType.Date"
-                                               Value="@GetFilterValue(columnName)"
-                                               ValueChanged="@(val => SetFilterValue(columnName, val))"
-                                               Placeholder="@(filter.Placeholder ?? "YYYY-MM-DD")"
-                                               Required="@filter.IsRequired"
-                                               Style="width: 100%;" />
-                            }
-                            break;
-
-                        case "number":
-                            @if (filter.Operator == "BETWEEN")
-                            {
-                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
-                                    <FluentTextField Type="TextFieldType.Number"
-                                                   Value="@GetBetweenStartValue(columnName)"
-                                                   ValueChanged="@(val => SetBetweenStartValue(columnName, val))"
-                                                   Placeholder="Min value"
-                                                   Required="@filter.IsRequired"
-                                                   Style="flex: 1;" />
-                                    <span style="align-self: center;">to</span>
-                                    <FluentTextField Type="TextFieldType.Number"
-                                                   Value="@GetBetweenEndValue(columnName)"
-                                                   ValueChanged="@(val => SetBetweenEndValue(columnName, val))"
-                                                   Placeholder="Max value"
-                                                   Required="@filter.IsRequired"
-                                                   Style="flex: 1;" />
-                                </FluentStack>
-                            }
-                            else
-                            {
-                                <FluentTextField Type="TextFieldType.Text"
-                                               Value="@GetFilterValue(columnName)"
-                                               ValueChanged="@(val => SetFilterValue(columnName, val))"
-                                               Placeholder="@GetPlaceholderForOperator(filter)"
-                                               Required="@filter.IsRequired"
-                                               Style="width: 100%;" />
-                            }
-                            break;
-
-                        case "select":
-                            @if (!string.IsNullOrEmpty(filter.SelectOptions))
-                            {
-                                @if (filter.Operator == "IN" || filter.Operator == "NOT IN")
+                        @switch (filter.FilterType.ToLowerInvariant())
+                        {
+                            case "date":
+                                @if (filter.Operator == "BETWEEN")
                                 {
-                                    <FluentSelect TOption="string"
-                                                Multiple="true"
-                                                SelectedOptions="@GetMultiSelectValue(columnName)"
-                                                SelectedOptionsChanged="@(val => SetMultiSelectValue(columnName, val))"
-                                                Required="@filter.IsRequired"
-                                                Style="width: 100%;">
-                                        @foreach (var option in filter.SelectOptions.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                                        {
-                                            <FluentOption Value="@option">@option</FluentOption>
-                                        }
-                                    </FluentSelect>
+                                    <div class="mfd-between">
+                                        <input type="date" class="mfd-input" value="@GetBetweenStartValue(columnName)"
+                                               @oninput="@(e => SetBetweenStartValue(columnName, e.Value?.ToString()))" />
+                                        <span class="mfd-between-sep">to</span>
+                                        <input type="date" class="mfd-input" value="@GetBetweenEndValue(columnName)"
+                                               @oninput="@(e => SetBetweenEndValue(columnName, e.Value?.ToString()))" />
+                                    </div>
                                 }
                                 else
                                 {
-                                    <FluentSelect TOption="string"
-                                                Value="@GetFilterValue(columnName)"
-                                                ValueChanged="@(val => SetFilterValue(columnName, val))"
-                                                Required="@filter.IsRequired"
-                                                Style="width: 100%;">
-                                        <FluentOption Value="">-- Select --</FluentOption>
-                                        @foreach (var option in filter.SelectOptions.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                                        {
-                                            <FluentOption Value="@option">@option</FluentOption>
-                                        }
-                                    </FluentSelect>
+                                    <input type="date" class="mfd-input" value="@GetFilterValue(columnName)"
+                                           @oninput="@(e => SetFilterValue(columnName, e.Value?.ToString()))" />
                                 }
-                            }
-                            break;
+                                break;
 
-                        case "text":
-                        default:
-                            @if (filter.Operator == "BETWEEN")
-                            {
-                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
-                                    <FluentTextField Value="@GetBetweenStartValue(columnName)"
-                                                   ValueChanged="@(val => SetBetweenStartValue(columnName, val))"
-                                                   Placeholder="Start value"
-                                                   Required="@filter.IsRequired"
-                                                   Style="flex: 1;" />
-                                    <span style="align-self: center;">to</span>
-                                    <FluentTextField Value="@GetBetweenEndValue(columnName)"
-                                                   ValueChanged="@(val => SetBetweenEndValue(columnName, val))"
-                                                   Placeholder="End value"
-                                                   Required="@filter.IsRequired"
-                                                   Style="flex: 1;" />
-                                </FluentStack>
-                            }
-                            else
-                            {
-                                <FluentTextField Value="@GetFilterValue(columnName)"
-                                               ValueChanged="@(val => SetFilterValue(columnName, val))"
-                                               Placeholder="@GetPlaceholderForOperator(filter)"
-                                               Required="@filter.IsRequired"
-                                               Style="width: 100%;" />
-                            }
-                            break;
-                    }
+                            case "number":
+                                @if (filter.Operator == "BETWEEN")
+                                {
+                                    <div class="mfd-between">
+                                        <input type="number" class="mfd-input" placeholder="Min" value="@GetBetweenStartValue(columnName)"
+                                               @oninput="@(e => SetBetweenStartValue(columnName, e.Value?.ToString()))" />
+                                        <span class="mfd-between-sep">to</span>
+                                        <input type="number" class="mfd-input" placeholder="Max" value="@GetBetweenEndValue(columnName)"
+                                               @oninput="@(e => SetBetweenEndValue(columnName, e.Value?.ToString()))" />
+                                    </div>
+                                }
+                                else
+                                {
+                                    <input type="text" class="mfd-input" placeholder="@GetPlaceholderForOperator(filter)"
+                                           value="@GetFilterValue(columnName)"
+                                           @oninput="@(e => SetFilterValue(columnName, e.Value?.ToString()))" />
+                                }
+                                break;
 
-                    <p style="margin: 0; font-size: 0.75rem; color: #9ca3af;">
-                        Column: @filter.ColumnName
-                        @if (!string.IsNullOrEmpty(filter.DefaultValue))
-                        {
-                            <span> | Default: @filter.DefaultValue</span>
+                            case "select":
+                                @if (!string.IsNullOrEmpty(filter.SelectOptions))
+                                {
+                                    <select class="mfd-select" value="@GetFilterValue(columnName)"
+                                            @onchange="@(e => SetFilterValue(columnName, e.Value?.ToString()))">
+                                        <option value="">-- Select --</option>
+                                        @foreach (var opt in filter.SelectOptions.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                                        {
+                                            <option value="@opt">@opt</option>
+                                        }
+                                    </select>
+                                }
+                                break;
+
+                            default:
+                                @if (filter.Operator == "BETWEEN")
+                                {
+                                    <div class="mfd-between">
+                                        <input type="text" class="mfd-input" placeholder="Start value" value="@GetBetweenStartValue(columnName)"
+                                               @oninput="@(e => SetBetweenStartValue(columnName, e.Value?.ToString()))" />
+                                        <span class="mfd-between-sep">to</span>
+                                        <input type="text" class="mfd-input" placeholder="End value" value="@GetBetweenEndValue(columnName)"
+                                               @oninput="@(e => SetBetweenEndValue(columnName, e.Value?.ToString()))" />
+                                    </div>
+                                }
+                                else
+                                {
+                                    <input type="text" class="mfd-input" placeholder="@GetPlaceholderForOperator(filter)"
+                                           value="@GetFilterValue(columnName)"
+                                           @oninput="@(e => SetFilterValue(columnName, e.Value?.ToString()))" />
+                                }
+                                break;
                         }
-                    </p>
-                </div>
-            }
-        }
-    </div>
-</FluentDialogBody>
+                        <p class="mfd-filter-hint">Column: @filter.ColumnName@(!string.IsNullOrEmpty(filter.DefaultValue) ? $" | Default: {filter.DefaultValue}" : "")</p>
+                    </div>
+                }
 
-<FluentDialogFooter>
-    <FluentButton Appearance="Appearance.Neutral" OnClick="@CancelAsync">
-        Cancel
-    </FluentButton>
-    <FluentButton Appearance="Appearance.Accent" OnClick="@SubmitAsync">
-        Run Query
-    </FluentButton>
-</FluentDialogFooter>
+                @if (!string.IsNullOrEmpty(ValidationError))
+                {
+                    <div class="mfd-error">@ValidationError</div>
+                }
+            }
+        </div>
+
+        <div class="mfd-footer">
+            <button class="mfd-btn mfd-btn-secondary" @onclick="() => OnCancel.InvokeAsync()">Cancel</button>
+            <button class="mfd-btn mfd-btn-primary" @onclick="SubmitAsync">
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Run Query
+            </button>
+        </div>
+    </div>
+</div>
 
 @code {
-    [Parameter]
-    public Metric Content { get; set; } = new();
+    [Parameter] public Metric Content { get; set; } = new();
+    [Parameter] public EventCallback<List<MetricFilterValue>> OnRun { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
 
-    [CascadingParameter]
-    public FluentDialog Dialog { get; set; } = default!;
+    private string? ValidationError;
+
 
     private Dictionary<string, string?> FilterValues = new();
     private Dictionary<string, string?> BetweenStartValues = new();
@@ -244,7 +244,8 @@
 
         if (missingRequired.Any())
         {
-            return; // FluentUI handles validation UI
+            ValidationError = $"Please fill in required filter(s): {string.Join(", ", missingRequired.Select(f => f.FilterLabel))}";
+            return;
         }
 
         // Convert to MetricFilterValue list
@@ -263,7 +264,7 @@
             }
         }
 
-        await Dialog.CloseAsync(filterValuesList);
+        await OnRun.InvokeAsync(filterValuesList);
     }
 
     private bool HasFilterValue(MetricFilter filter)
@@ -344,8 +345,5 @@
         };
     }
 
-    private async Task CancelAsync()
-    {
-        await Dialog.CancelAsync();
-    }
+    // Remove old FluentDialog cancel — handled via [Parameter] OnCancel
 }

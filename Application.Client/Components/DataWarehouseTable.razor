@@ -1,141 +1,251 @@
-@using Microsoft.FluentUI.AspNetCore.Components
 @using System.Text.Json
 
-<div class="datawarehouse-table-container">
-    <!-- Header Controls -->
-    <div class="table-header">
-        <div class="table-info">
-            <h3>@TableName</h3>
-            <span class="row-count">@TotalRows rows</span>
-        </div>
-        
-        <div class="table-controls">
-            <!-- Column Selector -->
-            <FluentButton Appearance="Appearance.Outline" OnClick="@(() => showColumnSelector = !showColumnSelector)">
-                <FluentIcon Value="@(new Icons.Regular.Size20.TableSettings())" />
-                Columns (@VisibleColumns.Count/@AllColumns.Count)
-            </FluentButton>
+<style>
+    .dwt-container {
+        display: flex; flex-direction: column; height: 100%;
+        background: #f9fafb; overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    }
 
-            <!-- Search/Filter -->
-            <FluentSearch @bind-Value="@searchText" 
-                         Placeholder="Search all columns..."
-                         @bind-Value:after="OnSearchChanged"
-                         style="width: 300px;" />
+    /* ── Header ─────────────────────────────────────── */
+    .dwt-header {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        padding: 14px 20px; background: white; border-bottom: 1px solid #e5e7eb;
+        flex-shrink: 0; flex-wrap: wrap;
+    }
+    .dwt-header-left { display: flex; flex-direction: column; gap: 3px; }
+    .dwt-eyebrow {
+        display: inline-flex; align-items: center; gap: 5px;
+        font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: #9ca3af;
+    }
+    .dwt-table-name { margin: 0; font-size: 16px; font-weight: 700; color: #111827; letter-spacing: -.01em; }
+    .dwt-header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+    /* Buttons */
+    .dwt-btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px;
+        border-radius: 7px; font-size: 13px; font-weight: 500; cursor: pointer; }
+    .dwt-btn-outline { background: white; border: 1px solid #e5e7eb; color: #374151; }
+    .dwt-btn-outline:hover { background: #f9fafb; border-color: #d1d5db; }
+
+    /* Search */
+    .dwt-search-wrap { position: relative; }
+    .dwt-search-wrap svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+        width: 13px; height: 13px; color: #9ca3af; pointer-events: none; }
+    .dwt-search { height: 34px; padding: 0 10px 0 30px; border: 1px solid #e5e7eb; border-radius: 7px;
+        font-size: 13px; background: white; color: #111827; outline: none; width: 220px; }
+    .dwt-search:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.1); }
+
+    /* ── Column selector panel ──────────────────────── */
+    .dwt-col-panel {
+        background: white; border-bottom: 1px solid #e5e7eb;
+        padding: 12px 20px; flex-shrink: 0;
+    }
+    .dwt-col-panel-header {
+        display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    }
+    .dwt-col-panel-title { font-size: 13px; font-weight: 600; color: #111827; flex: 1; }
+    .dwt-col-panel-actions { display: flex; align-items: center; gap: 6px; }
+    .dwt-col-divider { color: #d1d5db; }
+    .dwt-link-btn { background: none; border: none; color: #6366f1; font-size: 12.5px;
+        cursor: pointer; padding: 0; font-weight: 500; }
+    .dwt-link-btn:hover { color: #4f46e5; text-decoration: underline; }
+    .dwt-close-btn { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+        border: 1px solid #e5e7eb; border-radius: 6px; background: white; cursor: pointer; color: #6b7280; }
+    .dwt-close-btn:hover { background: #f3f4f6; color: #374151; }
+
+    .dwt-col-list {
+        display: flex; flex-wrap: wrap; gap: 4px 16px;
+        max-height: 160px; overflow-y: auto;
+    }
+    .dwt-col-item { display: flex; align-items: center; gap: 6px; cursor: pointer;
+        font-size: 13px; color: #374151; padding: 3px 0; white-space: nowrap; }
+    .dwt-col-item input { accent-color: #6366f1; cursor: pointer; width: 14px; height: 14px; }
+    .dwt-col-name { font-weight: 500; }
+    .dwt-col-type { font-size: 11px; color: #9ca3af; }
+
+    /* ── Table ──────────────────────────────────────── */
+    .dwt-table-wrap { flex: 1; overflow: auto; }
+    .dwt-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .dwt-table thead th {
+        position: sticky; top: 0; z-index: 1;
+        background: #f9fafb; border-bottom: 1px solid #e5e7eb;
+        padding: 0; white-space: nowrap; vertical-align: top; min-width: 100px;
+    }
+    .dwt-th-inner {
+        display: flex; align-items: center; gap: 6px;
+        padding: 9px 12px 4px;
+        font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #6b7280;
+    }
+    .dwt-col-dtype { font-size: 10px; color: #9ca3af; font-weight: 400; text-transform: none; letter-spacing: 0; }
+    .dwt-col-filter {
+        display: block; width: 100%; padding: 3px 8px; margin: 0 0 6px;
+        border: none; border-top: 1px solid #f3f4f6; background: white;
+        font-size: 12px; color: #374151; outline: none; box-sizing: border-box;
+    }
+    .dwt-col-filter:focus { background: #f9fafb; border-top-color: #c7d2fe; }
+
+    .dwt-table tbody tr { border-bottom: 1px solid #f3f4f6; }
+    .dwt-table tbody tr:hover { background: #f9fafb; }
+    .dwt-table tbody td {
+        padding: 9px 12px; color: #111827; vertical-align: middle;
+        white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis;
+    }
+    .numeric-column { font-variant-numeric: tabular-nums; text-align: right; color: #374151; }
+    .date-column { color: #6b7280; font-size: 12.5px; }
+    .boolean-column { text-align: center; }
+    .text-column {}
+
+    /* Loading / empty */
+    .dwt-loading { display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 12px; height: 240px; color: #6b7280; font-size: 13.5px; }
+    .dwt-spinner { width: 28px; height: 28px; border: 2px solid #e5e7eb; border-top-color: #6366f1;
+        border-radius: 50%; animation: dwt-spin .7s linear infinite; }
+    @@keyframes dwt-spin { to { transform: rotate(360deg); } }
+    .dwt-empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 10px; height: 240px; color: #9ca3af; font-size: 13.5px; }
+    .dwt-empty svg { width: 36px; height: 36px; color: #e5e7eb; }
+
+    /* ── Footer / pagination ────────────────────────── */
+    .dwt-footer {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 10px 20px; background: white; border-top: 1px solid #e5e7eb; flex-shrink: 0;
+        flex-wrap: wrap; gap: 8px;
+    }
+    .dwt-row-info { font-size: 12.5px; color: #6b7280; }
+    .dwt-pager { display: flex; align-items: center; gap: 4px; }
+    .dwt-pager-btn {
+        width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+        border: 1px solid #e5e7eb; border-radius: 6px; background: white; cursor: pointer; color: #374151;
+    }
+    .dwt-pager-btn:hover:not(:disabled) { background: #f9fafb; border-color: #d1d5db; }
+    .dwt-pager-btn:disabled { opacity: .4; cursor: not-allowed; }
+    .dwt-pager-info { font-size: 13px; color: #374151; padding: 0 6px; }
+</style>
+
+<div class="dwt-container">
+
+    <!-- Header -->
+    <div class="dwt-header">
+        <div class="dwt-header-left">
+            <div class="dwt-eyebrow">
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+                table
+            </div>
+            <h3 class="dwt-table-name">@TableName</h3>
+        </div>
+        <div class="dwt-header-right">
+            <button class="dwt-btn dwt-btn-outline" @onclick="@(() => showColumnSelector = !showColumnSelector)">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18"/></svg>
+                Columns (@VisibleColumns.Count/@AllColumns.Count)
+            </button>
+            <div class="dwt-search-wrap">
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input class="dwt-search" type="search" placeholder="Search all columns..."
+                       @bind="searchText" @bind:after="OnSearchChanged" />
+            </div>
         </div>
     </div>
 
-    <!-- Column Selector Panel -->
+    <!-- Column selector panel -->
     @if (showColumnSelector)
     {
-        <div class="column-selector-panel">
-            <div class="column-selector-header">
-                <h4>Select Columns</h4>
-                <FluentButton Appearance="Appearance.Lightweight" OnClick="@(() => showColumnSelector = false)">
-                    <FluentIcon Value="@(new Icons.Regular.Size20.Dismiss())" />
-                </FluentButton>
-            </div>
-            <div class="column-selector-body">
-                <FluentButton Appearance="Appearance.Lightweight" OnClick="SelectAllColumns">Select All</FluentButton>
-                <FluentButton Appearance="Appearance.Lightweight" OnClick="DeselectAllColumns">Deselect All</FluentButton>
-                <div class="column-list">
-                    @foreach (var column in AllColumns)
-                    {
-                        <FluentCheckbox 
-                            @bind-Value="column.IsVisible"
-                            @bind-Value:after="UpdateVisibleColumns"
-                            Label="@($"{column.Name} ({column.DataType})")" />
-                    }
+        <div class="dwt-col-panel">
+            <div class="dwt-col-panel-header">
+                <span class="dwt-col-panel-title">Columns</span>
+                <div class="dwt-col-panel-actions">
+                    <button class="dwt-link-btn" @onclick="SelectAllColumns">Select all</button>
+                    <span class="dwt-col-divider">·</span>
+                    <button class="dwt-link-btn" @onclick="DeselectAllColumns">Deselect all</button>
                 </div>
+                <button class="dwt-close-btn" @onclick="@(() => showColumnSelector = false)">
+                    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="dwt-col-list">
+                @foreach (var column in AllColumns)
+                {
+                    <label class="dwt-col-item">
+                        <input type="checkbox" @bind="column.IsVisible" @bind:after="UpdateVisibleColumns" />
+                        <span class="dwt-col-name">@column.Name</span>
+                        <span class="dwt-col-type">@column.DataType</span>
+                    </label>
+                }
             </div>
         </div>
     }
 
-    <!-- Data Grid -->
-    <div class="data-grid-wrapper">
+    <!-- Table wrapper -->
+    <div class="dwt-table-wrap">
         @if (IsLoading)
         {
-            <div class="loading-overlay">
-                <FluentProgressRing />
-                <p>Loading data...</p>
+            <div class="dwt-loading">
+                <div class="dwt-spinner"></div>
+                <span>Loading data...</span>
             </div>
         }
         else if (FilteredData.Any())
         {
-            <FluentDataGrid Items="@FilteredData.AsQueryable()" 
-                           GridTemplateColumns="@GetGridTemplateColumns()"
-                           Class="streamlit-style-grid"
-                           Virtualize="true"
-                           ResizableColumns="true">
-                @foreach (var column in VisibleColumns)
-                {
-                    <PropertyColumn Property="@(row => GetCellValue(row, column.Name))" 
-                                  Title="@column.Name" 
-                                  Sortable="true"
-                                  Class="@GetColumnClass(column.DataType)">
-                        <ColumnOptions>
-                            <div class="column-filter">
-                                <FluentSearch @bind-Value="@column.FilterValue"
-                                            @bind-Value:after="ApplyFilters"
-                                            Placeholder="Filter..."
-                                            style="width: 100%;" />
-                            </div>
-                        </ColumnOptions>
-                    </PropertyColumn>
-                }
-            </FluentDataGrid>
+            <table class="dwt-table">
+                <thead>
+                    <tr>
+                        @foreach (var col in VisibleColumns)
+                        {
+                            <th>
+                                <div class="dwt-th-inner">
+                                    <span>@col.Name</span>
+                                    <span class="dwt-col-dtype">@col.DataType</span>
+                                </div>
+                                <input class="dwt-col-filter" type="text" placeholder="Filter..."
+                                       @bind="col.FilterValue" @bind:after="ApplyFilters" />
+                            </th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in FilteredData)
+                    {
+                        <tr>
+                            @foreach (var col in VisibleColumns)
+                            {
+                                <td class="@GetColumnClass(col.DataType)">@GetCellValue(row, col.Name)</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
         }
         else
         {
-            <div class="no-data">
-                <FluentIcon Value="@(new Icons.Regular.Size24.TableSimple())" />
+            <div class="dwt-empty">
+                <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
                 <p>No data available</p>
             </div>
         }
     </div>
 
-    <!-- Pagination -->
-    @if (TotalPages > 1)
-    {
-        <div class="pagination-controls">
-            <FluentButton Appearance="Appearance.Outline" 
-                         Disabled="@(CurrentPage <= 1)"
-                         OnClick="@(() => ChangePage(1))">
-                <FluentIcon Value="@(new Icons.Regular.Size20.ChevronDoubleLeft())" />
-            </FluentButton>
-            
-            <FluentButton Appearance="Appearance.Outline" 
-                         Disabled="@(CurrentPage <= 1)"
-                         OnClick="@(() => ChangePage(CurrentPage - 1))">
-                <FluentIcon Value="@(new Icons.Regular.Size20.ChevronLeft())" />
-            </FluentButton>
+    <!-- Info bar + pagination -->
+    <div class="dwt-footer">
+        <span class="dwt-row-info">@TotalRows rows · Page @CurrentPage of @TotalPages</span>
+        @if (TotalPages > 1)
+        {
+            <div class="dwt-pager">
+                <button class="dwt-pager-btn" @onclick="@(() => ChangePage(1))" disabled="@(CurrentPage <= 1)" title="First">
+                    <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+                </button>
+                <button class="dwt-pager-btn" @onclick="@(() => ChangePage(CurrentPage - 1))" disabled="@(CurrentPage <= 1)" title="Previous">
+                    <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+                </button>
+                <span class="dwt-pager-info">@CurrentPage / @TotalPages</span>
+                <button class="dwt-pager-btn" @onclick="@(() => ChangePage(CurrentPage + 1))" disabled="@(CurrentPage >= TotalPages)" title="Next">
+                    <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+                </button>
+                <button class="dwt-pager-btn" @onclick="@(() => ChangePage(TotalPages))" disabled="@(CurrentPage >= TotalPages)" title="Last">
+                    <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+                </button>
+            </div>
+        }
+    </div>
 
-            <span class="page-info">
-                Page @CurrentPage of @TotalPages
-            </span>
-
-            <FluentButton Appearance="Appearance.Outline" 
-                         Disabled="@(CurrentPage >= TotalPages)"
-                         OnClick="@(() => ChangePage(CurrentPage + 1))">
-                <FluentIcon Value="@(new Icons.Regular.Size20.ChevronRight())" />
-            </FluentButton>
-
-            <FluentButton Appearance="Appearance.Outline" 
-                         Disabled="@(CurrentPage >= TotalPages)"
-                         OnClick="@(() => ChangePage(TotalPages))">
-                <FluentIcon Value="@(new Icons.Regular.Size20.ChevronDoubleRight())" />
-            </FluentButton>
-
-            @* <FluentSelect @bind-Value="@PageSize" 
-                        TOption="@int"
-                         @bind-Value:after="OnPageSizeChanged"
-                         style="width: 100px;">
-                <FluentOption Value="50">50 rows</FluentOption>
-                <FluentOption Value="100">100 rows</FluentOption>
-                <FluentOption Value="250">250 rows</FluentOption>
-                <FluentOption Value="500">500 rows</FluentOption>
-            </FluentSelect> *@
-        </div>
-    }
 </div>
 
 @code {

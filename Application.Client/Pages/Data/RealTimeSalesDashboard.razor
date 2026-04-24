@@ -3,7 +3,6 @@
 @using Microsoft.FluentUI.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.SignalR.Client
-@using Microsoft.FluentUI.AspNetCore.Components.Icons
 @using System.Text.Json
 @using System.Linq
 @using System.Globalization
@@ -17,332 +16,405 @@
 
 <PageTitle>Real-Time Sales Dashboard</PageTitle>
 
-@* 
+<style>
+    .rsd-page { display: flex; flex-direction: column; height: 88vh; background: #f9fafb;
+        font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; }
 
+    /* Header */
+    .rsd-header { background: white; border-bottom: 1px solid #e5e7eb; padding: 14px 24px;
+        display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; }
+    .rsd-header-left { display: flex; flex-direction: column; gap: 3px; }
+    .rsd-eyebrow { display: inline-flex; align-items: center; gap: 6px; font-size: 11px;
+        font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #9ca3af; }
+    .rsd-title { margin: 0; font-size: 18px; font-weight: 700; color: #111827; letter-spacing: -.01em; }
+    .rsd-header-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
-<AuthorizeView Roles="@($"{companyId}_SALES")">
-    <Authorized>
-        
- *@
+    /* Status badge */
+    .rsd-status { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+        border-radius: 6px; font-size: 12px; font-weight: 600; }
+    .rsd-status-live { background: #dcfce7; color: #15803d; }
+    .rsd-status-off  { background: #f3f4f6; color: #6b7280; }
+    .rsd-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .rsd-status-live .rsd-dot { background: #22c55e; animation: rsd-pulse 2s infinite; }
+    .rsd-status-off  .rsd-dot { background: #9ca3af; }
+    @@keyframes rsd-pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
 
-        <div class="sales-dashboard-container" style="height: 88vh; display: flex; flex-direction: column; background: #f8fafc;">
-    
-            <!-- Header -->
-            <div class="header" style="background: white; border-bottom: 1px solid #e5e7eb; padding: 16px 24px; flex-shrink: 0;">
-                <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween" VerticalAlignment="VerticalAlignment.Center">
-                    <div>
-                        <h1 style="margin: 0; font-size: 1.5rem; font-weight: 600; color: #1f2937;">
-                            Real-Time Sales
-                        </h1>
-                        <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.875rem;">
-                            Live sales data and analytics
-                        </p>
-                    </div>
-                    <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8" VerticalAlignment="VerticalAlignment.Center" Width="15">
-                        <FluentBadge Appearance="@(IsConnected ? Appearance.Accent : Appearance.Neutral)"
-                                   style="@(IsConnected ? "background: #059669; color: white;" : "background: #f3f4f6; color: #374151;")">
-                            @(IsConnected ? "Live" : "Disconnected")
-                        </FluentBadge>
-                        <FluentButton Appearance="Appearance.Stealth" 
-                                    OnClick="RefreshData"
-                                    style="padding: 8px; border-radius: 6px;">
-                            <FluentIcon Value="@(new Icons.Regular.Size20.ArrowClockwise())" />
-                        </FluentButton>
-                    </FluentStack>
+    /* Buttons */
+    .rsd-btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px;
+        border-radius: 7px; font-size: 13px; font-weight: 500; cursor: pointer; }
+    .rsd-btn-outline { background: white; border: 1px solid #e5e7eb; color: #374151; }
+    .rsd-btn-outline:hover { background: #f9fafb; border-color: #d1d5db; }
 
-                </FluentStack>
+    /* Scrollable content */
+    .rsd-content { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 20px; }
+
+    /* Toolbar */
+    .rsd-toolbar { display: flex; align-items: center; gap: 8px; }
+    .rsd-toolbar-label { font-size: 13px; color: #6b7280; font-weight: 500; }
+    .rsd-select { height: 34px; padding: 0 10px; border: 1px solid #e5e7eb; border-radius: 7px;
+        font-size: 13px; color: #111827; background: white; outline: none; cursor: pointer; }
+    .rsd-select:focus { border-color: #6366f1; }
+    .rsd-last-updated { margin-left: auto; font-size: 12px; color: #9ca3af; }
+
+    /* Loading */
+    .rsd-loading { display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 12px; padding: 60px; color: #6b7280; font-size: 13.5px; }
+    .rsd-spinner { width: 26px; height: 26px; border: 2px solid #e5e7eb; border-top-color: #6366f1;
+        border-radius: 50%; animation: rsd-spin .7s linear infinite; }
+    @@keyframes rsd-spin { to { transform: rotate(360deg); } }
+
+    /* Section title */
+    .rsd-section-title { font-size: 13px; font-weight: 600; color: #111827; margin-bottom: 12px; }
+
+    /* KPI cards */
+    .rsd-kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .rsd-kpi-card { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 18px 20px; }
+    .rsd-kpi-label { font-size: 13px; color: #6b7280; font-weight: 500; margin-bottom: 10px; }
+    .rsd-kpi-value { font-size: 26px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
+
+    /* Banner cards */
+    .rsd-banner-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .rsd-banner-card { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; }
+    .rsd-banner-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .rsd-banner-name { font-size: 14px; font-weight: 600; color: #111827; }
+    .rsd-badge { font-size: 11.5px; font-weight: 500; color: #6b7280; background: #f3f4f6;
+        border: 1px solid #e5e7eb; border-radius: 4px; padding: 2px 8px; }
+    .rsd-banner-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .rsd-stat { display: flex; flex-direction: column; gap: 3px; }
+    .rsd-stat-label { font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: .05em; }
+    .rsd-stat-value { font-size: 15px; font-weight: 700; }
+
+    /* Table card */
+    .rsd-table-card { background: white; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
+    .rsd-table-header { display: flex; align-items: center; justify-content: space-between;
+        padding: 14px 20px; border-bottom: 1px solid #e5e7eb; }
+    .rsd-table-title { font-size: 14px; font-weight: 600; color: #111827; }
+
+    /* Column settings */
+    .rsd-col-settings { padding: 12px 20px; border-bottom: 1px solid #e5e7eb; background: #f9fafb; }
+    .rsd-col-settings-label { font-size: 11px; font-weight: 600; text-transform: uppercase;
+        letter-spacing: .07em; color: #9ca3af; display: block; margin-bottom: 10px; }
+    .rsd-col-checkboxes { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+    .rsd-col-item { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #374151;
+        cursor: pointer; user-select: none; }
+    .rsd-col-item input { accent-color: #6366f1; width: 14px; height: 14px; cursor: pointer; }
+    .rsd-col-item input:disabled { opacity: .45; cursor: not-allowed; }
+
+    /* Table */
+    .rsd-table-wrap { overflow-x: auto; }
+    table.rsd-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    .rsd-table thead th { background: #f9fafb; padding: 10px 16px; text-align: left;
+        font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+        color: #6b7280; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
+    .rsd-table tbody tr { border-bottom: 1px solid #f3f4f6; }
+    .rsd-table tbody tr:last-child { border-bottom: none; }
+    .rsd-table tbody tr:hover { background: #f9fafb; }
+    .rsd-table tbody td { padding: 11px 16px; color: #111827; vertical-align: middle; }
+    .rsd-table-empty { padding: 48px 24px; text-align: center; color: #9ca3af; font-size: 13.5px; }
+    .rsd-link-btn { background: none; border: none; color: #6366f1; font-size: 13px;
+        font-weight: 500; cursor: pointer; padding: 0; }
+    .rsd-link-btn:hover { color: #4f46e5; text-decoration: underline; }
+
+    /* Value colors */
+    .rsd-green  { color: #059669; }
+    .rsd-blue   { color: #2563eb; }
+    .rsd-violet { color: #7c3aed; }
+    .rsd-muted  { color: #6b7280; font-size: 13px; }
+
+    /* Store insights modal */
+    .rsd-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 9999;
+        display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .rsd-modal { background: white; border-radius: 12px; width: min(960px, 100%);
+        max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.15); }
+    .rsd-modal-header { display: flex; align-items: flex-start; justify-content: space-between;
+        gap: 16px; padding: 20px 24px; border-bottom: 1px solid #e5e7eb; flex-shrink: 0; }
+    .rsd-modal-title { margin: 0; font-size: 16px; font-weight: 700; color: #111827; }
+    .rsd-modal-sub { margin: 4px 0 0; font-size: 13px; color: #6b7280; }
+    .rsd-modal-close { width: 32px; height: 32px; display: flex; align-items: center;
+        justify-content: center; border: 1px solid #e5e7eb; border-radius: 6px;
+        background: white; cursor: pointer; color: #6b7280; flex-shrink: 0; }
+    .rsd-modal-close:hover { background: #f3f4f6; color: #374151; }
+    .rsd-modal-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 24px; }
+    .rsd-modal-section-title { font-size: 14px; font-weight: 600; color: #111827; margin-bottom: 12px; }
+    .rsd-mini-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 10px; margin-bottom: 14px; }
+    .rsd-mini-kpi { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; }
+    .rsd-mini-kpi-label { font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+    .rsd-mini-kpi-value { font-size: 18px; font-weight: 700; }
+    table.rsd-insights-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    .rsd-insights-table thead th { padding: 8px 0; border-bottom: 1px solid #e5e7eb;
+        font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #6b7280; }
+    .rsd-insights-table tbody td { padding: 10px 0; border-bottom: 1px solid #f3f4f6; }
+    .rsd-insights-table tbody tr:last-child td { border-bottom: none; }
+    .rsd-no-data { font-size: 13px; color: #9ca3af; margin: 0; }
+    @@media (max-width: 900px) {
+        .rsd-kpi-grid { grid-template-columns: 1fr 1fr; }
+        .rsd-banner-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @@media (max-width: 560px) {
+        .rsd-kpi-grid { grid-template-columns: 1fr; }
+        .rsd-banner-grid { grid-template-columns: 1fr; }
+    }
+</style>
+
+<div class="rsd-page">
+
+    <!-- Header -->
+    <div class="rsd-header">
+        <div class="rsd-header-left">
+            <div class="rsd-eyebrow">
+                <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                Real-time
             </div>
-            
-            <!-- Content -->
-            <div class="content" style="flex: 1; padding: 24px; overflow-y: auto;">
+            <h1 class="rsd-title">Sales Dashboard</h1>
+        </div>
+        <div class="rsd-header-right">
+            <span class="rsd-status @(IsConnected ? "rsd-status-live" : "rsd-status-off")">
+                <span class="rsd-dot"></span>
+                @(IsConnected ? "Live" : "Disconnected")
+            </span>
+            <button class="rsd-btn rsd-btn-outline" @onclick="RefreshData">
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                Refresh
+            </button>
+        </div>
+    </div>
 
-                <div style="display: flex; align-items: center; gap: 6px; margin-right: 8px; margin-bottom: 24px; ">
-                    <span style="font-size: 0.875rem; color: #6b7280;">View by</span>
-                    <select @onchange="HandleGroupingChanged" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #d1d5db; font-size: 0.85rem; color: #111827; background: #fff; min-width: 160px;">
-                        @foreach (var option in groupingOptions)
-                        {
-                            <option value="@option.Value" selected="@(option.Value == currentGrouping)">@option.Label</option>
-                        }
-                    </select>
-                </div>
-        
-                @if (isLoading)
+    <!-- Scrollable content -->
+    <div class="rsd-content">
+
+        <!-- Toolbar: grouping selector + last updated -->
+        <div class="rsd-toolbar">
+            <span class="rsd-toolbar-label">View by</span>
+            <select class="rsd-select" @onchange="HandleGroupingChanged">
+                @foreach (var option in groupingOptions)
                 {
-                    <div style="display: flex; justify-content: center; align-items: center; height: 50vh;">
-                        <FluentProgressRing />
-                    </div>
+                    <option value="@option.Value" selected="@(option.Value == currentGrouping)">@option.Label</option>
                 }
-                else
-                {
-                    <!-- Overall KPI Cards -->
-                    <div style="margin-bottom: 24px;">
-                        <h2 style="margin: 0 0 16px 0; font-size: 1.25rem; font-weight: 600; color: #1f2937;">Overall Performance</h2>
-                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="16" Wrap="true">
-                            <div class="kpi-card" style="background: white; border-radius: 8px; padding: 16px; border: 1px solid #e5e7eb; min-width: 200px; flex: 1;">
-                            <div style="color: #6b7280; font-size: 1rem; margin-bottom: 16px; font-weight: 600;">Total Sales</div>
-                                <div style="font-size: 1.675rem; font-weight: 700; color: #059669;">
-                                    @($"${overallKpi?.TotalSales.ToString("N0")}" ?? "Loading...")
+            </select>
+            @if (lastUpdated.HasValue)
+            {
+                <span class="rsd-last-updated">Updated @lastUpdated.Value.ToString("HH:mm:ss")</span>
+            }
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="rsd-loading">
+                <div class="rsd-spinner"></div>
+                <span>Loading dashboard…</span>
+            </div>
+        }
+        else
+        {
+            <!-- Overall KPI Cards -->
+            <div>
+                <div class="rsd-section-title">Overall Performance</div>
+                <div class="rsd-kpi-grid">
+                    <div class="rsd-kpi-card">
+                        <div class="rsd-kpi-label">Total Sales</div>
+                        <div class="rsd-kpi-value rsd-green">@($"${overallKpi?.TotalSales.ToString("N0") ?? "—"}")</div>
+                    </div>
+                    <div class="rsd-kpi-card">
+                        <div class="rsd-kpi-label">Total Transactions</div>
+                        <div class="rsd-kpi-value rsd-blue">@(overallKpi?.TotalTransactions.ToString("N0") ?? "—")</div>
+                    </div>
+                    <div class="rsd-kpi-card">
+                        <div class="rsd-kpi-label">Average Basket</div>
+                        <div class="rsd-kpi-value rsd-violet">@($"${overallKpi?.AverageBasket.ToString("N0") ?? "—"}")</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Banner KPI Cards -->
+            @if (bannerKpis?.Any() == true)
+            {
+                <div>
+                    <div class="rsd-section-title">Performance by Banner</div>
+                    <div class="rsd-banner-grid">
+                        @foreach (var banner in bannerKpis)
+                        {
+                            <div class="rsd-banner-card">
+                                <div class="rsd-banner-header">
+                                    <span class="rsd-banner-name">@banner.Banner</span>
+                                    <span class="rsd-badge">@banner.StoreCount stores</span>
+                                </div>
+                                <div class="rsd-banner-stats">
+                                    <div class="rsd-stat">
+                                        <span class="rsd-stat-label">Sales</span>
+                                        <span class="rsd-stat-value rsd-green">@($"${banner.TotalSales.ToString("N0")}")</span>
+                                    </div>
+                                    <div class="rsd-stat">
+                                        <span class="rsd-stat-label">Transactions</span>
+                                        <span class="rsd-stat-value rsd-blue">@banner.TotalTransactions.ToString("N0")</span>
+                                    </div>
+                                    <div class="rsd-stat">
+                                        <span class="rsd-stat-label">Avg Basket</span>
+                                        <span class="rsd-stat-value rsd-violet">@($"${banner.AverageBasket.ToString("N0")}")</span>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="kpi-card" style="background: white; border-radius: 8px; padding: 20px; border: 1px solid #e5e7eb; min-width: 200px; flex: 1;">
-                                <div style="color: #6b7280; font-size: 1rem; margin-bottom: 16px; font-weight: 600;">Total Transactions</div>
-                                <div style="font-size: 1.675rem; font-weight: 700; color: #2563eb;">
-                                    @(overallKpi?.TotalTransactions.ToString("N0") ?? "Loading...")
-                                </div>
-                            </div>
-                            <div class="kpi-card" style="background: white; border-radius: 8px; padding: 20px; border: 1px solid #e5e7eb; min-width: 200px; flex: 1;">
-                                <div style="color: #6b7280; font-size: 1rem; margin-bottom: 16px; font-weight: 600;">Average Basket</div>
-                                <div style="font-size: 1.675rem; font-weight: 700; color: #7c3aed;">
-                                    @($"${overallKpi?.AverageBasket.ToString("N0")}" ?? "Loading...")
-                                </div>
-                            </div>
-                            @* <div class="kpi-card" style="background: white; border-radius: 8px; padding: 20px; border: 1px solid #e5e7eb; min-width: 200px; flex: 1;">
-                                <div style="color: #6b7280; font-size: 1rem; margin-bottom: 16px;">Active Stores</div>
-                                <div style="font-size: 1.675rem; font-weight: 700; color: #dc2626; font-weight: 600;">
-                                    @(overallKpi?.TotalStores.ToString("N0") ?? "Loading...")
-                                </div>
-                            </div> *@
-                        </FluentStack>
+                        }
+                    </div>
+                </div>
+            }
+
+            <!-- Store Performance Table -->
+            <div>
+                <div class="rsd-table-card">
+                    <div class="rsd-table-header">
+                        <span class="rsd-table-title">Store Performance Details</span>
+                        <button class="rsd-btn rsd-btn-outline" @onclick="ToggleColumnSettings">
+                            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18"/></svg>
+                            Columns
+                        </button>
                     </div>
 
-                    <!-- Banner KPI Cards -->
-                    @if (bannerKpis?.Any() == true)
+                    @if (showColumnSettings)
                     {
-                        <div style="margin-bottom: 24px;">
-                            <h2 style="margin: 0 0 16px 0; font-size: 1.25rem; font-weight: 600; color: #1f2937;">Performance by Banner</h2>
-                            <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="16" Wrap="true">
-                                @foreach (var banner in bannerKpis)
-                                {
-                                    <div class="banner-kpi-card" style="background: white; border-radius: 8px; padding: 16px; border: 1px solid #e5e7eb; min-width: 280px; flex: 1;">
-                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                                            <h3 style="margin: 0; font-size: 1rem; font-weight: 600; color: #1f2937;">@banner.Banner</h3>
-                                            <FluentBadge Appearance="Appearance.Neutral" style="background: #f3f4f6; color: #374151;">
-                                                @banner.StoreCount stores
-                                            </FluentBadge>
-                                        </div>
-                                        <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="16">
-                                            <div style="flex: 1;">
-                                                <div style="color: #6b7280; font-size: 0.75rem;">Sales</div>
-                                                <div style="font-size: 1.25rem; font-weight: 700; color: #059669;">@($"${banner.TotalSales.ToString("N0")}")</div>
-                                            </div>
-                                            <div style="flex: 1;">
-                                                <div style="color: #6b7280; font-size: 0.75rem;">Transactions</div>
-                                                <div style="font-size: 1.25rem; font-weight: 700; color: #2563eb;">@banner.TotalTransactions.ToString("N0")</div>
-                                            </div>
-                                            <div style="flex: 1;">
-                                                <div style="color: #6b7280; font-size: 0.75rem;">Avg Basket</div>
-                                                <div style="font-size: 1.25rem; font-weight: 700; color: #7c3aed;">@($"${banner.AverageBasket.ToString("N0")}")</div>
-                                            </div>
-                                        </FluentStack>
-                                    </div>
-                                }
-                            </FluentStack>
+                        <div class="rsd-col-settings">
+                            <span class="rsd-col-settings-label">Show / hide columns</span>
+                            <div class="rsd-col-checkboxes">
+                                <label class="rsd-col-item"><input type="checkbox" @bind="columnSettings.ShowScheme"           disabled="@(currentGrouping != DashboardGrouping.Store)" /> Scheme</label>
+                                <label class="rsd-col-item"><input type="checkbox" @bind="columnSettings.ShowStoreCode"        disabled="@(currentGrouping != DashboardGrouping.Store)" /> Store Code</label>
+                                <label class="rsd-col-item"><input type="checkbox" @bind="columnSettings.ShowDivision"         disabled="@(!(currentGrouping == DashboardGrouping.Division || currentGrouping == DashboardGrouping.DivisionCategory))" /> Division</label>
+                                <label class="rsd-col-item"><input type="checkbox" @bind="columnSettings.ShowCategory"         disabled="@(!(currentGrouping == DashboardGrouping.Category || currentGrouping == DashboardGrouping.DivisionCategory))" /> Category</label>
+                                <label class="rsd-col-item"><input type="checkbox" @bind="columnSettings.ShowTotalSales" /> Total Sales</label>
+                                <label class="rsd-col-item"><input type="checkbox" @bind="columnSettings.ShowTotalTransactions" /> Total Transactions</label>
+                                <label class="rsd-col-item"><input type="checkbox" @bind="columnSettings.ShowAverageBasket" /> Average Basket</label>
+                                <label class="rsd-col-item"><input type="checkbox" @bind="columnSettings.ShowLastUpdated" /> Last Updated</label>
+                            </div>
                         </div>
                     }
 
-                    <!-- Data Table -->
-                    <div style="background: white; border-radius: 8px; border: 1px solid #e5e7eb; overflow: hidden;">
-                        <div style="padding: 16px 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
-                            <h2 style="margin: 0; font-size: 1.125rem; font-weight: 600; color: #1f2937;">Store Performance Details</h2>
-                            <FluentButton Appearance="Appearance.Stealth" OnClick="ToggleColumnSettings">
-                                <FluentIcon Value="@(new Icons.Regular.Size20.Settings())" />
-                                Columns
-                            </FluentButton>
-                        </div>
-                
-                        @if (showColumnSettings)
-                        {
-                            <div style="padding: 16px 20px; border-bottom: 1px solid #e5e7eb; background: #f9fafb;">
-                                <h3 style="margin: 0 0 12px 0; font-size: 0.875rem; font-weight: 600; color: #374151;">Show/Hide Columns</h3>
-                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="16" Wrap="true">
-                                    <FluentCheckbox @bind-Value="columnSettings.ShowScheme" Label="Scheme" Disabled="@(currentGrouping != DashboardGrouping.Store)" />
-                                    <FluentCheckbox @bind-Value="columnSettings.ShowStoreCode" Label="Store Code" Disabled="@(currentGrouping != DashboardGrouping.Store)" />
-                                    <FluentCheckbox @bind-Value="columnSettings.ShowDivision" Label="Division" Disabled="@(!(currentGrouping == DashboardGrouping.Division || currentGrouping == DashboardGrouping.DivisionCategory))" />
-                                    <FluentCheckbox @bind-Value="columnSettings.ShowCategory" Label="Category" Disabled="@(!(currentGrouping == DashboardGrouping.Category || currentGrouping == DashboardGrouping.DivisionCategory))" />
-                                    <FluentCheckbox @bind-Value="columnSettings.ShowTotalSales" Label="Total Sales" />
-                                    <FluentCheckbox @bind-Value="columnSettings.ShowTotalTransactions" Label="Total Transactions" />
-                                    <FluentCheckbox @bind-Value="columnSettings.ShowAverageBasket" Label="Average Basket" />
-                                    <FluentCheckbox @bind-Value="columnSettings.ShowLastUpdated" Label="Last Updated" />
-                                </FluentStack>
-                            </div>
+                    <div class="rsd-table-wrap">
+                        @{
+                            var gridItems = GetGridItems().ToList();
                         }
-
-                        <div style="overflow-x: auto;">
-                            <FluentDataGrid Items="@GetGridItems().AsQueryable()" GridTemplateColumns="@GetGridTemplateColumns()"
-                                    ResizeColumnOnAllRows="true"
-                                    ShowHover="true"
-                                    ResizableColumns="true" 
-                                    ResizeType="DataGridResizeType.Discrete"
-                                    style="width: 100%;">
-                                @if (currentGrouping == DashboardGrouping.Store && columnSettings.ShowScheme)
-                                {
-                                    <PropertyColumn Property="@(c => c.Scheme)" Title="Scheme" Sortable="true" />
-                                }
-                                @if (currentGrouping == DashboardGrouping.Store && columnSettings.ShowStoreCode)
-                                {
-                                    <PropertyColumn Property="@(c => c.StoreCode)" Title="Store Code" Sortable="true" />
-                                }
-                                @if ((currentGrouping == DashboardGrouping.Division || currentGrouping == DashboardGrouping.DivisionCategory) && columnSettings.ShowDivision)
-                                {
-                                    <PropertyColumn Property="@(c => c.DivisionName)" Title="Division" Sortable="true" />
-                                }
-                                @if ((currentGrouping == DashboardGrouping.Category || currentGrouping == DashboardGrouping.DivisionCategory) && columnSettings.ShowCategory)
-                                {
-                                    <PropertyColumn Property="@(c => c.CategoryName)" Title="Category" Sortable="true" />
-                                }
-                                @if (columnSettings.ShowTotalSales)
-                                {
-                                    <TemplateColumn Title="Total Sales" Sortable="true" SortBy="@(GridSort<SalesDashboardData>.ByAscending(p => p.TotalSales))">
-                                        <div style="font-weight: 600; color: #059669;">@context.TotalSales.ToString("C", CultureInfo.GetCultureInfo("en-US"))</div>
-                                    </TemplateColumn>
-                                }
-                                @if (columnSettings.ShowTotalTransactions && (currentGrouping == DashboardGrouping.Division || currentGrouping == DashboardGrouping.Category || currentGrouping == DashboardGrouping.DivisionCategory))
-                                {
-                                    <TemplateColumn Title="Total Transactions" Sortable="true" SortBy="@(GridSort<SalesDashboardData>.ByAscending(p => p.TotalTransactions))">
-                                        <div style="font-weight: 600; color: #2563eb;">
-                                                @context.TotalTransactions.ToString("N0")
-                                        </div>
-                                    </TemplateColumn>
-                                }
-                                @if (columnSettings.ShowTotalTransactions && currentGrouping == DashboardGrouping.Store)
-                                {
-                                    <TemplateColumn Title="Total Transactions" Sortable="true" SortBy="@(GridSort<SalesDashboardData>.ByAscending(p => p.TotalStoreTransactions))">
-                                        <div style="font-weight: 600; color: #2563eb;">
-                                                @context.TotalStoreTransactions.ToString("N0")
-                                        </div>
-                                    </TemplateColumn>
-                                }
-                                @if (columnSettings.ShowAverageBasket)
-                                {
-                                    <TemplateColumn Title="Average Basket" Sortable="true" SortBy="@(GridSort<SalesDashboardData>.ByAscending(p => p.AverageBasket))">
-                                        <div style="font-weight: 600; color: #7c3aed;">@context.AverageBasket.ToString("C", CultureInfo.GetCultureInfo("en-US"))</div>
-                                    </TemplateColumn>
-                                }
-                                @if (columnSettings.ShowLastUpdated)
-                                {
-                                    <TemplateColumn Title="Last Updated" Sortable="true" SortBy="@(GridSort<SalesDashboardData>.ByAscending(p => p.LastUpdated))">
-                                        <div style="color: #6b7280; font-size: 0.875rem;">@context.LastUpdated.ToLocalTime().ToString("HH:mm:ss")</div>
-                                    </TemplateColumn>
-                                }
-                                @if (currentGrouping == DashboardGrouping.Store)
-                                {
-                                    <TemplateColumn Title="Details">
-                                        <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => OpenStoreInsights(context))">
-                                            View breakdown
-                                        </FluentButton>
-                                    </TemplateColumn>
-                                }
-                            </FluentDataGrid>
-                        </div>
-                    </div>
-                }
-            </div>
-        </div>
-        @if (showStoreInsights && selectedStore is not null)
-        {
-            <div style="position: fixed; inset: 0; background: rgba(15,23,42,0.55); display: flex; justify-content: center; align-items: center; z-index: 9999; padding: 24px;">
-                <div style="background: white; border-radius: 12px; padding: 24px; width: min(960px, 100%); max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(15,23,42,0.25);">
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
-                        <div>
-                            <h3 style="margin: 0; font-size: 1.25rem; font-weight: 600; color: #111827;">Store insights — @(selectedStore?.StoreCode ?? "Unknown store")</h3>
-                            <p style="margin: 6px 0 0 0; color: #6b7280; font-size: 0.9rem;">Scheme: @(selectedStore?.Scheme ?? "N/A") • Updated @(selectedStore?.LastUpdated.ToString("HH:mm:ss") ?? "-")</p>
-                        </div>
-                        <FluentButton Appearance="Appearance.Stealth" OnClick="CloseStoreInsights">
-                            <FluentIcon Value="@(new Icons.Regular.Size20.Dismiss())" />
-                        </FluentButton>
-                    </div>
-
-                    <div style="margin-top: 24px;">
-                        <h4 style="margin: 0 0 12px 0; font-size: 1rem; font-weight: 600; color: #111827;">Division overview (@(selectedDivisionSummary?.DivisionName ?? UnknownDivisionLabel))</h4>
-                        <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px;">
-                            <div style="flex: 1; min-width: 180px; background: #f8fafc; border-radius: 8px; padding: 12px;">
-                                <div style="font-size: 0.85rem; color: #6b7280;">Sales</div>
-                                <div style="font-size: 1.35rem; font-weight: 600; color: #059669;">@FormatCurrency(selectedDivisionSummary?.TotalSales)</div>
-                            </div>
-                            <div style="flex: 1; min-width: 180px; background: #f8fafc; border-radius: 8px; padding: 12px;">
-                                <div style="font-size: 0.85rem; color: #6b7280;">Transactions</div>
-                                <div style="font-size: 1.35rem; font-weight: 600; color: #2563eb;">@FormatNumber(selectedDivisionSummary?.TotalTransactions)</div>
-                            </div>
-                            <div style="flex: 1; min-width: 180px; background: #f8fafc; border-radius: 8px; padding: 12px;">
-                                <div style="font-size: 0.85rem; color: #6b7280;">Avg basket</div>
-                                <div style="font-size: 1.35rem; font-weight: 600; color: #7c3aed;">@FormatCurrency(selectedDivisionSummary?.AverageBasket)</div>
-                            </div>
-                        </div>
-                        @if (storeDivisionBreakdown?.Any() == true)
+                        @if (!gridItems.Any())
                         {
-                            <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                            <div class="rsd-table-empty">No data available.</div>
+                        }
+                        else
+                        {
+                            <table class="rsd-table">
                                 <thead>
-                                    <tr style="text-align: left; color: #6b7280;">
-                                        <th style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">Category</th>
-                                        <th style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">Sales</th>
-                                        <th style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">Transactions</th>
+                                    <tr>
+                                        @if (currentGrouping == DashboardGrouping.Store && columnSettings.ShowScheme) { <th>Scheme</th> }
+                                        @if (currentGrouping == DashboardGrouping.Store && columnSettings.ShowStoreCode) { <th>Store Code</th> }
+                                        @if ((currentGrouping == DashboardGrouping.Division || currentGrouping == DashboardGrouping.DivisionCategory) && columnSettings.ShowDivision) { <th>Division</th> }
+                                        @if ((currentGrouping == DashboardGrouping.Category || currentGrouping == DashboardGrouping.DivisionCategory) && columnSettings.ShowCategory) { <th>Category</th> }
+                                        @if (columnSettings.ShowTotalSales) { <th>Total Sales</th> }
+                                        @if (columnSettings.ShowTotalTransactions) { <th>Total Transactions</th> }
+                                        @if (columnSettings.ShowAverageBasket) { <th>Avg Basket</th> }
+                                        @if (columnSettings.ShowLastUpdated) { <th>Last Updated</th> }
+                                        @if (currentGrouping == DashboardGrouping.Store) { <th></th> }
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @foreach (var row in storeDivisionBreakdown)
+                                    @foreach (var row in gridItems)
                                     {
                                         <tr>
-                                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9;">@(row.CategoryName ?? UnknownCategoryLabel)</td>
-                                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #059669;">@row.TotalSales.ToString("C", CultureInfo.GetCultureInfo("en-US"))</td>
-                                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #2563eb;">@row.TotalTransactions.ToString("N0")</td>
+                                            @if (currentGrouping == DashboardGrouping.Store && columnSettings.ShowScheme) { <td>@row.Scheme</td> }
+                                            @if (currentGrouping == DashboardGrouping.Store && columnSettings.ShowStoreCode) { <td>@row.StoreCode</td> }
+                                            @if ((currentGrouping == DashboardGrouping.Division || currentGrouping == DashboardGrouping.DivisionCategory) && columnSettings.ShowDivision) { <td>@row.DivisionName</td> }
+                                            @if ((currentGrouping == DashboardGrouping.Category || currentGrouping == DashboardGrouping.DivisionCategory) && columnSettings.ShowCategory) { <td>@row.CategoryName</td> }
+                                            @if (columnSettings.ShowTotalSales) { <td><span class="rsd-green" style="font-weight:600;">@row.TotalSales.ToString("C", CultureInfo.GetCultureInfo("en-US"))</span></td> }
+                                            @if (columnSettings.ShowTotalTransactions && (currentGrouping == DashboardGrouping.Division || currentGrouping == DashboardGrouping.Category || currentGrouping == DashboardGrouping.DivisionCategory)) { <td><span class="rsd-blue" style="font-weight:600;">@row.TotalTransactions.ToString("N0")</span></td> }
+                                            @if (columnSettings.ShowTotalTransactions && currentGrouping == DashboardGrouping.Store) { <td><span class="rsd-blue" style="font-weight:600;">@row.TotalStoreTransactions.ToString("N0")</span></td> }
+                                            @if (columnSettings.ShowAverageBasket) { <td><span class="rsd-violet" style="font-weight:600;">@row.AverageBasket.ToString("C", CultureInfo.GetCultureInfo("en-US"))</span></td> }
+                                            @if (columnSettings.ShowLastUpdated) { <td class="rsd-muted">@row.LastUpdated.ToLocalTime().ToString("HH:mm:ss")</td> }
+                                            @if (currentGrouping == DashboardGrouping.Store)
+                                            {
+                                                <td><button class="rsd-link-btn" @onclick="@(() => OpenStoreInsights(row))">View breakdown</button></td>
+                                            }
                                         </tr>
                                     }
                                 </tbody>
                             </table>
-                        }
-                        else
-                        {
-                            <p style="margin: 0; color: #6b7280;">No category data available for this division.</p>
-                        }
-                    </div>
-
-                    <div style="margin-top: 32px;">
-                        <h4 style="margin: 0 0 12px 0; font-size: 1rem; font-weight: 600; color: #111827;">Category overview (@(selectedCategorySummary?.CategoryName ?? UnknownCategoryLabel))</h4>
-                        <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px;">
-                            <div style="flex: 1; min-width: 180px; background: #f8fafc; border-radius: 8px; padding: 12px;">
-                                <div style="font-size: 0.85rem; color: #6b7280;">Sales</div>
-                                <div style="font-size: 1.35rem; font-weight: 600; color: #059669;">@FormatCurrency(selectedCategorySummary?.TotalSales)</div>
-                            </div>
-                            <div style="flex: 1; min-width: 180px; background: #f8fafc; border-radius: 8px; padding: 12px;">
-                                <div style="font-size: 0.85rem; color: #6b7280;">Transactions</div>
-                                <div style="font-size: 1.35rem; font-weight: 600; color: #2563eb;">@FormatNumber(selectedCategorySummary?.TotalTransactions)</div>
-                            </div>
-                            <div style="flex: 1; min-width: 180px; background: #f8fafc; border-radius: 8px; padding: 12px;">
-                                <div style="font-size: 0.85rem; color: #6b7280;">Avg basket</div>
-                                <div style="font-size: 1.35rem; font-weight: 600; color: #7c3aed;">@FormatCurrency(selectedCategorySummary?.AverageBasket)</div>
-                            </div>
-                        </div>
-                        @if (storeCategoryBreakdown?.Any() == true)
-                        {
-                            <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
-                                <thead>
-                                    <tr style="text-align: left; color: #6b7280;">
-                                        <th style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">Category</th>
-                                        <th style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">Division</th>
-                                        <th style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">Sales</th>
-                                        <th style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">Transactions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var row in storeCategoryBreakdown)
-                                    {
-                                        <tr>
-                                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9;">@(row.CategoryName ?? UnknownCategoryLabel)</td>
-                                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9;">@(row.DivisionName ?? UnknownDivisionLabel)</td>
-                                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #059669;">@row.TotalSales.ToString("C", CultureInfo.GetCultureInfo("en-US"))</td>
-                                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #2563eb;">@row.TotalTransactions.ToString("N0")</td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        }
-                        else
-                        {
-                            <p style="margin: 0; color: #6b7280;">No category data available for this store.</p>
                         }
                     </div>
                 </div>
             </div>
         }
-@*     </Authorized>
-</AuthorizeView> *@
+
+    </div>
+</div>
+
+<!-- Store insights modal -->
+@if (showStoreInsights && selectedStore is not null)
+{
+    <div class="rsd-overlay" @onclick="CloseStoreInsights">
+        <div class="rsd-modal" @onclick:stopPropagation="true">
+
+            <div class="rsd-modal-header">
+                <div>
+                    <h3 class="rsd-modal-title">Store insights — @(selectedStore?.StoreCode ?? "Unknown")</h3>
+                    <p class="rsd-modal-sub">Scheme: @(selectedStore?.Scheme ?? "N/A") · Updated @(selectedStore?.LastUpdated.ToString("HH:mm:ss") ?? "—")</p>
+                </div>
+                <button class="rsd-modal-close" @onclick="CloseStoreInsights">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+
+            <div class="rsd-modal-body">
+
+                <!-- Division overview -->
+                <div>
+                    <div class="rsd-modal-section-title">Division overview — @(selectedDivisionSummary?.DivisionName ?? UnknownDivisionLabel)</div>
+                    <div class="rsd-mini-grid">
+                        <div class="rsd-mini-kpi"><div class="rsd-mini-kpi-label">Sales</div><div class="rsd-mini-kpi-value rsd-green">@FormatCurrency(selectedDivisionSummary?.TotalSales)</div></div>
+                        <div class="rsd-mini-kpi"><div class="rsd-mini-kpi-label">Transactions</div><div class="rsd-mini-kpi-value rsd-blue">@FormatNumber(selectedDivisionSummary?.TotalTransactions)</div></div>
+                        <div class="rsd-mini-kpi"><div class="rsd-mini-kpi-label">Avg Basket</div><div class="rsd-mini-kpi-value rsd-violet">@FormatCurrency(selectedDivisionSummary?.AverageBasket)</div></div>
+                    </div>
+                    @if (storeDivisionBreakdown?.Any() == true)
+                    {
+                        <table class="rsd-insights-table">
+                            <thead><tr><th>Category</th><th>Sales</th><th>Transactions</th></tr></thead>
+                            <tbody>
+                                @foreach (var row in storeDivisionBreakdown)
+                                {
+                                    <tr>
+                                        <td>@(row.CategoryName ?? UnknownCategoryLabel)</td>
+                                        <td><span class="rsd-green" style="font-weight:600;">@row.TotalSales.ToString("C", CultureInfo.GetCultureInfo("en-US"))</span></td>
+                                        <td><span class="rsd-blue"  style="font-weight:600;">@row.TotalTransactions.ToString("N0")</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                    else { <p class="rsd-no-data">No category data available for this division.</p> }
+                </div>
+
+                <!-- Category overview -->
+                <div>
+                    <div class="rsd-modal-section-title">Category overview — @(selectedCategorySummary?.CategoryName ?? UnknownCategoryLabel)</div>
+                    <div class="rsd-mini-grid">
+                        <div class="rsd-mini-kpi"><div class="rsd-mini-kpi-label">Sales</div><div class="rsd-mini-kpi-value rsd-green">@FormatCurrency(selectedCategorySummary?.TotalSales)</div></div>
+                        <div class="rsd-mini-kpi"><div class="rsd-mini-kpi-label">Transactions</div><div class="rsd-mini-kpi-value rsd-blue">@FormatNumber(selectedCategorySummary?.TotalTransactions)</div></div>
+                        <div class="rsd-mini-kpi"><div class="rsd-mini-kpi-label">Avg Basket</div><div class="rsd-mini-kpi-value rsd-violet">@FormatCurrency(selectedCategorySummary?.AverageBasket)</div></div>
+                    </div>
+                    @if (storeCategoryBreakdown?.Any() == true)
+                    {
+                        <table class="rsd-insights-table">
+                            <thead><tr><th>Category</th><th>Division</th><th>Sales</th><th>Transactions</th></tr></thead>
+                            <tbody>
+                                @foreach (var row in storeCategoryBreakdown)
+                                {
+                                    <tr>
+                                        <td>@(row.CategoryName ?? UnknownCategoryLabel)</td>
+                                        <td>@(row.DivisionName ?? UnknownDivisionLabel)</td>
+                                        <td><span class="rsd-green" style="font-weight:600;">@row.TotalSales.ToString("C", CultureInfo.GetCultureInfo("en-US"))</span></td>
+                                        <td><span class="rsd-blue"  style="font-weight:600;">@row.TotalTransactions.ToString("N0")</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                    else { <p class="rsd-no-data">No category data available for this store.</p> }
+                </div>
+
+            </div>
+        </div>
+    </div>
+}

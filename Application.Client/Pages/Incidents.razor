@@ -1,0 +1,139 @@
+@page "/status/incidents"
+@using Application.Shared.Models
+@using Application.Shared.Enums
+@using Application.Client.Services
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@inject IncidentClientService IncidentService
+@inject NavigationManager Navigation
+@inject StateContainer StateContainer
+@attribute [Authorize]
+
+<PageTitle>Status Incidents</PageTitle>
+
+<div class="min-h-screen bg-gray-50 p-6">
+    <div class="mb-6 flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Incidents</h1>
+            <p class="mt-1 text-sm text-gray-500">Track and manage system incidents across all entities</p>
+        </div>
+        <div class="flex gap-2">
+            <button @onclick="ToggleActiveOnly"
+                    class="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                @(activeOnly ? "Show All" : "Active Only")
+            </button>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="bg-white rounded-lg border border-gray-200 p-4 mb-4 flex flex-wrap gap-3">
+        <input value="@searchTerm" @oninput="OnSearchChanged"
+               type="text" placeholder="Search incidents..."
+               class="flex-1 min-w-48 border border-gray-300 rounded-md text-sm px-3 py-2" />
+        <select @bind="selectedSeverity" @bind:after="ApplyFilters"
+                class="border border-gray-300 rounded-md text-sm px-3 py-2">
+            <option value="">All Severities</option>
+            @foreach (var s in Enum.GetValues<IncidentSeverity>())
+            { <option value="@s">@s</option> }
+        </select>
+        <select @bind="selectedStatus" @bind:after="ApplyFilters"
+                class="border border-gray-300 rounded-md text-sm px-3 py-2">
+            <option value="">All Statuses</option>
+            @foreach (var s in Enum.GetValues<IncidentStatus>())
+            { <option value="@s">@s</option> }
+        </select>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="flex justify-center items-center h-40">
+            <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-red-600"></div>
+        </div>
+    }
+    else if (filteredIncidents.Any())
+    {
+        <div class="bg-white rounded-lg border border-gray-200 overflow-hidden">
+            <ul class="divide-y divide-gray-100">
+                @foreach (var incident in filteredIncidents)
+                {
+                    <li class="px-4 py-4 hover:bg-gray-50 cursor-pointer" @onclick="() => ViewIncident(incident.Id)">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-3 flex-1 min-w-0">
+                                <span class="text-xl">@incident.GetSeverityIcon()</span>
+                                <div class="min-w-0">
+                                    <p class="text-sm font-medium text-gray-900 truncate">@incident.Title</p>
+                                    <p class="text-xs text-gray-500">@incident.Entity?.Name · Started @incident.StartedAt?.ToString("MMM dd, yyyy HH:mm")</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-3 flex-shrink-0">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium @incident.GetSeverityClass()">@incident.Severity</span>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium @incident.GetStatusClass()">@incident.Status</span>
+                                @if (!incident.IsResolved)
+                                {
+                                    <span class="text-xs text-gray-400">@FormatDuration(incident.Duration)</span>
+                                }
+                                <svg class="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                            </div>
+                        </div>
+                    </li>
+                }
+            </ul>
+        </div>
+    }
+    else
+    {
+        <div class="text-center py-12 text-sm text-gray-500">
+            No incidents found. @(activeOnly ? "No active incidents." : "All clear!")
+        </div>
+    }
+</div>
+
+@code {
+    private List<Incident> incidents = new();
+    private List<Incident> filteredIncidents = new();
+    private bool isLoading = true;
+    private string searchTerm = "";
+    private string selectedSeverity = "";
+    private string selectedStatus = "";
+    private bool activeOnly = false;
+
+    private string queryParam => StateContainer.Company is null ? "" : $"?c={StateContainer.Company.Id}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var companyId = StateContainer.Company?.Id;
+        if (!string.IsNullOrEmpty(companyId))
+            incidents = await IncidentService.GetIncidentsAsync(companyId);
+        ApplyFilters();
+        isLoading = false;
+    }
+
+    private void ApplyFilters()
+    {
+        var filtered = incidents.AsEnumerable();
+        if (activeOnly) filtered = filtered.Where(i => i.Status != IncidentStatus.Resolved);
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            var s = searchTerm.ToLowerInvariant();
+            filtered = filtered.Where(i => i.Title.ToLower().Contains(s) || i.Description.ToLower().Contains(s) ||
+                (i.Entity?.Name?.ToLower().Contains(s) ?? false));
+        }
+        if (!string.IsNullOrEmpty(selectedSeverity) && Enum.TryParse<IncidentSeverity>(selectedSeverity, out var sev))
+            filtered = filtered.Where(i => i.Severity == sev);
+        if (!string.IsNullOrEmpty(selectedStatus) && Enum.TryParse<IncidentStatus>(selectedStatus, out var st))
+            filtered = filtered.Where(i => i.Status == st);
+        filteredIncidents = filtered.OrderByDescending(i => i.StartedAt).ToList();
+        StateHasChanged();
+    }
+
+    private void OnSearchChanged(ChangeEventArgs e) { searchTerm = e.Value?.ToString() ?? ""; ApplyFilters(); }
+    private void ToggleActiveOnly() { activeOnly = !activeOnly; ApplyFilters(); }
+    private void ViewIncident(string id) => Navigation.NavigateTo($"/status/incidents/{id}{queryParam}");
+
+    private string FormatDuration(TimeSpan? d)
+    {
+        if (!d.HasValue) return "";
+        if (d.Value.TotalDays >= 1) return $"{(int)d.Value.TotalDays}d {d.Value.Hours}h";
+        if (d.Value.TotalHours >= 1) return $"{(int)d.Value.TotalHours}h {d.Value.Minutes}m";
+        return $"{(int)d.Value.TotalMinutes}m";
+    }
+}

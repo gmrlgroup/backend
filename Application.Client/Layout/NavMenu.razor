@@ -162,6 +162,25 @@
             </Authorized>
         </AuthorizeView>
 
+        <AuthorizeView Roles="@($"{companyId}_ADMIN, {companyId}_DATA")">
+            <Authorized>
+                <hr class="nav-divider" />
+                <div class="nav-section-label">Status</div>
+                <a class="nav-item @NavClassExact("status")" href="@($"status{queryParameter}")" onclick="document.body.classList.remove('nav-open')">
+                    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                    Overview
+                </a>
+                <a class="nav-item @NavClass("status/entities")" href="@($"status/entities{queryParameter}")" onclick="document.body.classList.remove('nav-open')">
+                    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="2" width="9" height="9"/><rect x="13" y="2" width="9" height="9"/><rect x="13" y="13" width="9" height="9"/><rect x="2" y="13" width="9" height="9"/></svg>
+                    Entities
+                </a>
+                <a class="nav-item @NavClass("status/incidents")" href="@($"status/incidents{queryParameter}")" onclick="document.body.classList.remove('nav-open')">
+                    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    Incidents
+                </a>
+            </Authorized>
+        </AuthorizeView>
+
         <AuthorizeView Roles="@($"{companyId}_ADMIN")">
             <Authorized>
                 <hr class="nav-divider" />
@@ -288,6 +307,12 @@
         var urlPath = currentUrl?.Split('?')[0].TrimStart('/') ?? "";
         if (string.IsNullOrEmpty(path)) return urlPath == "" ? "active" : "";
         return urlPath.StartsWith(path, StringComparison.OrdinalIgnoreCase) ? "active" : "";
+    }
+
+    private string NavClassExact(string path)
+    {
+        var urlPath = currentUrl?.Split('?')[0].TrimStart('/') ?? "";
+        return string.Equals(urlPath, path, StringComparison.OrdinalIgnoreCase) ? "active" : "";
     }
 
     private string GetInitials(string? name)

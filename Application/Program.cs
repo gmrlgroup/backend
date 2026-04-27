@@ -147,6 +147,10 @@ var connectionString = builder.Configuration.GetConnectionString("ApplicationDbC
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString, b => b.MigrationsAssembly("Application")));
 
+var statusConnectionString = builder.Configuration.GetConnectionString("StatusDbContext") ?? connectionString;
+builder.Services.AddDbContext<StatusDbContext>(options =>
+    options.UseSqlServer(statusConnectionString, b => b.MigrationsAssembly("Application")));
+
 
 var userManagementConnectionString = builder.Configuration.GetConnectionString("UserManagementDbContext") ?? throw new InvalidOperationException("Connection string 'ApplicationDbContext' not found.");
 builder.Services.AddDbContext<UserManagementDbContext>(options =>
@@ -217,6 +221,11 @@ builder.Services.AddScoped<ISalesDashboardService, SalesDashboardService>();
 // Add Email Helper
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 builder.Services.AddScoped<EmailHelper>();
+
+// Status Module Services
+builder.Services.AddScoped<IIncidentService, IncidentService>();
+builder.Services.AddScoped<IMonitoredAssetService, MonitoredAssetService>();
+builder.Services.AddScoped<IAssetStatusHistoryService, AssetStatusHistoryService>();
 
 // Add Chat Service for AI functionality
 builder.Services.AddScoped<IChatService, ChatService>();

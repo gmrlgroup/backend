@@ -1,0 +1,342 @@
+@page "/status/incidents/create"
+@page "/status/incidents/{IncidentId}/edit"
+@using Application.Shared.Models
+@using Application.Shared.Enums
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.FluentUI.AspNetCore.Components
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject IncidentClientService IncidentService
+@inject MonitoredAssetClientService EntityService
+@inject StateContainer StateContainer
+@attribute [Authorize]
+
+<PageTitle>@(IsEditMode ? $"Edit Incident - {incident?.Title}" : "Report Incident")</PageTitle>
+
+<div class="min-h-screen bg-gray-50">
+    <!-- Header -->
+    <div class="bg-white border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="py-6">
+                <nav class="flex" aria-label="Breadcrumb">
+                    <ol class="flex items-center space-x-4">
+                        <li>
+                            <div>
+                                <button @onclick="BackToIncidents" class="text-gray-400 hover:text-gray-500">
+                                    <svg class="flex-shrink-0 h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M9.707 14.707a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 1.414L7.414 9H15a1 1 0 110 2H7.414l2.293 2.293a1 1 0 010 1.414z" clip-rule="evenodd"></path>
+                                    </svg>
+                                    <span class="sr-only">Back</span>
+                                </button>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="flex items-center">
+                                <svg class="flex-shrink-0 h-5 w-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 111.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
+                                </svg>
+                                <button @onclick="BackToIncidents" class="ml-4 text-sm font-medium text-gray-500 hover:text-gray-700">
+                                    Incidents
+                                </button>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="flex items-center">
+                                <svg class="flex-shrink-0 h-5 w-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 111.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
+                                </svg>
+                                <span class="ml-4 text-sm font-medium text-gray-500">
+                                    @(IsEditMode ? "Edit" : "Create")
+                                </span>
+                            </div>
+                        </li>
+                    </ol>
+                </nav>
+                <div class="mt-6 md:flex md:items-center md:justify-between">
+                    <div class="flex-1 min-w-0">
+                        <h1 class="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate">
+                            @(IsEditMode ? "Edit Incident" : "Report New Incident")
+                        </h1>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Form Content -->
+    <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div class="bg-white shadow sm:rounded-lg">
+            <div class="px-4 py-5 sm:p-6">
+                <EditForm Model="incident" OnValidSubmit="HandleValidSubmit" FormName="IncidentForm">
+                    <DataAnnotationsValidator />
+
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="mb-4 bg-red-50 border border-red-200 rounded-md p-4">
+                            <div class="flex">
+                                <div class="flex-shrink-0">
+                                    <svg class="h-5 w-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                </div>
+                                <div class="ml-3">
+                                    <p class="text-sm text-red-700">@errorMessage</p>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="space-y-6">
+                        <!-- Entity Selection -->
+                        <div>
+                            <label for="entity" class="block text-sm font-medium text-gray-700">Affected Entity *</label>
+                            <select @bind="incident.EntityId"
+                                    class="mt-1 block w-full pl-3 pr-10 py-2 text-base border border-gray-300 focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm rounded-md"
+                                    required>
+                                <option value="">Select an entity...</option>
+                                @if (entities != null)
+                                {
+                                    @foreach (var entity in entities)
+                                    {
+                                        <option value="@entity.Id">@entity.Name (@entity.EntityType)</option>
+                                    }
+                                }
+                            </select>
+                            <ValidationMessage For="@(() => incident.EntityId)" class="mt-1 text-sm text-red-600" />
+                        </div>
+
+                        <!-- Title -->
+                        <div>
+                            <label for="title" class="block text-sm font-medium text-gray-700">Incident Title *</label>
+                            <InputText @bind-Value="incident.Title"
+                                       class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                                       placeholder="Brief description of the incident"
+                                       maxlength="200" />
+                            <ValidationMessage For="@(() => incident.Title)" class="mt-1 text-sm text-red-600" />
+                        </div>
+
+                        <!-- Description -->
+                        <div>
+                            <label for="description" class="block text-sm font-medium text-gray-700">Description *</label>
+                            <InputTextArea @bind-Value="incident.Description"
+                                           class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                                           rows="4"
+                                           placeholder="Detailed description of the incident, symptoms, and impact"
+                                           maxlength="4000" />
+                            <ValidationMessage For="@(() => incident.Description)" class="mt-1 text-sm text-red-600" />
+                        </div>
+
+                        <!-- Severity and Status Row -->
+                        <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                            <!-- Severity -->
+                            <div>
+                                <label for="severity" class="block text-sm font-medium text-gray-700">Severity *</label>
+                                <select @bind="incident.Severity"
+                                        class="mt-1 block w-full pl-3 pr-10 py-2 text-base border border-gray-300 focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm rounded-md">
+                                    <option value="@IncidentSeverity.Low">🔵 Low</option>
+                                    <option value="@IncidentSeverity.Medium">🟡 Medium</option>
+                                    <option value="@IncidentSeverity.High">🟠 High</option>
+                                    <option value="@IncidentSeverity.Critical">🔴 Critical</option>
+                                </select>
+                                <ValidationMessage For="@(() => incident.Severity)" class="mt-1 text-sm text-red-600" />
+                            </div>
+
+                            <!-- Status (only show for edit mode) -->
+                            @if (IsEditMode)
+                            {
+                                <div>
+                                    <label for="status" class="block text-sm font-medium text-gray-700">Status</label>
+                                    <select @bind="incident.Status"
+                                            class="mt-1 block w-full pl-3 pr-10 py-2 text-base border border-gray-300 focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm rounded-md">
+                                        <option value="@IncidentStatus.Open">Open</option>
+                                        <option value="@IncidentStatus.Investigating">Investigating</option>
+                                        <option value="@IncidentStatus.Identified">Identified</option>
+                                        <option value="@IncidentStatus.Monitoring">Monitoring</option>
+                                        <option value="@IncidentStatus.Resolved">Resolved</option>
+                                    </select>
+                                </div>
+                            }
+                        </div>
+
+                        <!-- Assignment Row -->
+                        <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                            <!-- Reported By -->
+                            <div>
+                                <label for="reportedBy" class="block text-sm font-medium text-gray-700">Reported By</label>
+                                <InputText @bind-Value="incident.ReportedBy"
+                                           class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                                           placeholder="Email or name of reporter"
+                                           maxlength="200" />
+                            </div>
+
+                            <!-- Assigned To -->
+                            <div>
+                                <label for="assignedTo" class="block text-sm font-medium text-gray-700">Assigned To</label>
+                                <InputText @bind-Value="incident.AssignedTo"
+                                           class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                                           placeholder="Email or name of assignee"
+                                           maxlength="200" />
+                            </div>
+                        </div>
+
+                        <!-- Impact Description -->
+                        <div>
+                            <label for="impact" class="block text-sm font-medium text-gray-700">Impact Description</label>
+                            <InputTextArea @bind-Value="incident.ImpactDescription"
+                                           class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                                           rows="3"
+                                           placeholder="Describe the business impact, affected users, etc."
+                                           maxlength="1000" />
+                        </div>
+
+                        <!-- Resolution Details (only for edit mode and if resolved) -->
+                        @if (IsEditMode && incident.Status == IncidentStatus.Resolved)
+                        {
+                            <div>
+                                <label for="resolution" class="block text-sm font-medium text-gray-700">Resolution Details</label>
+                                <InputTextArea @bind-Value="incident.ResolutionDetails"
+                                               class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                                               rows="3"
+                                               placeholder="Describe how the incident was resolved"
+                                               maxlength="2000" />
+                            </div>
+                        }
+
+                        <!-- External Incident ID -->
+                        <div>
+                            <label for="externalId" class="block text-sm font-medium text-gray-700">External Incident ID</label>
+                            <InputText @bind-Value="incident.ExternalIncidentId"
+                                       class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                                       placeholder="Reference ID from external systems (optional)"
+                                       maxlength="100" />
+                            <p class="mt-1 text-sm text-gray-500">Link to tickets from external systems like Jira, ServiceNow, etc.</p>
+                        </div>
+                    </div>
+
+                    <!-- Form Actions -->
+                    <div class="mt-8 flex justify-end space-x-3">
+                        <button type="button" @onclick="BackToIncidents"
+                                class="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                            Cancel
+                        </button>
+                        <button type="submit" disabled="@isSubmitting"
+                                class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50">
+                            @if (isSubmitting)
+                            {
+                                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span>@(IsEditMode ? "Updating..." : "Creating...")</span>
+                            }
+                            else
+                            {
+                                <span>@(IsEditMode ? "Update Incident" : "Report Incident")</span>
+                            }
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? IncidentId { get; set; }
+
+    private Incident incident = new Incident();
+    private List<MonitoredAsset>? entities;
+    private bool isSubmitting = false;
+    private string? errorMessage;
+
+    private string queryParam => StateContainer.Company is null ? "" : $"?c={StateContainer.Company.Id}";
+    private bool IsEditMode => !string.IsNullOrEmpty(IncidentId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadEntities();
+
+        if (IsEditMode)
+        {
+            await LoadIncident();
+        }
+        else
+        {
+            incident.Severity = IncidentSeverity.Medium;
+            incident.Status = IncidentStatus.Open;
+        }
+    }
+
+    private async Task LoadEntities()
+    {
+        try
+        {
+            var companyId = StateContainer.Company?.Id ?? "";
+            entities = await EntityService.GetEntitiesAsync(companyId);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("console.error", "Error loading entities:", ex.Message);
+        }
+    }
+
+    private async Task LoadIncident()
+    {
+        try
+        {
+            var loaded = await IncidentService.GetIncidentAsync(IncidentId!);
+            if (loaded != null)
+                incident = loaded;
+            else
+                errorMessage = "Incident not found.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error loading incident: {ex.Message}";
+        }
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        if (isSubmitting) return;
+
+        try
+        {
+            isSubmitting = true;
+            errorMessage = null;
+            var companyId = StateContainer.Company?.Id ?? "";
+
+            if (IsEditMode)
+            {
+                var success = await IncidentService.UpdateIncidentAsync(incident);
+                if (success)
+                    Navigation.NavigateTo($"/status/incidents/{incident.Id}{queryParam}");
+                else
+                    errorMessage = "Error updating incident.";
+            }
+            else
+            {
+                var created = await IncidentService.CreateIncidentAsync(companyId, incident);
+                if (created != null)
+                    Navigation.NavigateTo($"/status/incidents/{created.Id}{queryParam}");
+                else
+                    errorMessage = "Error creating incident.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"An error occurred: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private void BackToIncidents()
+    {
+        Navigation.NavigateTo($"/status/incidents{queryParam}");
+    }
+}

@@ -7,11 +7,22 @@
 @inject IncidentClientService IncidentService
 @inject NavigationManager Navigation
 @inject StateContainer StateContainer
+@inject AuthenticationStateProvider AuthStateProvider
 @attribute [Authorize]
 
 <PageTitle>Status Overview</PageTitle>
 
 <div class="min-h-screen bg-gray-50 p-6">
+    @if (!canView && !isLoading)
+    {
+        <div class="flex flex-col items-center justify-center h-64 text-gray-500 gap-2">
+            <svg class="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <p class="text-sm font-semibold text-gray-700">Access Denied</p>
+            <p class="text-sm text-center">You need the <strong>@(StateContainer.Company?.Id)_VIEW_STATUS</strong> role to view this page.</p>
+        </div>
+    }
+    else
+    {
     <!-- Header -->
     <div class="mb-6">
         <h1 class="text-2xl font-bold text-gray-900">Status Overview</h1>
@@ -125,7 +136,8 @@
                 </div>
             }
         </div>
-    }
+    } @* end else isLoading *@
+    } @* end else canView *@
 </div>
 
 @code {
@@ -133,6 +145,7 @@
     private List<Incident> activeIncidents = new();
     private Dictionary<string, int> statusSummary = new();
     private bool isLoading = true;
+    private bool canView = false;
 
     private string queryParam => StateContainer.Company is null ? "" : $"?c={StateContainer.Company.Id}";
 
@@ -140,6 +153,10 @@
     {
         var companyId = StateContainer.Company?.Id;
         if (string.IsNullOrEmpty(companyId)) { isLoading = false; return; }
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        canView = authState.User.IsInRole($"{companyId}_VIEW_STATUS");
+        if (!canView) { isLoading = false; return; }
 
         entities = await EntityService.GetEntitiesWithLatestStatusAsync(companyId);
         activeIncidents = await IncidentService.GetActiveIncidentsAsync(companyId);

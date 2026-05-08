@@ -10,6 +10,7 @@
 @inject IJSRuntime JSRuntime
 @inject MonitoredAssetClientService EntityService
 @inject StateContainer StateContainer
+@inject AuthenticationStateProvider AuthStateProvider
 @attribute [Authorize]
 
 <PageTitle>@(IsEditMode ? $"Edit {entity?.Name}" : "Create Entity")</PageTitle>
@@ -69,6 +70,14 @@
         {
             <div class="flex justify-center items-center h-64">
                 <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            </div>
+        }
+        else if (!canEdit)
+        {
+            <div class="flex flex-col items-center justify-center h-64 text-gray-500 gap-2">
+                <svg class="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <p class="text-sm font-semibold text-gray-700">Access Denied</p>
+                <p class="text-xs text-gray-400">You don't have permission to create or edit entities.</p>
             </div>
         }
         else
@@ -460,12 +469,18 @@
     private bool isDependencyCritical = false;
     private int dependencyOrder = 0;
 
+    private bool canEdit;
+
     private bool IsEditMode => !string.IsNullOrEmpty(AssetId);
     private string queryParam => StateContainer.Company is null ? "" : $"?c={StateContainer.Company.Id}";
 
     protected override async Task OnInitializedAsync()
     {
         var companyId = StateContainer.Company?.Id ?? "";
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        canEdit = !string.IsNullOrEmpty(companyId) && authState.User.IsInRole($"{companyId}_EDIT_STATUS");
+        if (!canEdit) { isLoading = false; return; }
+
         await LoadAvailableEntities(companyId);
 
         if (IsEditMode && !string.IsNullOrEmpty(AssetId))

@@ -21,9 +21,10 @@ namespace Application.Controllers
         public async Task<ActionResult<IEnumerable<Metric>>> GetMetrics([FromHeader(Name = "X-Company-Id")] string companyId)
         {
             if (string.IsNullOrEmpty(companyId))
-            {
                 return BadRequest("Company ID is required in headers");
-            }
+
+            if (!User.IsInRole($"{companyId}_VIEW_METRIC"))
+                return Forbid();
 
             var metrics = await _metricService.GetMetrics(companyId);
             return Ok(metrics);
@@ -34,16 +35,15 @@ namespace Application.Controllers
         public async Task<ActionResult<Metric>> GetMetric(int id, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             if (string.IsNullOrEmpty(companyId))
-            {
                 return BadRequest("Company ID is required in headers");
-            }
+
+            if (!User.IsInRole($"{companyId}_VIEW_METRIC"))
+                return Forbid();
 
             var metric = await _metricService.GetMetric(id, companyId);
 
             if (metric == null)
-            {
                 return NotFound();
-            }
 
             return Ok(metric);
         }
@@ -53,9 +53,10 @@ namespace Application.Controllers
         public async Task<ActionResult<IEnumerable<Metric>>> GetMetricsByFunction(string function, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             if (string.IsNullOrEmpty(companyId))
-            {
                 return BadRequest("Company ID is required in headers");
-            }
+
+            if (!User.IsInRole($"{companyId}_VIEW_METRIC"))
+                return Forbid();
 
             var metrics = await _metricService.GetMetricsByFunction(function, companyId);
             return Ok(metrics);
@@ -66,9 +67,10 @@ namespace Application.Controllers
         public async Task<ActionResult<IEnumerable<Metric>>> GetMetricsByPerspective(string perspective, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             if (string.IsNullOrEmpty(companyId))
-            {
                 return BadRequest("Company ID is required in headers");
-            }
+
+            if (!User.IsInRole($"{companyId}_VIEW_METRIC"))
+                return Forbid();
 
             var metrics = await _metricService.GetMetricsByPerspective(perspective, companyId);
             return Ok(metrics);
@@ -83,14 +85,13 @@ namespace Application.Controllers
                 var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
                 if (string.IsNullOrEmpty(userId))
-                {
                     return BadRequest("User ID is required");
-                }
 
                 if (string.IsNullOrEmpty(companyId))
-                {
                     return BadRequest("Company ID is required in headers");
-                }
+
+                if (!User.IsInRole($"{companyId}_EDIT_METRIC"))
+                    return Forbid();
 
                 metric.CompanyId = companyId;
                 var createdMetric = await _metricService.CreateMetric(metric, userId);
@@ -112,21 +113,18 @@ namespace Application.Controllers
                 var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
                 if (string.IsNullOrEmpty(userId))
-                {
                     return BadRequest("User ID is required");
-                }
 
                 if (string.IsNullOrEmpty(companyId))
-                {
                     return BadRequest("Company ID is required in headers");
-                }
+
+                if (!User.IsInRole($"{companyId}_EDIT_METRIC"))
+                    return Forbid();
 
                 var updatedMetric = await _metricService.UpdateMetric(id, metric, companyId, userId);
 
                 if (updatedMetric == null)
-                {
                     return NotFound();
-                }
 
                 return Ok(updatedMetric);
             }
@@ -141,16 +139,15 @@ namespace Application.Controllers
         public async Task<IActionResult> DeleteMetric(int id, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             if (string.IsNullOrEmpty(companyId))
-            {
                 return BadRequest("Company ID is required in headers");
-            }
+
+            if (!User.IsInRole($"{companyId}_EDIT_METRIC"))
+                return Forbid();
 
             var result = await _metricService.DeleteMetric(id, companyId);
 
             if (!result)
-            {
                 return NotFound();
-            }
 
             return NoContent();
         }
@@ -160,9 +157,10 @@ namespace Application.Controllers
         public async Task<ActionResult<List<Dictionary<string, object?>>>> ExecuteMetricQuery(int id, [FromHeader(Name = "X-Company-Id")] string companyId, [FromBody] List<MetricFilterValue>? filterValues = null)
         {
             if (string.IsNullOrEmpty(companyId))
-            {
                 return BadRequest("Company ID is required in headers");
-            }
+
+            if (!User.IsInRole($"{companyId}_VIEW_METRIC"))
+                return Forbid();
 
             try
             {
@@ -186,9 +184,10 @@ namespace Application.Controllers
         public async Task<ActionResult<IEnumerable<MetricDataSource>>> GetDataSources([FromHeader(Name = "X-Company-Id")] string companyId)
         {
             if (string.IsNullOrEmpty(companyId))
-            {
                 return BadRequest("Company ID is required in headers");
-            }
+
+            if (!User.IsInRole($"{companyId}_VIEW_METRIC"))
+                return Forbid();
 
             var dataSources = await _metricService.GetDataSources(companyId);
             return Ok(dataSources);
@@ -199,16 +198,15 @@ namespace Application.Controllers
         public async Task<ActionResult<MetricDataSource>> GetDataSource(int id, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             if (string.IsNullOrEmpty(companyId))
-            {
                 return BadRequest("Company ID is required in headers");
-            }
+
+            if (!User.IsInRole($"{companyId}_VIEW_METRIC"))
+                return Forbid();
 
             var dataSource = await _metricService.GetDataSource(id, companyId);
 
             if (dataSource == null)
-            {
                 return NotFound();
-            }
 
             return Ok(dataSource);
         }
@@ -222,14 +220,13 @@ namespace Application.Controllers
                 var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
                 if (string.IsNullOrEmpty(userId))
-                {
                     return BadRequest("User ID is required");
-                }
 
                 if (string.IsNullOrEmpty(companyId))
-                {
                     return BadRequest("Company ID is required in headers");
-                }
+
+                if (!User.IsInRole($"{companyId}_EDIT_METRIC"))
+                    return Forbid();
 
                 dataSource.CompanyId = companyId;
                 var createdDataSource = await _metricService.CreateDataSource(dataSource, userId);
@@ -251,21 +248,18 @@ namespace Application.Controllers
                 var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
                 if (string.IsNullOrEmpty(userId))
-                {
                     return BadRequest("User ID is required");
-                }
 
                 if (string.IsNullOrEmpty(companyId))
-                {
                     return BadRequest("Company ID is required in headers");
-                }
+
+                if (!User.IsInRole($"{companyId}_EDIT_METRIC"))
+                    return Forbid();
 
                 var updatedDataSource = await _metricService.UpdateDataSource(id, dataSource, companyId, userId);
 
                 if (updatedDataSource == null)
-                {
                     return NotFound();
-                }
 
                 return Ok(updatedDataSource);
             }
@@ -280,16 +274,15 @@ namespace Application.Controllers
         public async Task<IActionResult> DeleteDataSource(int id, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             if (string.IsNullOrEmpty(companyId))
-            {
                 return BadRequest("Company ID is required in headers");
-            }
+
+            if (!User.IsInRole($"{companyId}_EDIT_METRIC"))
+                return Forbid();
 
             var result = await _metricService.DeleteDataSource(id, companyId);
 
             if (!result)
-            {
                 return BadRequest("Data source not found or is currently in use by metrics");
-            }
 
             return NoContent();
         }

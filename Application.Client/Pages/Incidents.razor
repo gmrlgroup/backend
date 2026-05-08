@@ -6,11 +6,22 @@
 @inject IncidentClientService IncidentService
 @inject NavigationManager Navigation
 @inject StateContainer StateContainer
+@inject AuthenticationStateProvider AuthStateProvider
 @attribute [Authorize]
 
 <PageTitle>Status Incidents</PageTitle>
 
 <div class="min-h-screen bg-gray-50 p-6">
+    @if (!canView && !isLoading)
+    {
+        <div class="flex flex-col items-center justify-center h-64 text-gray-500 gap-2">
+            <svg class="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <p class="text-sm font-semibold text-gray-700">Access Denied</p>
+            <p class="text-sm text-center">You need the <strong>@(StateContainer.Company?.Id)_VIEW_STATUS</strong> role to view this page.</p>
+        </div>
+    }
+    else
+    {
     <div class="mb-6 flex items-center justify-between">
         <div>
             <h1 class="text-2xl font-bold text-gray-900">Incidents</h1>
@@ -85,12 +96,14 @@
             No incidents found. @(activeOnly ? "No active incidents." : "All clear!")
         </div>
     }
+    } @* end else canView *@
 </div>
 
 @code {
     private List<Incident> incidents = new();
     private List<Incident> filteredIncidents = new();
     private bool isLoading = true;
+    private bool canView = false;
     private string searchTerm = "";
     private string selectedSeverity = "";
     private string selectedStatus = "";
@@ -102,7 +115,12 @@
     {
         var companyId = StateContainer.Company?.Id;
         if (!string.IsNullOrEmpty(companyId))
-            incidents = await IncidentService.GetIncidentsAsync(companyId);
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            canView = authState.User.IsInRole($"{companyId}_VIEW_STATUS");
+            if (canView)
+                incidents = await IncidentService.GetIncidentsAsync(companyId);
+        }
         ApplyFilters();
         isLoading = false;
     }

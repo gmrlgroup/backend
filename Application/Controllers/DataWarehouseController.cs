@@ -1,10 +1,12 @@
 using Application.Shared.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Application.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class DataWarehouseController : ControllerBase
     {
         private readonly DataWarehouseService _dataWarehouseService;
@@ -22,8 +24,11 @@ namespace Application.Controllers
         /// Get list of all tables in the data warehouse
         /// </summary>
         [HttpGet("tables")]
-        public async Task<ActionResult<List<TableInfo>>> GetTables()
+        public async Task<ActionResult<List<TableInfo>>> GetTables([FromHeader(Name = "X-Company-Id")] string companyId = "")
         {
+            if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+                return Forbid();
+
             try
             {
                 var tables = await _dataWarehouseService.GetTablesAsync();
@@ -46,8 +51,12 @@ namespace Application.Controllers
         public async Task<ActionResult<DataTableResult>> GetTableData(
             [FromQuery] string tableName,
             [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 100)
+            [FromQuery] int pageSize = 100,
+            [FromHeader(Name = "X-Company-Id")] string companyId = "")
         {
+            if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+                return Forbid();
+
             try
             {
                 if (string.IsNullOrWhiteSpace(tableName))

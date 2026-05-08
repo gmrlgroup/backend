@@ -21,6 +21,7 @@ public class IncidentsController : ControllerBase
         [FromHeader(Name = "X-Company-Id")] string companyId)
     {
         if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_VIEW_STATUS")) return Forbid();
         return Ok(await _incidentService.GetIncidentsAsync(companyId));
     }
 
@@ -29,18 +30,27 @@ public class IncidentsController : ControllerBase
         [FromHeader(Name = "X-Company-Id")] string companyId)
     {
         if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_VIEW_STATUS")) return Forbid();
         return Ok(await _incidentService.GetActiveIncidentsAsync(companyId));
     }
 
     [HttpGet("entity/{entityId}")]
-    public async Task<ActionResult<IEnumerable<Incident>>> GetIncidentsByEntity(string entityId)
+    public async Task<ActionResult<IEnumerable<Incident>>> GetIncidentsByEntity(
+        string entityId,
+        [FromHeader(Name = "X-Company-Id")] string companyId)
     {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_VIEW_STATUS")) return Forbid();
         return Ok(await _incidentService.GetIncidentsByEntityAsync(entityId));
     }
 
     [HttpGet("{id}")]
-    public async Task<ActionResult<Incident>> GetIncident(string id)
+    public async Task<ActionResult<Incident>> GetIncident(
+        string id,
+        [FromHeader(Name = "X-Company-Id")] string companyId)
     {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_VIEW_STATUS")) return Forbid();
         var incident = await _incidentService.GetIncidentAsync(id);
         return incident == null ? NotFound() : Ok(incident);
     }
@@ -51,6 +61,7 @@ public class IncidentsController : ControllerBase
         Incident incident)
     {
         if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_EDIT_STATUS")) return Forbid();
         incident.CompanyId = companyId;
         incident.CreatedBy = User?.Identity?.Name ?? "System";
         try
@@ -65,8 +76,13 @@ public class IncidentsController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    public async Task<IActionResult> UpdateIncident(string id, Incident incident)
+    public async Task<IActionResult> UpdateIncident(
+        string id,
+        Incident incident,
+        [FromHeader(Name = "X-Company-Id")] string companyId)
     {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_EDIT_STATUS")) return Forbid();
         if (id != incident.Id) return BadRequest("ID mismatch");
         incident.ModifiedBy = User?.Identity?.Name ?? "System";
         try
@@ -82,8 +98,12 @@ public class IncidentsController : ControllerBase
 
     [HttpPut("{id}/status")]
     public async Task<ActionResult<Incident>> UpdateIncidentStatus(
-        string id, [FromBody] UpdateIncidentStatusRequest request)
+        string id,
+        [FromBody] UpdateIncidentStatusRequest request,
+        [FromHeader(Name = "X-Company-Id")] string companyId)
     {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_EDIT_STATUS")) return Forbid();
         try
         {
             var incident = await _incidentService.UpdateIncidentStatusAsync(
@@ -96,8 +116,12 @@ public class IncidentsController : ControllerBase
 
     [HttpPut("{id}/resolve")]
     public async Task<ActionResult<Incident>> ResolveIncident(
-        string id, [FromBody] ResolveIncidentRequest request)
+        string id,
+        [FromBody] ResolveIncidentRequest request,
+        [FromHeader(Name = "X-Company-Id")] string companyId)
     {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_EDIT_STATUS")) return Forbid();
         try
         {
             var incident = await _incidentService.ResolveIncidentAsync(
@@ -109,8 +133,12 @@ public class IncidentsController : ControllerBase
     }
 
     [HttpGet("{id}/updates")]
-    public async Task<ActionResult<IEnumerable<IncidentUpdate>>> GetIncidentUpdates(string id)
+    public async Task<ActionResult<IEnumerable<IncidentUpdate>>> GetIncidentUpdates(
+        string id,
+        [FromHeader(Name = "X-Company-Id")] string companyId)
     {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_VIEW_STATUS")) return Forbid();
         return Ok(await _incidentService.GetIncidentUpdatesAsync(id));
     }
 
@@ -121,6 +149,7 @@ public class IncidentsController : ControllerBase
         [FromBody] CreateIncidentUpdateRequest request)
     {
         if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_EDIT_STATUS")) return Forbid();
         var update = new IncidentUpdate
         {
             IncidentId = id,
@@ -137,8 +166,12 @@ public class IncidentsController : ControllerBase
     }
 
     [HttpDelete("{id}")]
-    public async Task<IActionResult> DeleteIncident(string id)
+    public async Task<IActionResult> DeleteIncident(
+        string id,
+        [FromHeader(Name = "X-Company-Id")] string companyId)
     {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_EDIT_STATUS")) return Forbid();
         try
         {
             await _incidentService.DeleteIncidentAsync(id);
@@ -152,6 +185,7 @@ public class IncidentsController : ControllerBase
         [FromHeader(Name = "X-Company-Id")] string companyId)
     {
         if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_VIEW_STATUS")) return Forbid();
         return Ok(await _incidentService.GetActiveIncidentCountAsync(companyId));
     }
 
@@ -160,6 +194,7 @@ public class IncidentsController : ControllerBase
         [FromHeader(Name = "X-Company-Id")] string companyId)
     {
         if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_VIEW_STATUS")) return Forbid();
         return Ok(await _incidentService.GetCriticalIncidentCountAsync(companyId));
     }
 }

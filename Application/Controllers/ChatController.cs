@@ -31,6 +31,9 @@ public class ChatController : ControllerBase
             var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "unknown";
             var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "unknown";
 
+            if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+                return Forbid();
+
             // Use the ChatService with Azure OpenAI integration
             var response = await _chatService.SendMessageAsync(request, userId, companyId);
 
@@ -49,6 +52,9 @@ public class ChatController : ControllerBase
         try
         {
             var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "unknown";
+
+            if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+                return Forbid();
             
             // Use the ChatService to get chat history
             var history = await _chatService.GetChatHistoryAsync(sessionId, companyId);
@@ -68,6 +74,9 @@ public class ChatController : ControllerBase
         {
             var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "unknown";
             var userId = Request.Headers["UserId"].ToString();
+
+            if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+                return Forbid();
             
             // Use the ChatService to search datasets
             var datasets = await _chatService.SearchDatasetsAsync(query ?? "", companyId, userId);
@@ -87,6 +96,9 @@ public class ChatController : ControllerBase
         {
             var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "unknown";
             var userId = Request.Headers["UserId"].ToString();
+
+            if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+                return Forbid();
             
             // Use the ChatService to search tables
             var tables = await _chatService.SearchTablesAsync(query ?? "", companyId, userId);

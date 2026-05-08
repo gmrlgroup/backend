@@ -10,12 +10,21 @@
 @inject MonitoredAssetClientService EntityService
 @inject AssetStatusHistoryClientService HistoryService
 @inject StateContainer StateContainer
+@inject AuthenticationStateProvider AuthStateProvider
 @attribute [Authorize]
 
 <PageTitle>Entity Details - @(entity?.Name ?? "Loading...")</PageTitle>
 
 <div class="min-h-screen bg-gray-50">
-    @if (isLoading)
+    @if (!canView && !isLoading)
+    {
+        <div class="flex flex-col items-center justify-center h-64 text-gray-500 gap-2">
+            <svg class="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <p class="text-sm font-semibold text-gray-700">Access Denied</p>
+            <p class="text-xs text-gray-400">You don't have permission to view this page.</p>
+        </div>
+    }
+    else if (isLoading)
     {
         <div class="flex justify-center items-center h-64">
             <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -96,6 +105,8 @@
                         }
                     </div>
                     <div class="mt-4 flex md:mt-0 md:ml-4 space-x-3">
+                        @if (canEdit)
+                        {
                         <button @onclick="EditEntity"
                                 class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
                             <svg class="-ml-1 mr-2 h-5 w-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -110,6 +121,7 @@
                             </svg>
                             Delete
                         </button>
+                        }
                     </div>
                 </div>
             </div>
@@ -180,6 +192,8 @@
                         <div class="px-6 py-5 sm:p-6">
                             <div class="flex items-center justify-between mb-4">
                                 <h3 class="text-lg leading-6 font-medium text-gray-900">Dependencies</h3>
+                                @if (canEdit)
+                                {
                                 <button @onclick="ManageDependencies"
                                         class="inline-flex items-center px-3 py-1 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
                                     <svg class="-ml-1 mr-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -188,6 +202,7 @@
                                     </svg>
                                     Manage
                                 </button>
+                                }
                             </div>
 
                             @if (entity.Dependencies?.Any() == true)
@@ -250,6 +265,8 @@
                         <div class="px-6 py-5">
                             <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">Quick Actions</h3>
                             <div class="space-y-3">
+                                @if (canEdit)
+                                {
                                 <button @onclick="EditEntity"
                                         class="w-full flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
                                     <svg class="mr-3 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -271,6 +288,7 @@
                                     </svg>
                                     Update Status
                                 </button>
+                                }
                                 @if (!string.IsNullOrEmpty(entity.Url))
                                 {
                                     <a href="@entity.Url" target="_blank"
@@ -406,6 +424,9 @@
 
     private string queryParam => StateContainer.Company is null ? "" : $"?c={StateContainer.Company.Id}";
 
+    private bool canView;
+    private bool canEdit;
+
     private bool showStatusUpdateModal = false;
     private bool isUpdatingStatus = false;
     private StatusUpdateModel statusUpdateModel = new();
@@ -419,6 +440,16 @@
 
     protected override async Task OnInitializedAsync()
     {
+        var companyId = StateContainer.Company?.Id ?? "";
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (!string.IsNullOrEmpty(companyId))
+        {
+            canView = user.IsInRole($"{companyId}_VIEW_STATUS");
+            canEdit = user.IsInRole($"{companyId}_EDIT_STATUS");
+        }
+        if (!canView) { isLoading = false; return; }
+
         if (!string.IsNullOrEmpty(AssetId))
         {
             await LoadEntity();

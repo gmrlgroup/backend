@@ -19,24 +19,34 @@ public class AssetStatusHistoryController : ControllerBase
     [HttpGet("entity/{entityId}")]
     public async Task<ActionResult<IEnumerable<AssetStatusHistory>>> GetEntityStatusHistory(
         string entityId,
+        [FromHeader(Name = "X-Company-Id")] string companyId,
         [FromQuery] DateTime? fromDate = null,
         [FromQuery] DateTime? toDate = null)
     {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_VIEW_STATUS")) return Forbid();
         return Ok(await _historyService.GetEntityStatusHistoryAsync(entityId, fromDate, toDate));
     }
 
     [HttpGet("entity/{entityId}/paged")]
     public async Task<ActionResult<IEnumerable<AssetStatusHistory>>> GetEntityStatusHistoryPaged(
         string entityId,
+        [FromHeader(Name = "X-Company-Id")] string companyId,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50)
     {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_VIEW_STATUS")) return Forbid();
         return Ok(await _historyService.GetEntityStatusHistoryWithPaginationAsync(entityId, page, pageSize));
     }
 
     [HttpGet("entity/{entityId}/latest")]
-    public async Task<ActionResult<AssetStatusHistory>> GetLatestEntityStatus(string entityId)
+    public async Task<ActionResult<AssetStatusHistory>> GetLatestEntityStatus(
+        string entityId,
+        [FromHeader(Name = "X-Company-Id")] string companyId)
     {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_VIEW_STATUS")) return Forbid();
         var status = await _historyService.GetLatestEntityStatusAsync(entityId);
         return status == null ? NotFound() : Ok(status);
     }
@@ -44,21 +54,32 @@ public class AssetStatusHistoryController : ControllerBase
     [HttpGet("entity/{entityId}/summary")]
     public async Task<ActionResult<Dictionary<AssetStatus, int>>> GetEntityStatusSummary(
         string entityId,
+        [FromHeader(Name = "X-Company-Id")] string companyId,
         [FromQuery] DateTime? fromDate = null,
         [FromQuery] DateTime? toDate = null)
     {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_VIEW_STATUS")) return Forbid();
         return Ok(await _historyService.GetEntityStatusSummaryAsync(entityId, fromDate, toDate));
     }
 
     [HttpGet("entity/{entityId}/count")]
-    public async Task<ActionResult<int>> GetEntityStatusHistoryCount(string entityId)
+    public async Task<ActionResult<int>> GetEntityStatusHistoryCount(
+        string entityId,
+        [FromHeader(Name = "X-Company-Id")] string companyId)
     {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_VIEW_STATUS")) return Forbid();
         return Ok(await _historyService.GetEntityStatusHistoryCountAsync(entityId));
     }
 
     [HttpGet("{id}")]
-    public async Task<ActionResult<AssetStatusHistory>> GetEntityStatusHistoryById(int id)
+    public async Task<ActionResult<AssetStatusHistory>> GetEntityStatusHistoryById(
+        int id,
+        [FromHeader(Name = "X-Company-Id")] string companyId)
     {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_VIEW_STATUS")) return Forbid();
         var record = await _historyService.GetEntityStatusHistoryByIdAsync(id);
         return record == null ? NotFound() : Ok(record);
     }
@@ -69,6 +90,7 @@ public class AssetStatusHistoryController : ControllerBase
         AssetStatusHistory statusHistory)
     {
         if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_EDIT_STATUS")) return Forbid();
         statusHistory.CompanyId = companyId;
         try
         {
@@ -79,8 +101,13 @@ public class AssetStatusHistoryController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    public async Task<IActionResult> UpdateEntityStatusHistory(int id, AssetStatusHistory statusHistory)
+    public async Task<IActionResult> UpdateEntityStatusHistory(
+        int id,
+        AssetStatusHistory statusHistory,
+        [FromHeader(Name = "X-Company-Id")] string companyId)
     {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_EDIT_STATUS")) return Forbid();
         if (id != statusHistory.Id) return BadRequest("ID mismatch");
         statusHistory.ModifiedBy = User?.Identity?.Name ?? "System";
         try
@@ -92,8 +119,12 @@ public class AssetStatusHistoryController : ControllerBase
     }
 
     [HttpDelete("{id}")]
-    public async Task<IActionResult> DeleteEntityStatusHistory(int id)
+    public async Task<IActionResult> DeleteEntityStatusHistory(
+        int id,
+        [FromHeader(Name = "X-Company-Id")] string companyId)
     {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_EDIT_STATUS")) return Forbid();
         return await _historyService.DeleteEntityStatusHistoryAsync(id) ? NoContent() : NotFound();
     }
 
@@ -104,6 +135,7 @@ public class AssetStatusHistoryController : ControllerBase
         [FromQuery] DateTime toDate)
     {
         if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_VIEW_STATUS")) return Forbid();
         return Ok(await _historyService.GetEntityStatusHistoryByDateRangeAsync(fromDate, toDate));
     }
 
@@ -112,6 +144,7 @@ public class AssetStatusHistoryController : ControllerBase
         [FromHeader(Name = "X-Company-Id")] string companyId)
     {
         if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (!User.IsInRole($"{companyId}_VIEW_STATUS")) return Forbid();
         return Ok(await _historyService.GetAllEntityStatusHistoryAsync(companyId));
     }
 }

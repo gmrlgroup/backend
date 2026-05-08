@@ -11,6 +11,7 @@
 @inject IncidentClientService IncidentService
 @inject MonitoredAssetClientService EntityService
 @inject StateContainer StateContainer
+@inject AuthenticationStateProvider AuthStateProvider
 @attribute [Authorize]
 
 <PageTitle>@(IsEditMode ? $"Edit Incident - {incident?.Title}" : "Report Incident")</PageTitle>
@@ -66,6 +67,22 @@
     </div>
 
     <!-- Form Content -->
+    @if (isLoading)
+    {
+        <div class="flex justify-center items-center h-64">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600"></div>
+        </div>
+    }
+    else if (!canEdit)
+    {
+        <div class="flex flex-col items-center justify-center h-64 text-gray-500 gap-2">
+            <svg class="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <p class="text-sm font-semibold text-gray-700">Access Denied</p>
+            <p class="text-xs text-gray-400">You don't have permission to create or edit incidents.</p>
+        </div>
+    }
+    else
+    {
     <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <div class="bg-white shadow sm:rounded-lg">
             <div class="px-4 py-5 sm:p-6">
@@ -241,6 +258,7 @@
             </div>
         </div>
     </div>
+    }
 </div>
 
 @code {
@@ -251,11 +269,20 @@
     private bool isSubmitting = false;
     private string? errorMessage;
 
+    private bool canEdit;
+    private bool isLoading = true;
+
     private string queryParam => StateContainer.Company is null ? "" : $"?c={StateContainer.Company.Id}";
     private bool IsEditMode => !string.IsNullOrEmpty(IncidentId);
 
     protected override async Task OnInitializedAsync()
     {
+        isLoading = true;
+        var companyId = StateContainer.Company?.Id ?? "";
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        canEdit = !string.IsNullOrEmpty(companyId) && authState.User.IsInRole($"{companyId}_EDIT_STATUS");
+        if (!canEdit) { isLoading = false; return; }
+
         await LoadEntities();
 
         if (IsEditMode)
@@ -267,6 +294,7 @@
             incident.Severity = IncidentSeverity.Medium;
             incident.Status = IncidentStatus.Open;
         }
+        isLoading = false;
     }
 
     private async Task LoadEntities()

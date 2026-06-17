@@ -241,6 +241,11 @@
                             }
                         </div>
                     </div>
+
+                    @if (entity.EntityType == AssetType.Server)
+                    {
+                        <ServerManagement EntityId="@entity.Id" />
+                    }
                 </div>
 
                 <!-- Right Column - Sidebar -->

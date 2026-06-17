@@ -55,6 +55,9 @@ public class StatusDbContext(DbContextOptions<StatusDbContext> options) : DbCont
     public DbSet<MonitoringPage> MonitoringPages { get; set; }
     public DbSet<MonitoringPageAsset> MonitoringPageAssets { get; set; }
 
+    // SERVER MANAGEMENT
+    public DbSet<ServerCredential> ServerCredentials { get; set; }
+
     private static string ToSnakeCase(string? input)
     {
         if (string.IsNullOrEmpty(input)) return input ?? string.Empty;

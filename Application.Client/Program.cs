@@ -23,5 +23,6 @@ builder.Services.AddScoped<StateContainer>();
 builder.Services.AddScoped<Application.Client.Services.MonitoredAssetClientService>();
 builder.Services.AddScoped<Application.Client.Services.IncidentClientService>();
 builder.Services.AddScoped<Application.Client.Services.AssetStatusHistoryClientService>();
+builder.Services.AddScoped<Application.Client.Services.ServerManagementClientService>();
 
 await builder.Build().RunAsync();

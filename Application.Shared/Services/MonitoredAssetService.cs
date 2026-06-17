@@ -55,12 +55,32 @@ public class MonitoredAssetService : IMonitoredAssetService
 
     public async Task<MonitoredAsset> UpdateEntityAsync(MonitoredAsset entity)
     {
-        entity.ModifiedOn = DateTime.UtcNow;
+        // Copy editable fields onto the existing (possibly already-tracked) instance instead of
+        // _context.Update(entity): the controller's existence check tracks the entity first, so
+        // attaching a second instance with the same key throws, and a blind Update would also
+        // overwrite fields not present on the form (Group, CreatedOn/By, IsDeleted) with defaults.
+        var existing = await _context.MonitoredAssets.FirstOrDefaultAsync(e => e.Id == entity.Id);
+        if (existing == null)
+            return entity;
 
-        _context.MonitoredAssets.Update(entity);
+        existing.Name = entity.Name;
+        existing.Description = entity.Description;
+        existing.EntityType = entity.EntityType;
+        existing.Url = entity.Url;
+        existing.Version = entity.Version;
+        existing.Owner = entity.Owner;
+        existing.Location = entity.Location;
+        existing.IsActive = entity.IsActive;
+        existing.IsCritical = entity.IsCritical;
+        existing.Metadata = entity.Metadata;
+        if (!string.IsNullOrEmpty(entity.Group))
+            existing.Group = entity.Group;
+        existing.ModifiedBy = entity.ModifiedBy;
+        existing.ModifiedOn = DateTime.UtcNow;
+
         await _context.SaveChangesAsync();
 
-        return entity;
+        return existing;
     }
 
     public async Task<bool> DeleteEntityAsync(string id)

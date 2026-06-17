@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
@@ -226,6 +227,16 @@ builder.Services.AddScoped<EmailHelper>();
 builder.Services.AddScoped<IIncidentService, IncidentService>();
 builder.Services.AddScoped<IMonitoredAssetService, MonitoredAssetService>();
 builder.Services.AddScoped<IAssetStatusHistoryService, AssetStatusHistoryService>();
+
+// Server Management (credentials + remote service start/stop)
+builder.Services.AddDataProtection()
+    .SetApplicationName("FlowByte.Application")
+    .PersistKeysToFileSystem(new DirectoryInfo(
+        Path.Combine(builder.Environment.ContentRootPath, "App_Data", "keys")));
+builder.Services.AddSingleton<ICredentialProtector, CredentialProtector>();
+builder.Services.AddScoped<IServerCredentialService, ServerCredentialService>();
+builder.Services.AddScoped<IServerManagementService, ServerManagementService>();
+builder.Services.AddScoped<IRemoteServerExecutor, SshServerExecutor>();
 
 // Add Chat Service for AI functionality
 builder.Services.AddScoped<IChatService, ChatService>();

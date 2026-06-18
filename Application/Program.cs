@@ -1,3 +1,4 @@
+using Application.Authorization;
 using Application.Client.Pages;
 using Application.Components;
 using Application.Components.Account;
@@ -5,6 +6,7 @@ using Application.Helpers;
 using Application.Hubs;
 using Application.Services;
 using Application.Services.Data;
+using Application.Shared.Authorization;
 using Application.Shared.Data;
 using Application.Shared.Models;
 using Application.Shared.Models.Data;
@@ -14,6 +16,7 @@ using Application.Shared.Services.Data;
 using Application.Shared.Services.Org;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
@@ -72,7 +75,11 @@ builder.Services.AddApiAuthorization();
 
 const string MS_OIDC_SCHEME = "MicrosoftOidc";
 
-builder.Services.AddAuthorization();
+// Per-company, role-based authorization policies (shared with the WASM client).
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentCompanyAccessor, HttpContextCompanyAccessor>();
+builder.Services.AddScoped<IAuthorizationHandler, ModuleAccessHandler>();
+builder.Services.AddAuthorization(options => options.AddFlowbytePolicies());
 builder.Services.AddAuthentication(options =>
     {
         options.DefaultScheme = IdentityConstants.ApplicationScheme;
@@ -229,10 +236,20 @@ builder.Services.AddScoped<IMonitoredAssetService, MonitoredAssetService>();
 builder.Services.AddScoped<IAssetStatusHistoryService, AssetStatusHistoryService>();
 
 // Server Management (credentials + remote service start/stop)
-builder.Services.AddDataProtection()
+// Keys must persist OUTSIDE the app folder so redeploys don't wipe them — losing the key ring
+// makes every stored credential undecryptable. Configurable via DataProtection:KeysPath
+// (e.g. "C:\\ProgramData\\FlowByte\\keys" on the Azure VM); falls back to App_Data for local dev.
+var keysPath = builder.Configuration["DataProtection:KeysPath"]
+    ?? Path.Combine(builder.Environment.ContentRootPath, "App_Data", "keys");
+Directory.CreateDirectory(keysPath);
+
+var dataProtection = builder.Services.AddDataProtection()
     .SetApplicationName("FlowByte.Application")
-    .PersistKeysToFileSystem(new DirectoryInfo(
-        Path.Combine(builder.Environment.ContentRootPath, "App_Data", "keys")));
+    .PersistKeysToFileSystem(new DirectoryInfo(keysPath));
+
+// Encrypt the key ring at rest with the machine's DPAPI key (Windows only).
+if (OperatingSystem.IsWindows())
+    dataProtection.ProtectKeysWithDpapi(protectToLocalMachine: true);
 builder.Services.AddSingleton<ICredentialProtector, CredentialProtector>();
 builder.Services.AddScoped<IServerCredentialService, ServerCredentialService>();
 builder.Services.AddScoped<IServerManagementService, ServerManagementService>();

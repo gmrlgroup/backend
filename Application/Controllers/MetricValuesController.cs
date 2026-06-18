@@ -1,5 +1,7 @@
+using Application.Shared.Authorization;
 using Application.Shared.Models;
 using Application.Shared.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
@@ -7,6 +9,7 @@ namespace Application.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize(Policy = PolicyNames.MetricsRead)]
     public class MetricValuesController : ControllerBase
     {
         private readonly IMetricValueService _metricValueService;
@@ -67,6 +70,7 @@ namespace Application.Controllers
 
         // POST: api/MetricValues
         [HttpPost]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<ActionResult<MetricValue>> CreateMetricValue(MetricValue metricValue, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             try
@@ -99,6 +103,7 @@ namespace Application.Controllers
 
         // PUT: api/MetricValues/5
         [HttpPut("{id}")]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<IActionResult> UpdateMetricValue(int id, MetricValue metricValue, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             try
@@ -132,6 +137,7 @@ namespace Application.Controllers
 
         // DELETE: api/MetricValues/5
         [HttpDelete("{id}")]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<IActionResult> DeleteMetricValue(int id, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             if (string.IsNullOrEmpty(companyId))
@@ -151,6 +157,7 @@ namespace Application.Controllers
 
         // POST: api/MetricValues/5/validate
         [HttpPost("{id}/validate")]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<IActionResult> ValidateMetricValue(int id, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;

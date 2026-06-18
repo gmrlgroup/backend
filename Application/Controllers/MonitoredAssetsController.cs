@@ -1,12 +1,15 @@
+using Application.Shared.Authorization;
 using Application.Shared.Models;
 using Application.Shared.Services;
 using Application.Shared.Enums;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Application.Controllers;
 
 [Route("api/status/entities")]
 [ApiController]
+[Authorize(Policy = PolicyNames.StatusRead)]
 public class MonitoredAssetsController : ControllerBase
 {
     private readonly IMonitoredAssetService _entityService;
@@ -32,6 +35,7 @@ public class MonitoredAssetsController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<ActionResult<MonitoredAsset>> CreateEntity(
         [FromHeader(Name = "X-Company-Id")] string companyId,
         MonitoredAsset entity)
@@ -44,6 +48,7 @@ public class MonitoredAssetsController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<IActionResult> UpdateEntity(string id, MonitoredAsset entity)
     {
         if (id != entity.Id) return BadRequest("Entity ID mismatch");
@@ -54,6 +59,7 @@ public class MonitoredAssetsController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<IActionResult> DeleteEntity(string id)
     {
         return await _entityService.DeleteEntityAsync(id) ? NoContent() : NotFound();
@@ -91,6 +97,23 @@ public class MonitoredAssetsController : ControllerBase
         return Ok(await _entityService.GetEntitiesWithLatestStatusAsync(companyId));
     }
 
+    [HttpGet("paged")]
+    public async Task<ActionResult<PagedResult<MonitoredAsset>>> GetEntitiesPaged(
+        [FromHeader(Name = "X-Company-Id")] string companyId,
+        [FromQuery] EntityQueryParameters parameters)
+    {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        return Ok(await _entityService.GetEntitiesPagedAsync(companyId, parameters));
+    }
+
+    [HttpGet("groups")]
+    public async Task<ActionResult<IEnumerable<string>>> GetEntityGroups(
+        [FromHeader(Name = "X-Company-Id")] string companyId)
+    {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        return Ok(await _entityService.GetEntityGroupsAsync(companyId));
+    }
+
     [HttpGet("summary")]
     public async Task<ActionResult<Dictionary<string, int>>> GetEntityStatusSummary(
         [FromHeader(Name = "X-Company-Id")] string companyId)
@@ -117,6 +140,7 @@ public class MonitoredAssetsController : ControllerBase
     }
 
     [HttpPost("{id}/status")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<IActionResult> UpdateEntityStatus(
         [FromHeader(Name = "X-Company-Id")] string companyId,
         string id,
@@ -137,6 +161,7 @@ public class MonitoredAssetsController : ControllerBase
     }
 
     [HttpPost("{id}/ping")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<ActionResult<bool>> PingEntity(string id)
     {
         return Ok(await _entityService.PingEntityAsync(id));
@@ -162,6 +187,7 @@ public class MonitoredAssetsController : ControllerBase
     }
 
     [HttpPost("dependencies")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<ActionResult<AssetDependency>> CreateEntityDependency(AssetDependency dependency)
     {
         var created = await _entityService.CreateEntityDependencyAsync(dependency);
@@ -169,6 +195,7 @@ public class MonitoredAssetsController : ControllerBase
     }
 
     [HttpPut("dependencies/{id}")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<IActionResult> UpdateEntityDependency(string id, AssetDependency dependency)
     {
         if (id != dependency.Id) return BadRequest("Dependency ID mismatch");
@@ -177,6 +204,7 @@ public class MonitoredAssetsController : ControllerBase
     }
 
     [HttpDelete("dependencies/{id}")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<IActionResult> DeleteEntityDependency(string id)
     {
         return await _entityService.DeleteEntityDependencyAsync(id) ? NoContent() : NotFound();

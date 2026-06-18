@@ -1,5 +1,7 @@
+using Application.Shared.Authorization;
 using Application.Shared.Models;
 using Application.Shared.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
@@ -7,6 +9,7 @@ namespace Application.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize(Policy = PolicyNames.MetricsRead)]
     public class MetricsController : ControllerBase
     {
         private readonly IMetricService _metricService;
@@ -76,6 +79,7 @@ namespace Application.Controllers
 
         // POST: api/Metrics
         [HttpPost]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<ActionResult<Metric>> CreateMetric(Metric metric, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             try
@@ -105,6 +109,7 @@ namespace Application.Controllers
 
         // PUT: api/Metrics/5
         [HttpPut("{id}")]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<IActionResult> UpdateMetric(int id, Metric metric, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             try
@@ -138,6 +143,7 @@ namespace Application.Controllers
 
         // DELETE: api/Metrics/5
         [HttpDelete("{id}")]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<IActionResult> DeleteMetric(int id, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             if (string.IsNullOrEmpty(companyId))
@@ -215,6 +221,7 @@ namespace Application.Controllers
 
         // POST: api/Metrics/datasources
         [HttpPost("datasources")]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<ActionResult<MetricDataSource>> CreateDataSource(MetricDataSource dataSource, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             try
@@ -244,6 +251,7 @@ namespace Application.Controllers
 
         // PUT: api/Metrics/datasources/5
         [HttpPut("datasources/{id}")]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<IActionResult> UpdateDataSource(int id, MetricDataSource dataSource, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             try
@@ -277,6 +285,7 @@ namespace Application.Controllers
 
         // DELETE: api/Metrics/datasources/5
         [HttpDelete("datasources/{id}")]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<IActionResult> DeleteDataSource(int id, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             if (string.IsNullOrEmpty(companyId))

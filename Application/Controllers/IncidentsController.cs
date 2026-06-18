@@ -1,12 +1,15 @@
+using Application.Shared.Authorization;
 using Application.Shared.Models;
 using Application.Shared.Services;
 using Application.Shared.Enums;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Application.Controllers;
 
 [Route("api/status/incidents")]
 [ApiController]
+[Authorize(Policy = PolicyNames.StatusRead)]
 public class IncidentsController : ControllerBase
 {
     private readonly IIncidentService _incidentService;
@@ -46,6 +49,7 @@ public class IncidentsController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<ActionResult<Incident>> CreateIncident(
         [FromHeader(Name = "X-Company-Id")] string companyId,
         Incident incident)
@@ -65,6 +69,7 @@ public class IncidentsController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<IActionResult> UpdateIncident(string id, Incident incident)
     {
         if (id != incident.Id) return BadRequest("ID mismatch");
@@ -81,6 +86,7 @@ public class IncidentsController : ControllerBase
     }
 
     [HttpPut("{id}/status")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<ActionResult<Incident>> UpdateIncidentStatus(
         string id, [FromBody] UpdateIncidentStatusRequest request)
     {
@@ -95,6 +101,7 @@ public class IncidentsController : ControllerBase
     }
 
     [HttpPut("{id}/resolve")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<ActionResult<Incident>> ResolveIncident(
         string id, [FromBody] ResolveIncidentRequest request)
     {
@@ -115,6 +122,7 @@ public class IncidentsController : ControllerBase
     }
 
     [HttpPost("{id}/updates")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<ActionResult<IncidentUpdate>> CreateIncidentUpdate(
         [FromHeader(Name = "X-Company-Id")] string companyId,
         string id,
@@ -137,6 +145,7 @@ public class IncidentsController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<IActionResult> DeleteIncident(string id)
     {
         try

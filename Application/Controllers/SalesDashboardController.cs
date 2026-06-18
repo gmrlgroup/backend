@@ -1,12 +1,13 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Application.Shared.Authorization;
 using Application.Shared.Services.Data;
 using Application.Attributes;
 using System.Security.Claims;
 
 namespace Application.Controllers;
 
-[Authorize]
+[Authorize(Policy = PolicyNames.SalesRead)]
 [ApiController]
 [Route("api/[controller]")]
 public class SalesDashboardController : ControllerBase

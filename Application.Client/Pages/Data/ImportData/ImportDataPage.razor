@@ -12,7 +12,7 @@
 @inject NavigationManager _navigationManager
 @inject AuthenticationStateProvider _authenticationStateProvider
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
-@attribute [Authorize]
+@attribute [Authorize(Policy = PolicyNames.DatasetsAccess)]
 
 <PageTitle>Import Data</PageTitle>
 

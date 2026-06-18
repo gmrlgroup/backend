@@ -341,6 +341,82 @@ public class MonitoredAssetService : IMonitoredAssetService
             .ToListAsync();
     }
 
+    public async Task<PagedResult<MonitoredAsset>> GetEntitiesPagedAsync(string companyId, EntityQueryParameters p)
+    {
+        var query = _context.MonitoredAssets
+            .Where(e => e.CompanyId == companyId && !e.IsDeleted);
+
+        if (!string.IsNullOrWhiteSpace(p.Search))
+        {
+            var s = p.Search.Trim().ToLower();
+            query = query.Where(e =>
+                e.Name.ToLower().Contains(s) ||
+                (e.Description != null && e.Description.ToLower().Contains(s)) ||
+                (e.Owner != null && e.Owner.ToLower().Contains(s)) ||
+                (e.Location != null && e.Location.ToLower().Contains(s)));
+        }
+
+        if (p.Type.HasValue) query = query.Where(e => e.EntityType == p.Type.Value);
+        if (p.IsActive.HasValue) query = query.Where(e => e.IsActive == p.IsActive.Value);
+        if (p.IsCritical.HasValue) query = query.Where(e => e.IsCritical == p.IsCritical.Value);
+        if (!string.IsNullOrWhiteSpace(p.Group)) query = query.Where(e => e.Group == p.Group);
+
+        // Latest reported status comes from the most recent StatusHistory row. FirstOrDefault() on the
+        // non-nullable enum yields Unknown (0) when there is no history, which is the desired semantics.
+        if (p.CurrentStatus.HasValue)
+        {
+            var target = p.CurrentStatus.Value;
+            query = query.Where(e =>
+                e.StatusHistory.OrderByDescending(sh => sh.CheckedAt)
+                    .Select(sh => sh.Status).FirstOrDefault() == target);
+        }
+
+        var totalCount = await query.CountAsync();
+
+        query = ApplySort(query, p.SortBy, p.SortDir);
+
+        var items = await query
+            .Skip((p.Page - 1) * p.PageSize)
+            .Take(p.PageSize)
+            .Include(e => e.StatusHistory.OrderByDescending(sh => sh.CheckedAt).Take(1))
+            .ToListAsync();
+
+        return new PagedResult<MonitoredAsset>
+        {
+            Items = items,
+            TotalCount = totalCount,
+            Page = p.Page,
+            PageSize = p.PageSize
+        };
+    }
+
+    private static IQueryable<MonitoredAsset> ApplySort(IQueryable<MonitoredAsset> query, string? sortBy, string? sortDir)
+    {
+        var desc = string.Equals(sortDir, "desc", StringComparison.OrdinalIgnoreCase);
+
+        return (sortBy?.ToLower()) switch
+        {
+            "type" => desc ? query.OrderByDescending(e => e.EntityType) : query.OrderBy(e => e.EntityType),
+            "group" => desc ? query.OrderByDescending(e => e.Group) : query.OrderBy(e => e.Group),
+            "owner" => desc ? query.OrderByDescending(e => e.Owner) : query.OrderBy(e => e.Owner),
+            "active" => desc ? query.OrderByDescending(e => e.IsActive) : query.OrderBy(e => e.IsActive),
+            "status" => desc
+                ? query.OrderByDescending(e => e.StatusHistory.OrderByDescending(sh => sh.CheckedAt).Select(sh => sh.Status).FirstOrDefault())
+                : query.OrderBy(e => e.StatusHistory.OrderByDescending(sh => sh.CheckedAt).Select(sh => sh.Status).FirstOrDefault()),
+            _ => desc ? query.OrderByDescending(e => e.Name) : query.OrderBy(e => e.Name),
+        };
+    }
+
+    public async Task<List<string>> GetEntityGroupsAsync(string companyId)
+    {
+        return await _context.MonitoredAssets
+            .Where(e => e.CompanyId == companyId && !e.IsDeleted && e.Group != null && e.Group != "")
+            .Select(e => e.Group!)
+            .Distinct()
+            .OrderBy(g => g)
+            .ToListAsync();
+    }
+
     public async Task<AssetDependency> CreateEntityDependencyAsync(AssetDependency dependency)
     {
         dependency.Id = Guid.NewGuid().ToString();

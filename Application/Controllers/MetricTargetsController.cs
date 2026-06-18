@@ -1,5 +1,7 @@
+using Application.Shared.Authorization;
 using Application.Shared.Models;
 using Application.Shared.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
@@ -7,6 +9,7 @@ namespace Application.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize(Policy = PolicyNames.MetricsRead)]
     public class MetricTargetsController : ControllerBase
     {
         private readonly IMetricTargetService _metricTargetService;
@@ -69,6 +72,7 @@ namespace Application.Controllers
 
         // POST: api/MetricTargets
         [HttpPost]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<ActionResult<MetricTarget>> CreateMetricTarget(MetricTarget metricTarget, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             try
@@ -101,6 +105,7 @@ namespace Application.Controllers
 
         // PUT: api/MetricTargets/5
         [HttpPut("{id}")]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<IActionResult> UpdateMetricTarget(int id, MetricTarget metricTarget, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             try
@@ -134,6 +139,7 @@ namespace Application.Controllers
 
         // DELETE: api/MetricTargets/5
         [HttpDelete("{id}")]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<IActionResult> DeleteMetricTarget(int id, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             if (string.IsNullOrEmpty(companyId))
@@ -153,6 +159,7 @@ namespace Application.Controllers
 
         // POST: api/MetricTargets/5/deactivate
         [HttpPost("{id}/deactivate")]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<IActionResult> DeactivateMetricTarget(int id, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             if (string.IsNullOrEmpty(companyId))

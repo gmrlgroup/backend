@@ -6,7 +6,7 @@
 @inject IncidentClientService IncidentService
 @inject NavigationManager Navigation
 @inject StateContainer StateContainer
-@attribute [Authorize]
+@attribute [Authorize(Policy = PolicyNames.StatusRead)]
 
 <PageTitle>Status Incidents</PageTitle>
 

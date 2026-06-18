@@ -1,5 +1,6 @@
 @page "/datawarehouse"
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@attribute [Authorize(Policy = PolicyNames.DataWarehouseRead)]
 @using System.Net.Http.Json
 @using Application.Client.Components
 @inject HttpClient Http
@@ -237,6 +238,9 @@
 </div>
 
 @code {
+    [SupplyParameterFromQuery(Name = "c")]
+    private string? companyId { get; set; }
+
     private List<TableInfo> tables = new();
     private List<TableInfo> FilteredTables => string.IsNullOrWhiteSpace(tableSearchText)
         ? tables
@@ -263,8 +267,18 @@
         await LoadTablesAsync();
     }
 
+    // The DataWarehouse endpoints are gated by the DataWarehouseRead policy, which resolves the
+    // active company from the X-Company-Id header.
+    private void EnsureCompanyHeader()
+    {
+        Http.DefaultRequestHeaders.Remove("X-Company-Id");
+        if (!string.IsNullOrEmpty(companyId))
+            Http.DefaultRequestHeaders.Add("X-Company-Id", companyId);
+    }
+
     private async Task LoadTablesAsync()
     {
+        EnsureCompanyHeader();
         isLoadingTables = true;
         errorMessage = string.Empty;
 
@@ -300,6 +314,7 @@
     {
         if (string.IsNullOrEmpty(selectedTable)) return;
 
+        EnsureCompanyHeader();
         isLoadingData = true;
         errorMessage = string.Empty;
 

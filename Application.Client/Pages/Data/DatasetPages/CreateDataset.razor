@@ -5,7 +5,7 @@
 @inject IToastService _toastService
 @inject AuthenticationStateProvider _authenticationStateProvider
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
-@attribute [Authorize]
+@attribute [Authorize(Policy = PolicyNames.DatasetsAccess)]
 
 <PageTitle>Create Dataset</PageTitle>
 

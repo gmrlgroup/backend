@@ -26,6 +26,8 @@ public interface IMonitoredAssetService
     Task<List<MonitoredAsset>> GetEntitiesDueForCheckAsync();
     Task<bool> EntityExistsAsync(string id);
     Task<List<MonitoredAsset>> GetEntitiesWithLatestStatusAsync(string companyId);
+    Task<PagedResult<MonitoredAsset>> GetEntitiesPagedAsync(string companyId, EntityQueryParameters parameters);
+    Task<List<string>> GetEntityGroupsAsync(string companyId);
     Task<AssetDependency> CreateEntityDependencyAsync(AssetDependency dependency);
     Task<AssetDependency> UpdateEntityDependencyAsync(AssetDependency dependency);
     Task<bool> DeleteEntityDependencyAsync(string dependencyId);

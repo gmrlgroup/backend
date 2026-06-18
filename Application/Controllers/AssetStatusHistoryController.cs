@@ -1,12 +1,15 @@
+using Application.Shared.Authorization;
 using Application.Shared.Models;
 using Application.Shared.Services;
 using Application.Shared.Enums;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Application.Controllers;
 
 [Route("api/status/history")]
 [ApiController]
+[Authorize(Policy = PolicyNames.StatusRead)]
 public class AssetStatusHistoryController : ControllerBase
 {
     private readonly IAssetStatusHistoryService _historyService;
@@ -64,6 +67,7 @@ public class AssetStatusHistoryController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<ActionResult<AssetStatusHistory>> CreateEntityStatusHistory(
         [FromHeader(Name = "X-Company-Id")] string companyId,
         AssetStatusHistory statusHistory)
@@ -79,6 +83,7 @@ public class AssetStatusHistoryController : ControllerBase
     }
 
     [HttpPut("{id}")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<IActionResult> UpdateEntityStatusHistory(int id, AssetStatusHistory statusHistory)
     {
         if (id != statusHistory.Id) return BadRequest("ID mismatch");
@@ -92,6 +97,7 @@ public class AssetStatusHistoryController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<IActionResult> DeleteEntityStatusHistory(int id)
     {
         return await _historyService.DeleteEntityStatusHistoryAsync(id) ? NoContent() : NotFound();

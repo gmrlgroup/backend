@@ -1,6 +1,8 @@
+using Application.Shared.Authorization;
 using Application.Shared.Enums;
 using Application.Shared.Models;
 using Application.Shared.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Application.Controllers;
@@ -11,6 +13,7 @@ namespace Application.Controllers;
 /// </summary>
 [Route("api/status/entities/{entityId}")]
 [ApiController]
+[Authorize(Policy = PolicyNames.StatusRead)]
 public class ServerManagementController : ControllerBase
 {
     private readonly IServerCredentialService _credentialService;
@@ -39,6 +42,7 @@ public class ServerManagementController : ControllerBase
     }
 
     [HttpPost("credentials")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<ActionResult<ServerCredentialDto>> CreateCredential(
         [FromHeader(Name = "X-Company-Id")] string companyId, string entityId, ServerCredentialRequest request)
     {
@@ -49,6 +53,7 @@ public class ServerManagementController : ControllerBase
     }
 
     [HttpPut("credentials/{credentialId}")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<ActionResult<ServerCredentialDto>> UpdateCredential(
         [FromHeader(Name = "X-Company-Id")] string companyId, string entityId, string credentialId, ServerCredentialRequest request)
     {
@@ -59,6 +64,7 @@ public class ServerManagementController : ControllerBase
     }
 
     [HttpDelete("credentials/{credentialId}")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<IActionResult> DeleteCredential(
         [FromHeader(Name = "X-Company-Id")] string companyId, string entityId, string credentialId)
     {
@@ -87,6 +93,7 @@ public class ServerManagementController : ControllerBase
     }
 
     [HttpPost("services/{serviceName}/start")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<ActionResult<ServiceActionResult>> StartService(
         [FromHeader(Name = "X-Company-Id")] string companyId, string entityId, string serviceName,
         [FromQuery] string? credentialId, CancellationToken ct)
@@ -104,6 +111,7 @@ public class ServerManagementController : ControllerBase
     }
 
     [HttpPost("services/{serviceName}/stop")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
     public async Task<ActionResult<ServiceActionResult>> StopService(
         [FromHeader(Name = "X-Company-Id")] string companyId, string entityId, string serviceName,
         [FromQuery] string? credentialId, CancellationToken ct)

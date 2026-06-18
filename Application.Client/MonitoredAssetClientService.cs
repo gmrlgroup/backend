@@ -45,6 +45,47 @@ public class MonitoredAssetClientService
         catch (Exception ex) { Console.WriteLine($"Error fetching entities with status: {ex.Message}"); return new(); }
     }
 
+    public async Task<PagedResult<MonitoredAsset>> GetEntitiesPagedAsync(string companyId, EntityQueryParameters p)
+    {
+        try
+        {
+            SetCompanyHeader(companyId);
+
+            var query = new List<string>
+            {
+                $"page={p.Page}",
+                $"pageSize={p.PageSize}",
+                $"sortBy={Uri.EscapeDataString(p.SortBy)}",
+                $"sortDir={Uri.EscapeDataString(p.SortDir)}"
+            };
+            if (!string.IsNullOrWhiteSpace(p.Search)) query.Add($"search={Uri.EscapeDataString(p.Search)}");
+            if (p.Type.HasValue) query.Add($"type={p.Type.Value}");
+            if (p.IsActive.HasValue) query.Add($"isActive={p.IsActive.Value.ToString().ToLower()}");
+            if (p.IsCritical.HasValue) query.Add($"isCritical={p.IsCritical.Value.ToString().ToLower()}");
+            if (p.CurrentStatus.HasValue) query.Add($"currentStatus={p.CurrentStatus.Value}");
+            if (!string.IsNullOrWhiteSpace(p.Group)) query.Add($"group={Uri.EscapeDataString(p.Group)}");
+
+            var response = await _httpClient.GetAsync($"api/status/entities/paged?{string.Join("&", query)}");
+            if (response.IsSuccessStatusCode)
+                return await response.Content.ReadFromJsonAsync<PagedResult<MonitoredAsset>>() ?? new();
+            return new();
+        }
+        catch (Exception ex) { Console.WriteLine($"Error fetching paged entities: {ex.Message}"); return new(); }
+    }
+
+    public async Task<List<string>> GetEntityGroupsAsync(string companyId)
+    {
+        try
+        {
+            SetCompanyHeader(companyId);
+            var response = await _httpClient.GetAsync("api/status/entities/groups");
+            if (response.IsSuccessStatusCode)
+                return await response.Content.ReadFromJsonAsync<List<string>>() ?? new();
+            return new();
+        }
+        catch (Exception ex) { Console.WriteLine($"Error fetching groups: {ex.Message}"); return new(); }
+    }
+
     public async Task<MonitoredAsset?> GetEntityAsync(string id)
     {
         try

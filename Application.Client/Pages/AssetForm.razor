@@ -10,7 +10,7 @@
 @inject IJSRuntime JSRuntime
 @inject MonitoredAssetClientService EntityService
 @inject StateContainer StateContainer
-@attribute [Authorize]
+@attribute [Authorize(Policy = PolicyNames.StatusWrite)]
 
 <PageTitle>@(IsEditMode ? $"Edit {entity?.Name}" : "Create Entity")</PageTitle>
 

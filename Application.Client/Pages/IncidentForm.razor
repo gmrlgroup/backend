@@ -11,7 +11,7 @@
 @inject IncidentClientService IncidentService
 @inject MonitoredAssetClientService EntityService
 @inject StateContainer StateContainer
-@attribute [Authorize]
+@attribute [Authorize(Policy = PolicyNames.StatusWrite)]
 
 <PageTitle>@(IsEditMode ? $"Edit Incident - {incident?.Title}" : "Report Incident")</PageTitle>
 

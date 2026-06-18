@@ -10,7 +10,7 @@
 @inject MonitoredAssetClientService EntityService
 @inject AssetStatusHistoryClientService HistoryService
 @inject StateContainer StateContainer
-@attribute [Authorize]
+@attribute [Authorize(Policy = PolicyNames.StatusRead)]
 
 <PageTitle>Entity Details - @(entity?.Name ?? "Loading...")</PageTitle>
 
@@ -18,228 +18,211 @@
     @if (isLoading)
     {
         <div class="flex justify-center items-center h-64">
-            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            <div class="animate-spin rounded-full h-10 w-10 border-2 border-indigo-600 border-t-transparent"></div>
         </div>
     }
     else if (entity == null)
     {
-        <div class="text-center py-12">
-            <h3 class="text-lg font-medium text-gray-900">Entity not found</h3>
-            <p class="mt-2 text-sm text-gray-500">The entity you're looking for doesn't exist.</p>
-            <div class="mt-6">
-                <button @onclick="BackToEntities"
-                        class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">
-                    Back to Entities
-                </button>
+        <div class="max-w-3xl mx-auto px-4 py-20 text-center">
+            <div class="mx-auto w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center">
+                <svg class="w-7 h-7 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
             </div>
+            <h3 class="mt-4 text-lg font-semibold text-gray-900">Entity not found</h3>
+            <p class="mt-1 text-sm text-gray-500">The entity you're looking for doesn't exist.</p>
+            <button @onclick="BackToEntities"
+                    class="mt-6 inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 transition-colors">
+                Back to Entities
+            </button>
         </div>
     }
     else
     {
-        <!-- Header -->
-        <div class="bg-white border-b border-gray-200">
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div class="py-6 md:flex md:items-center md:justify-between">
-                    <div class="flex-1 min-w-0">
-                        <nav class="flex" aria-label="Breadcrumb">
-                            <ol class="flex items-center space-x-4">
-                                <li>
-                                    <div>
-                                        <button @onclick="BackToEntities" class="text-gray-400 hover:text-gray-500">
-                                            <svg class="flex-shrink-0 h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-                                                <path fill-rule="evenodd" d="M9.707 14.707a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 1.414L7.414 9H15a1 1 0 110 2H7.414l2.293 2.293a1 1 0 010 1.414z" clip-rule="evenodd"></path>
-                                            </svg>
-                                            <span class="sr-only">Back</span>
-                                        </button>
-                                    </div>
-                                </li>
-                                <li>
-                                    <div class="flex items-center">
-                                        <svg class="flex-shrink-0 h-5 w-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20">
-                                            <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 111.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
-                                        </svg>
-                                        <button @onclick="BackToEntities" class="ml-4 text-sm font-medium text-gray-500 hover:text-gray-700">
-                                            Entities
-                                        </button>
-                                    </div>
-                                </li>
-                                <li>
-                                    <div class="flex items-center">
-                                        <svg class="flex-shrink-0 h-5 w-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20">
-                                            <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 111.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
-                                        </svg>
-                                        <span class="ml-4 text-sm font-medium text-gray-500">@entity.Name</span>
-                                    </div>
-                                </li>
-                            </ol>
-                        </nav>
-                        <div class="mt-2 flex items-center">
-                            <h1 class="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate">
-                                @entity.GetEntityTypeIcon() @entity.Name
-                            </h1>
-                            @if (entity.IsCritical)
-                            {
-                                <span class="ml-3 inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800">
-                                    <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
-                                    </svg>
-                                    Critical
-                                </span>
-                            }
-                            <span class="ml-3 inline-flex items-center px-3 py-1 rounded-full text-sm font-medium @entity.GetEntityTypeClass()">
-                                @entity.EntityType.ToString()
-                            </span>
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <!-- Back link -->
+            <button @onclick="BackToEntities"
+                    class="inline-flex items-center text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors mb-6">
+                <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                </svg>
+                Entities
+            </button>
+
+            <!-- Header card -->
+            <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 mb-6">
+                <div class="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+                    <div class="flex items-start gap-4 min-w-0">
+                        <div class="flex-shrink-0 w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center text-2xl">
+                            @entity.GetEntityTypeIcon()
                         </div>
-                        @if (!string.IsNullOrEmpty(entity.Description))
-                        {
-                            <p class="mt-2 text-sm text-gray-500">@entity.Description</p>
-                        }
+                        <div class="min-w-0">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <h1 class="text-2xl font-bold text-gray-900 truncate">@entity.Name</h1>
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium @entity.GetEntityTypeClass()">
+                                    @entity.EntityType.ToString()
+                                </span>
+                                @if (entity.IsCritical)
+                                {
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                                        <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                                        </svg>
+                                        Critical
+                                    </span>
+                                }
+                            </div>
+                            <div class="mt-1.5 flex items-center gap-2 text-sm">
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium @GetAssetStatusClass(currentEntityStatus)">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-current mr-1.5 opacity-70"></span>
+                                    @currentEntityStatus.ToString()
+                                </span>
+                                <span class="text-gray-300">·</span>
+                                <span class="text-gray-500">@(entity.IsActive ? "Active" : "Inactive")</span>
+                            </div>
+                            @if (!string.IsNullOrEmpty(entity.Description))
+                            {
+                                <p class="mt-3 text-sm text-gray-600 max-w-2xl">@entity.Description</p>
+                            }
+                        </div>
                     </div>
-                    <div class="mt-4 flex md:mt-0 md:ml-4 space-x-3">
-                        <button @onclick="EditEntity"
-                                class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                            <svg class="-ml-1 mr-2 h-5 w-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                            </svg>
-                            Edit
-                        </button>
-                        <button @onclick="DeleteEntity"
-                                class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
-                            <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                            </svg>
-                            Delete
-                        </button>
-                    </div>
+                    <AuthorizeView Roles="@writeRoles">
+                        <Authorized>
+                            <div class="flex items-center gap-2 flex-shrink-0">
+                                <button @onclick="OpenUpdateStatusModal"
+                                        class="inline-flex items-center px-3.5 py-2 text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 transition-colors">
+                                    <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                                    </svg>
+                                    Update Status
+                                </button>
+                                <button @onclick="EditEntity" title="Edit"
+                                        class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 transition-colors">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                    </svg>
+                                </button>
+                                <button @onclick="DeleteEntity" title="Delete"
+                                        class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-gray-300 text-red-600 bg-white hover:bg-red-50 hover:border-red-200 transition-colors">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </Authorized>
+                    </AuthorizeView>
                 </div>
             </div>
-        </div>
 
-        <!-- Main Content -->
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <!-- Main Content -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <!-- Left Column - Main Info -->
                 <div class="lg:col-span-2 space-y-6">
                     <!-- Basic Information -->
-                    <div class="bg-white overflow-hidden shadow rounded-lg">
-                        <div class="px-6 py-5 sm:p-6">
-                            <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">Basic Information</h3>
-                            <dl class="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
+                    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                        <h3 class="text-base font-semibold text-gray-900 mb-5">Details</h3>
+                        <dl class="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
+                            <div>
+                                <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Type</dt>
+                                <dd class="mt-1 text-sm text-gray-900">@entity.EntityType.ToString()</dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">State</dt>
+                                <dd class="mt-1 flex items-center text-sm text-gray-900">
+                                    <span class="w-2 h-2 @(entity.IsActive ? "bg-green-500" : "bg-gray-400") rounded-full mr-2"></span>
+                                    @(entity.IsActive ? "Active" : "Inactive")
+                                </dd>
+                            </div>
+                            @if (!string.IsNullOrEmpty(entity.Owner))
+                            {
                                 <div>
-                                    <dt class="text-sm font-medium text-gray-500">Type</dt>
-                                    <dd class="mt-1 text-sm text-gray-900">@entity.EntityType.ToString()</dd>
+                                    <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Owner</dt>
+                                    <dd class="mt-1 text-sm text-gray-900">@entity.Owner</dd>
                                 </div>
+                            }
+                            @if (!string.IsNullOrEmpty(entity.Version))
+                            {
                                 <div>
-                                    <dt class="text-sm font-medium text-gray-500">Status</dt>
-                                    <dd class="mt-1 flex items-center text-sm text-gray-900">
-                                        <span class="w-2 h-2 @(entity.IsActive ? "bg-green-400" : "bg-gray-400") rounded-full mr-2"></span>
-                                        @(entity.IsActive ? "Active" : "Inactive")
+                                    <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Version</dt>
+                                    <dd class="mt-1 text-sm text-gray-900">@entity.Version</dd>
+                                </div>
+                            }
+                            @if (!string.IsNullOrEmpty(entity.Location))
+                            {
+                                <div>
+                                    <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Location</dt>
+                                    <dd class="mt-1 text-sm text-gray-900">@entity.Location</dd>
+                                </div>
+                            }
+                            @if (!string.IsNullOrEmpty(entity.Url))
+                            {
+                                <div class="sm:col-span-2">
+                                    <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">URL</dt>
+                                    <dd class="mt-1 text-sm">
+                                        <a href="@entity.Url" target="_blank" class="inline-flex items-center text-indigo-600 hover:text-indigo-800 break-all">
+                                            @entity.Url
+                                            <svg class="inline w-3.5 h-3.5 ml-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                            </svg>
+                                        </a>
                                     </dd>
                                 </div>
-                                @if (!string.IsNullOrEmpty(entity.Owner))
-                                {
-                                    <div>
-                                        <dt class="text-sm font-medium text-gray-500">Owner</dt>
-                                        <dd class="mt-1 text-sm text-gray-900">@entity.Owner</dd>
-                                    </div>
-                                }
-                                @if (!string.IsNullOrEmpty(entity.Version))
-                                {
-                                    <div>
-                                        <dt class="text-sm font-medium text-gray-500">Version</dt>
-                                        <dd class="mt-1 text-sm text-gray-900">@entity.Version</dd>
-                                    </div>
-                                }
-                                @if (!string.IsNullOrEmpty(entity.Location))
-                                {
-                                    <div>
-                                        <dt class="text-sm font-medium text-gray-500">Location</dt>
-                                        <dd class="mt-1 text-sm text-gray-900">@entity.Location</dd>
-                                    </div>
-                                }
-                                @if (!string.IsNullOrEmpty(entity.Url))
-                                {
-                                    <div>
-                                        <dt class="text-sm font-medium text-gray-500">URL</dt>
-                                        <dd class="mt-1 text-sm text-gray-900">
-                                            <a href="@entity.Url" target="_blank" class="text-blue-600 hover:text-blue-800">
-                                                @entity.Url
-                                                <svg class="inline w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
-                                                </svg>
-                                            </a>
-                                        </dd>
-                                    </div>
-                                }
-                            </dl>
-                        </div>
+                            }
+                        </dl>
                     </div>
 
                     <!-- Dependencies -->
-                    <div class="bg-white overflow-hidden shadow rounded-lg">
-                        <div class="px-6 py-5 sm:p-6">
-                            <div class="flex items-center justify-between mb-4">
-                                <h3 class="text-lg leading-6 font-medium text-gray-900">Dependencies</h3>
-                                <button @onclick="ManageDependencies"
-                                        class="inline-flex items-center px-3 py-1 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                                    <svg class="-ml-1 mr-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                                    </svg>
-                                    Manage
-                                </button>
-                            </div>
-
-                            @if (entity.Dependencies?.Any() == true)
-                            {
-                                <div class="space-y-3">
-                                    @foreach (var dependency in entity.Dependencies.OrderBy(d => d.Order))
-                                    {
-                                        <div class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
-                                            <div class="flex-shrink-0">
-                                                <span class="w-3 h-3 bg-blue-500 rounded-full inline-block mr-3"></span>
-                                            </div>
-                                            <div class="flex-1 min-w-0">
-                                                <div class="flex items-center">
-                                                    <span class="text-sm font-medium text-gray-900">
-                                                        @dependency.DependsOnEntity?.Name
-                                                    </span>
-                                                    @if (dependency.IsCritical)
-                                                    {
-                                                        <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
-                                                            <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                                                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
-                                                            </svg>
-                                                            Critical
-                                                        </span>
-                                                    }
-                                                    @if (!string.IsNullOrEmpty(dependency.DependencyType.ToString()))
-                                                    {
-                                                        <span class="ml-2 text-xs text-gray-500">(@dependency.DependencyType)</span>
-                                                    }
-                                                </div>
-                                                @if (!string.IsNullOrEmpty(dependency.Description))
-                                                {
-                                                    <p class="mt-1 text-sm text-gray-500">@dependency.Description</p>
-                                                }
-                                            </div>
-                                            <div class="flex-shrink-0 text-xs text-gray-400">
-                                                Order: @dependency.Order
-                                            </div>
-                                        </div>
-                                    }
-                                </div>
-                            }
-                            else
-                            {
-                                <div class="text-center py-4">
-                                    <svg class="mx-auto h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
-                                    </svg>
-                                    <p class="mt-2 text-sm text-gray-500">No dependencies configured</p>
-                                </div>
-                            }
+                    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                        <div class="flex items-center justify-between mb-5">
+                            <h3 class="text-base font-semibold text-gray-900">Dependencies</h3>
+                            <button @onclick="ManageDependencies"
+                                    class="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors">
+                                <svg class="-ml-0.5 mr-1.5 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                </svg>
+                                Manage
+                            </button>
                         </div>
+
+                        @if (entity.Dependencies?.Any() == true)
+                        {
+                            <div class="space-y-2.5">
+                                @foreach (var dependency in entity.Dependencies.OrderBy(d => d.Order))
+                                {
+                                    <div class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                                        <span class="w-2 h-2 bg-indigo-500 rounded-full flex-shrink-0 mr-3"></span>
+                                        <div class="flex-1 min-w-0">
+                                            <div class="flex items-center flex-wrap gap-2">
+                                                <span class="text-sm font-medium text-gray-900">
+                                                    @dependency.DependsOnEntity?.Name
+                                                </span>
+                                                @if (dependency.IsCritical)
+                                                {
+                                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+                                                        Critical
+                                                    </span>
+                                                }
+                                                <span class="text-xs text-gray-400">@dependency.DependencyType</span>
+                                            </div>
+                                            @if (!string.IsNullOrEmpty(dependency.Description))
+                                            {
+                                                <p class="mt-0.5 text-sm text-gray-500">@dependency.Description</p>
+                                            }
+                                        </div>
+                                        <span class="flex-shrink-0 text-xs text-gray-400 ml-3">#@dependency.Order</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-center py-8 border border-dashed border-gray-200 rounded-lg">
+                                <svg class="mx-auto h-7 w-7 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                                </svg>
+                                <p class="mt-2 text-sm text-gray-400">No dependencies configured</p>
+                            </div>
+                        }
                     </div>
 
                     @if (entity.EntityType == AssetType.Server)
@@ -251,64 +234,68 @@
                 <!-- Right Column - Sidebar -->
                 <div class="space-y-6">
                     <!-- Quick Actions -->
-                    <div class="bg-white overflow-hidden shadow rounded-lg">
-                        <div class="px-6 py-5">
-                            <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">Quick Actions</h3>
-                            <div class="space-y-3">
-                                <button @onclick="EditEntity"
-                                        class="w-full flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                                    <svg class="mr-3 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                                    </svg>
-                                    Edit Entity
-                                </button>
-                                <button @onclick="ManageDependencies"
-                                        class="w-full flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                                    <svg class="mr-3 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
-                                    </svg>
-                                    Manage Dependencies
-                                </button>
-                                <button @onclick="OpenUpdateStatusModal"
-                                        class="w-full flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                                    <svg class="mr-3 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-                                    </svg>
-                                    Update Status
-                                </button>
-                                @if (!string.IsNullOrEmpty(entity.Url))
-                                {
-                                    <a href="@entity.Url" target="_blank"
-                                       class="w-full flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                        <h3 class="text-base font-semibold text-gray-900 mb-4">Quick Actions</h3>
+                        <div class="space-y-2">
+                            <AuthorizeView Roles="@writeRoles" Context="editCtx">
+                                <Authorized>
+                                    <button @onclick="EditEntity"
+                                            class="w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
                                         <svg class="mr-3 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
                                         </svg>
-                                        Open URL
-                                    </a>
-                                }
-                            </div>
+                                        Edit Entity
+                                    </button>
+                                </Authorized>
+                            </AuthorizeView>
+                            <button @onclick="ManageDependencies"
+                                    class="w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                                <svg class="mr-3 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                                </svg>
+                                Manage Dependencies
+                            </button>
+                            <AuthorizeView Roles="@writeRoles" Context="statusCtx">
+                                <Authorized>
+                                    <button @onclick="OpenUpdateStatusModal"
+                                            class="w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                                        <svg class="mr-3 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                                        </svg>
+                                        Update Status
+                                    </button>
+                                </Authorized>
+                            </AuthorizeView>
+                            @if (!string.IsNullOrEmpty(entity.Url))
+                            {
+                                <a href="@entity.Url" target="_blank"
+                                   class="w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                                    <svg class="mr-3 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                    </svg>
+                                    Open URL
+                                </a>
+                            }
                         </div>
                     </div>
 
                     <!-- Entity Metadata -->
-                    <div class="bg-white overflow-hidden shadow rounded-lg">
-                        <div class="px-6 py-5">
-                            <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">Entity Info</h3>
-                            <dl class="space-y-3">
-                                <div>
-                                    <dt class="text-sm font-medium text-gray-500">Created</dt>
-                                    <dd class="mt-1 text-sm text-gray-900">@(entity.CreatedOn?.ToString("MMM dd, yyyy") ?? "Unknown")</dd>
-                                </div>
-                                <div>
-                                    <dt class="text-sm font-medium text-gray-500">Last Modified</dt>
-                                    <dd class="mt-1 text-sm text-gray-900">@(entity.ModifiedOn?.ToString("MMM dd, yyyy") ?? "Never")</dd>
-                                </div>
-                                <div>
-                                    <dt class="text-sm font-medium text-gray-500">Entity ID</dt>
-                                    <dd class="mt-1 text-sm text-gray-900 font-mono break-all">@entity.Id</dd>
-                                </div>
-                            </dl>
-                        </div>
+                    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                        <h3 class="text-base font-semibold text-gray-900 mb-4">Entity Info</h3>
+                        <dl class="space-y-4">
+                            <div>
+                                <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Created</dt>
+                                <dd class="mt-1 text-sm text-gray-900">@(entity.CreatedOn?.ToString("MMM dd, yyyy") ?? "Unknown")</dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Last Modified</dt>
+                                <dd class="mt-1 text-sm text-gray-900">@(entity.ModifiedOn?.ToString("MMM dd, yyyy") ?? "Never")</dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Entity ID</dt>
+                                <dd class="mt-1 text-xs text-gray-500 font-mono break-all">@entity.Id</dd>
+                            </div>
+                        </dl>
                     </div>
                 </div>
             </div>
@@ -410,6 +397,9 @@
     private bool isLoading = true;
 
     private string queryParam => StateContainer.Company is null ? "" : $"?c={StateContainer.Company.Id}";
+
+    // Status write actions require the company INCIDENTS role (ADMIN always allowed).
+    private string writeRoles => $"{StateContainer.Company?.Id}_INCIDENTS,{StateContainer.Company?.Id}_ADMIN";
 
     private bool showStatusUpdateModal = false;
     private bool isUpdatingStatus = false;

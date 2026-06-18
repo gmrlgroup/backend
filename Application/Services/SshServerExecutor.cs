@@ -3,7 +3,9 @@ using System.Text.RegularExpressions;
 using Application.Shared.Enums;
 using Application.Shared.Models;
 using Application.Shared.Services;
+using Microsoft.Extensions.Logging;
 using Renci.SshNet;
+using Renci.SshNet.Common;
 
 namespace Application.Services;
 
@@ -16,6 +18,13 @@ namespace Application.Services;
 /// </summary>
 public class SshServerExecutor : IRemoteServerExecutor
 {
+    private readonly ILogger<SshServerExecutor> _logger;
+
+    public SshServerExecutor(ILogger<SshServerExecutor> logger)
+    {
+        _logger = logger;
+    }
+
     public bool Supports(ServerPlatform platform) => true; // SSH covers Linux and Windows
 
     private static readonly Regex ValidServiceName = new(@"^[A-Za-z0-9._@:$ -]+$", RegexOptions.Compiled);
@@ -24,7 +33,7 @@ public class SshServerExecutor : IRemoteServerExecutor
         => Task.Run(() =>
         {
             using var client = CreateClient(credential, host);
-            client.Connect();
+            Connect(client, credential, host);
             try
             {
                 if (credential.Platform == ServerPlatform.Windows)
@@ -54,7 +63,7 @@ public class SshServerExecutor : IRemoteServerExecutor
 
             var verb = start ? "start" : "stop";
             using var client = CreateClient(credential, host);
-            client.Connect();
+            Connect(client, credential, host);
             try
             {
                 SshCommand cmd;
@@ -86,7 +95,7 @@ public class SshServerExecutor : IRemoteServerExecutor
         return $"powershell -NoProfile -NonInteractive -EncodedCommand {encoded}";
     }
 
-    private static SshClient CreateClient(ServerCredential credential, string host)
+    private SshClient CreateClient(ServerCredential credential, string host)
     {
         var port = credential.Port > 0 ? credential.Port : 22;
         var username = credential.Username ?? string.Empty;
@@ -105,7 +114,58 @@ public class SshServerExecutor : IRemoteServerExecutor
         }
 
         connectionInfo.Timeout = TimeSpan.FromSeconds(30);
+
+        _logger.LogInformation(
+            "Opening SSH session to {Host}:{Port} (platform={Platform}, auth={AuthType}, user={User}). " +
+            "Client offers KEX=[{Kex}] HostKey=[{HostKey}] Cipher=[{Cipher}] MAC=[{Mac}]",
+            host, port, credential.Platform, credential.AuthType, username,
+            string.Join(",", connectionInfo.KeyExchangeAlgorithms.Keys),
+            string.Join(",", connectionInfo.HostKeyAlgorithms.Keys),
+            string.Join(",", connectionInfo.Encryptions.Keys),
+            string.Join(",", connectionInfo.HmacAlgorithms.Keys));
+
         return new SshClient(connectionInfo);
+    }
+
+    /// <summary>
+    /// Connects and rethrows with the host/port/platform context and the full underlying exception
+    /// chain, since SSH.NET's raw "connection aborted" message hides where and why the handshake failed.
+    /// </summary>
+    private void Connect(SshClient client, ServerCredential credential, string host)
+    {
+        var port = credential.Port > 0 ? credential.Port : 22;
+        try
+        {
+            client.Connect();
+        }
+        catch (Exception ex)
+        {
+            var detail = BuildExceptionDetail(ex);
+            _logger.LogError(ex,
+                "SSH connect failed to {Host}:{Port} (platform={Platform}, auth={AuthType}, user={User}). Detail: {Detail}",
+                host, port, credential.Platform, credential.AuthType, credential.Username, detail);
+
+            var hint = ex switch
+            {
+                SshAuthenticationException => " — authentication was rejected (check username/password or key, and that the server allows this auth method).",
+                SshConnectionException => " — the SSH handshake failed before authentication; the server likely shares no common key-exchange/cipher algorithm with the client, or it reset the connection (hardened sshd / fail2ban).",
+                _ => " — the TCP connection was reset during the handshake; verify this host is actually running SSH on this port and isn't throttling/blocking the app server's IP."
+            };
+
+            throw new InvalidOperationException(
+                $"Could not establish an SSH session to {host}:{port} " +
+                $"(platform={credential.Platform}, auth={credential.AuthType}, user={credential.Username}).{hint} " +
+                $"Underlying error: {detail}", ex);
+        }
+    }
+
+    /// <summary>Flattens an exception and its inner chain into a single readable string.</summary>
+    private static string BuildExceptionDetail(Exception ex)
+    {
+        var parts = new List<string>();
+        for (Exception? e = ex; e != null; e = e.InnerException)
+            parts.Add($"{e.GetType().Name}: {e.Message}");
+        return string.Join(" -> ", parts);
     }
 
     private static List<RemoteServiceInfo> ParseLinuxServices(string output)

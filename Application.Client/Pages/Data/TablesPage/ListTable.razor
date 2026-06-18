@@ -10,7 +10,7 @@
 @inject AuthenticationStateProvider _authenticationStateProvider
 @inject IJSRuntime _jsRuntime
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
-@attribute [Authorize]
+@attribute [Authorize(Policy = PolicyNames.DatasetsAccess)]
 
 <PageTitle>Tables</PageTitle>
 

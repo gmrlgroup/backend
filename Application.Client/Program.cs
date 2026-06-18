@@ -3,13 +3,18 @@ using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.WebAssembly.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Application.Shared.Services;
+using Application.Shared.Authorization;
+using Application.Client.Authorization;
 
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.Services.AddFluentUIComponents();
 
-builder.Services.AddAuthorizationCore();
+builder.Services.AddAuthorizationCore(options => options.AddFlowbytePolicies());
+builder.Services.AddScoped<ICurrentCompanyAccessor, QueryStringCompanyAccessor>();
+builder.Services.AddScoped<IAuthorizationHandler, ModuleAccessHandler>();
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddSingleton<AuthenticationStateProvider, PersistentAuthenticationStateProvider>();
 

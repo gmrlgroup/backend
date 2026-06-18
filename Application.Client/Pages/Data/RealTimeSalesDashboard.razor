@@ -11,7 +11,7 @@
 @inject IJSRuntime JSRuntime
 @inject IToastService ToastService
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
-@attribute [Authorize]
+@attribute [Authorize(Policy = PolicyNames.SalesRead)]
 @implements IAsyncDisposable
 
 <PageTitle>Real-Time Sales Dashboard</PageTitle>

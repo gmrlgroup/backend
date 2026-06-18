@@ -1,7 +1,9 @@
 using Application.Client.Pages.Data.DatasetPages;
+using Application.Shared.Authorization;
 using Application.Shared.Models;
 using Application.Shared.Models.Data;
 using Application.Shared.Services.Data;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Collections.Generic;
@@ -15,6 +17,7 @@ namespace Application.Controllers;
 
 [Route("api/[controller]")]
 [ApiController]
+[Authorize(Policy = PolicyNames.DatasetsAccess)]
 public class DatasetsController : ControllerBase
 {
     private readonly IDatasetService _datasetService;

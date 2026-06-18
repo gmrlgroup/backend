@@ -10,7 +10,7 @@
 @inject IJSRuntime JSRuntime
 @inject IToastService ToastService
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
-@attribute [Authorize]
+@attribute [Authorize(Policy = PolicyNames.DatasetsAccess)]
 
 
 <PageTitle>Data Viewer - @(TableInfo?.TableName ?? "Loading...")</PageTitle>

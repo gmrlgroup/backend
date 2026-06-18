@@ -49,6 +49,8 @@ namespace Application.Controllers
             // get company from header
             var companyId = Request.Headers["X-Company-ID"];
 
+            if (!User.IsInRole($"{companyId}_VIEW_ADMIN"))
+                return Forbid();
 
             var applicationUsers = await _userService.GetUsers(companyId);
 
@@ -75,6 +77,8 @@ namespace Application.Controllers
             // get company from header
             var companyId = Request.Headers["X-Company-ID"];
 
+            if (!User.IsInRole($"{companyId}_VIEW_ADMIN"))
+                return Forbid();
 
             var user = await _userManager.FindByIdAsync(userId);
 
@@ -96,6 +100,8 @@ namespace Application.Controllers
             // get company from header
             var companyId = Request.Headers["X-Company-ID"];
 
+            if (!User.IsInRole($"{companyId}_VIEW_ADMIN"))
+                return Forbid();
 
             var user = await _userManager.FindByIdAsync(Id);
 
@@ -118,6 +124,8 @@ namespace Application.Controllers
             // get company from header
             var companyId = Request.Headers["X-Company-ID"];
 
+            if (!User.IsInRole($"{companyId}_VIEW_ADMIN"))
+                return Forbid();
 
             var applicationUsers = await _userService.GetUser(id);
 
@@ -135,6 +143,8 @@ namespace Application.Controllers
             // get company from header
             var companyId = Request.Headers["X-Company-ID"];
 
+            if (!User.IsInRole($"{companyId}_VIEW_ADMIN"))
+                return Forbid();
 
             var emails = await _userService.GetUseremails(companyId);
 
@@ -156,6 +166,9 @@ namespace Application.Controllers
 
             // get company from header
             var companyId = Request.Headers["X-Company-ID"];
+
+            if (!User.IsInRole($"{companyId}_EDIT_ADMIN"))
+                return Forbid();
 
             if(!String.IsNullOrEmpty(companyId))
             {
@@ -188,6 +201,9 @@ namespace Application.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> PutApplicationUser(string id, UserInputModel userInput)
         {
+            var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+            if (!User.IsInRole($"{companyId}_EDIT_ADMIN"))
+                return Forbid();
 
             var user = await _userManager.FindByIdAsync(id);
 
@@ -227,6 +243,9 @@ namespace Application.Controllers
         [HttpPut("{id}/resetPassword")]
         public async Task<IActionResult> ResetPasword(string id, UserInputModel userInput)
         {
+            var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+            if (!User.IsInRole($"{companyId}_EDIT_ADMIN"))
+                return Forbid();
 
             var user = await _userManager.FindByIdAsync(id);
 

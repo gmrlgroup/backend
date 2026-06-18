@@ -1,5 +1,6 @@
 using Application.Shared.Models;
 using Application.Shared.Services.Data;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Application.Controllers;
@@ -17,10 +18,13 @@ public class SharingController : ControllerBase
 
     // GET: api/datasets/{datasetId}/sharing
     [HttpGet]
-    public async Task<ActionResult<List<DatasetUserDto>>> GetDatasetUsers(string datasetId)
+    public async Task<ActionResult<List<DatasetUserDto>>> GetDatasetUsers(string datasetId, [FromHeader(Name = "X-Company-Id")] string companyId = "")
     {
         try
         {
+            if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+                return Forbid();
+
             var users = await _datasetSharingService.GetDatasetUsersAsync(datasetId);
             return Ok(users);
         }
@@ -32,11 +36,14 @@ public class SharingController : ControllerBase
 
     // POST: api/datasets/{datasetId}/sharing
     [HttpPost]
-    public async Task<ActionResult> ShareDataset(string datasetId, [FromBody] ShareDatasetRequest request)
+    public async Task<ActionResult> ShareDataset(string datasetId, [FromBody] ShareDatasetRequest request, [FromHeader(Name = "X-Company-Id")] string companyId = "")
     {
         var userId = Request.Headers["UserId"].ToString();
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
+
+        if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+            return Forbid();
 
         if (string.IsNullOrWhiteSpace(request.Email))
             return BadRequest("Email is required");
@@ -61,10 +68,13 @@ public class SharingController : ControllerBase
 
     // PUT: api/datasets/{datasetId}/sharing/{userId}
     [HttpPut("{userId}")]
-    public async Task<ActionResult> UpdateUserAccess(string datasetId, string userId, [FromBody] DatasetUserType userType)
+    public async Task<ActionResult> UpdateUserAccess(string datasetId, string userId, [FromBody] DatasetUserType userType, [FromHeader(Name = "X-Company-Id")] string companyId = "")
     {
         try
         {
+            if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+                return Forbid();
+
             var success = await _datasetSharingService.UpdateDatasetUserTypeAsync(datasetId, userId, userType);
             
             if (!success)
@@ -80,10 +90,13 @@ public class SharingController : ControllerBase
 
     // DELETE: api/datasets/{datasetId}/sharing/{userId}
     [HttpDelete("{userId}")]
-    public async Task<ActionResult> RemoveUserAccess(string datasetId, string userId)
+    public async Task<ActionResult> RemoveUserAccess(string datasetId, string userId, [FromHeader(Name = "X-Company-Id")] string companyId = "")
     {
         try
         {
+            if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+                return Forbid();
+
             var success = await _datasetSharingService.RemoveDatasetUserAsync(datasetId, userId);
             
             if (!success)

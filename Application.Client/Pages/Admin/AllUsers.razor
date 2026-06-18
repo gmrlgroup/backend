@@ -2,7 +2,9 @@
 @inject HttpClient _client
 @inject NavigationManager _navigationManager
 @inject StateContainer _stateContainer
+@inject AuthenticationStateProvider AuthStateProvider
 @using System.Linq.Expressions
+@using Microsoft.AspNetCore.Components.Authorization
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
 @attribute [Authorize]
 
@@ -31,6 +33,7 @@
     private IList<ApplicationUser> UsersQuery { get; set; }
 
     public bool IsLoading { get; set; }
+    public bool canView { get; set; }
     private string[] Columns { get; set; } = new string[] { "UserName", "Email" };
 
     protected override async Task OnInitializedAsync()
@@ -39,8 +42,9 @@
         _client.DefaultRequestHeaders.Remove("X-Company-ID");
         _client.DefaultRequestHeaders.Add("X-Company-ID", companyId);
 
-
-       
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        canView = !string.IsNullOrEmpty(companyId) && authState.User.IsInRole($"{companyId}_VIEW_ADMIN");
+        if (!canView) return;
 
         Users = await _client.GetFromJsonAsync<List<ApplicationUser>>("api/users");
         // UsersQuery = Users.AsQueryable();

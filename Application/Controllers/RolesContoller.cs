@@ -46,6 +46,8 @@ namespace Application.Controllers
             // get company from header
             var companyId = Request.Headers["X-Company-ID"];
 
+            if (!User.IsInRole($"{companyId}_VIEW_ADMIN"))
+                return Forbid();
 
             var identityRoles = await _roleManager.Roles.ToListAsync();
 

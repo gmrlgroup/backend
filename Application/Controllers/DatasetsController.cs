@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.IO;
+using System.Security.Claims;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -38,6 +39,8 @@ public class DatasetsController : ControllerBase
         
         if (string.IsNullOrWhiteSpace(companyId))
             return BadRequest("Company ID is required");
+        if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+            return Forbid();
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
 
@@ -53,6 +56,10 @@ public class DatasetsController : ControllerBase
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
 
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+            return Forbid();
+
         var dataset = await _datasetService.GetDatasetAsync(id, userId);
         if (dataset == null)
             return NotFound();
@@ -67,6 +74,10 @@ public class DatasetsController : ControllerBase
         var userId = Request.Headers["UserId"].ToString();
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+            return Forbid();
 
         try
         {
@@ -93,6 +104,10 @@ public class DatasetsController : ControllerBase
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
 
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+            return Forbid();
+
         try
         {
             var updated = await _datasetService.UpdateDatasetAsync(id, dataset, userId);
@@ -115,6 +130,10 @@ public class DatasetsController : ControllerBase
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
 
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+            return Forbid();
+
         try
         {
             var deleted = await _datasetService.DeleteDatasetAsync(id, userId);
@@ -136,6 +155,10 @@ public class DatasetsController : ControllerBase
         var userId = Request.Headers["UserId"].ToString();
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+            return Forbid();
 
         if (string.IsNullOrWhiteSpace(table.CompanyId))
             return BadRequest("Company ID is required");
@@ -164,6 +187,10 @@ public class DatasetsController : ControllerBase
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
 
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+            return Forbid();
+
         if (string.IsNullOrWhiteSpace(datasetId))
             return BadRequest("Dataset ID is required");        
 
@@ -187,6 +214,10 @@ public class DatasetsController : ControllerBase
 
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+            return Forbid();
 
         if (string.IsNullOrWhiteSpace(datasetId))
             return BadRequest("Dataset ID is required");
@@ -213,6 +244,10 @@ public class DatasetsController : ControllerBase
         
         try
         {
+            var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+            if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+                return Forbid();
+
             return await _duckdbService.GetTableColumnsAsync(datasetId, tableName);
         }
         catch (Exception ex)
@@ -229,6 +264,10 @@ public class DatasetsController : ControllerBase
         var userId = Request.Headers["UserId"].ToString();
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+            return Forbid();
 
         if (string.IsNullOrWhiteSpace(datasetId))
             return BadRequest("Dataset ID is required");
@@ -256,6 +295,10 @@ public class DatasetsController : ControllerBase
         var userId = Request.Headers["UserId"].ToString();
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+            return Forbid();
 
         if (string.IsNullOrWhiteSpace(datasetId))
             return BadRequest("Dataset ID is required");
@@ -323,6 +366,10 @@ public class DatasetsController : ControllerBase
         var userId = Request.Headers["UserId"].ToString();
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+            return Forbid();
 
         if (string.IsNullOrWhiteSpace(datasetId))
             return BadRequest("Dataset ID is required");
@@ -427,6 +474,10 @@ public class DatasetsController : ControllerBase
         var userId = Request.Headers["UserId"].ToString();
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+            return Forbid();
 
         try
         {
@@ -566,6 +617,10 @@ public class DatasetsController : ControllerBase
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
 
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+            return Forbid();
+
         if (string.IsNullOrWhiteSpace(datasetId))
             return BadRequest("Dataset ID is required");
 
@@ -596,6 +651,10 @@ public class DatasetsController : ControllerBase
         var userId = Request.Headers["UserId"].ToString();
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+            return Forbid();
 
         if (string.IsNullOrWhiteSpace(datasetId))
             return BadRequest("Dataset ID is required");

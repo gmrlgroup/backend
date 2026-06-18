@@ -1,243 +1,189 @@
 @using Application.Shared.Models.Data
 @using Application.Shared.Models
-@using Microsoft.FluentUI.AspNetCore.Components
-@using System.Linq.Expressions
 @inject IJSRuntime JSRuntime
 @typeparam TItem
 
-<div class="dynamic-table-container" style="background-color:white; border-radius: 8px; padding: 16px; height: @TableHeight; overflow: hidden; border: 1px solid #e5e7eb;">
-    <!-- Table Controls -->
-    <div class="table-controls" style="margin-bottom: 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-        
+<div class="dv-table-outer" style="height:@TableHeight">
+    <!-- Toolbar -->
+    <div class="dv-toolbar">
         @if (ShowColumnSelector)
         {
-            <!-- Column Selector -->
-            <FluentButton Appearance="Appearance.Outline" 
-                         OnClick="@(() => ShowColumnDialog = true)"
-                         style="border-radius: 6px;">
-                <FluentIcon Value="@(new Icons.Regular.Size16.Settings())" style="margin-right: 4px;" />
+            <button class="btn btn-outline" @onclick="@(() => ShowColumnDialog = true)">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
                 Columns
-            </FluentButton>
+            </button>
         }
 
         @if (ShowFilterBuilder)
         {
-            <!-- Filter Builder -->
-            <FluentButton Appearance="Appearance.Outline" 
-                         OnClick="@(() => ShowFilterDialog = true)"
-                         style="border-radius: 6px;">
-                <FluentIcon Value="@(new Icons.Regular.Size16.Filter())" style="margin-right: 4px;" />
-                Filters @if (ActiveFilters.Any()) { <span class="filter-count">(@ActiveFilters.Count)</span> }
-            </FluentButton>
+            <button class="btn btn-outline" @onclick="@(() => ShowFilterDialog = true)">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                Filters
+                @if (ActiveFilters.Any()) { <span class="dv-badge">@ActiveFilters.Count</span> }
+            </button>
         }
 
         @if (ShowSearchBox)
         {
-            <!-- Search Box -->
-            <FluentTextField @bind-Value="@SearchTerm" 
-                           @onkeypress="@OnSearchKeyPress"
-                           Placeholder="Search..."
-                           style="min-width: 200px;">
-                <FluentIcon Value="@(new Icons.Regular.Size16.Search())" Slot="start" />
-            </FluentTextField>
+            <div class="dv-search-wrap">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input class="ds-input" type="text" value="@SearchTerm"
+                       @oninput="@(e => SearchTerm = e.Value?.ToString() ?? "")"
+                       @onkeypress="@OnSearchKeyPress"
+                       placeholder="Search…" />
+            </div>
         }
 
-        <!-- Row Count Display -->
-        <span style="margin-left: auto; color: #6b7280; font-size: 0.875rem;">
-            Showing @GetDisplayRange() of @TotalRows rows
-        </span>
+        <span class="dv-row-count">Showing @GetDisplayRange() of @TotalRows rows</span>
     </div>
 
-    <!-- Data Grid -->
-    <div style="height: calc(100% - 60px); overflow: auto; border: 1px solid #e5e7eb; border-radius: 6px;">
-        <FluentDataGrid @ref="DataGrid"
-                       Items="@Items.AsQueryable()"
-                       ResizableColumns="true"
-                       ShowHover="true"
-                       ItemSize="36"
-                       Loading="@IsLoading"
-                       TGridItem="TItem"
-                       Virtualize="@false"
-                       Style="width: 100%; height: 100%;">
-
-            @if (VisibleColumns != null && VisibleColumns.Any())
-            {
-                @foreach (var column in VisibleColumns.OrderBy(c => c.Order))
-                {
-                    @* Add Style="@($"min-width: {column.Width}px; max-width: {column.Width + 100}px;")"
-                        if the column width is fixed
-                    *@
-                    <PropertyColumn Property="@(GetPropertyExpression<TItem>(column.ColumnName))" 
-                                  Title="@column.ColumnName" 
-                                  Sortable="true"
-                                  
-                                  Class="data-column" />
-                }
-            }
-            else
-            {
-                @foreach (var column in DefaultColumns)
-                {
-                    <PropertyColumn Property="@(GetPropertyExpression<TItem>(column))" 
-                                  Title="@column" 
-                                  Sortable="true"
-                                  Style="min-width: 120px;"
-                                  Class="data-column" />
-                }
-            }
-
-        </FluentDataGrid>
+    <!-- Table -->
+    <div class="dv-table-wrap" style="flex:1">
+        @if (IsLoading)
+        {
+            <div style="display:flex;align-items:center;justify-content:center;height:100%;gap:0.5rem;color:#71717a;font-size:0.875rem">
+                <div class="ds-spinner" style="width:20px;height:20px;border-width:2px"></div>
+                <span>Loading…</span>
+            </div>
+        }
+        else
+        {
+            <table class="ds-table" style="width:100%">
+                <thead>
+                    <tr>
+                        @foreach (var col in GetVisibleColumnNames())
+                        {
+                            var colName = col;
+                            var isActive = SortColumn == colName;
+                            <th class="ds-th dv-th-sortable @(isActive ? "active" : "")" @onclick="() => ToggleSort(colName)">
+                                @colName
+                                <span class="dv-sort-icon">
+                                    @if (isActive && !SortAscending)
+                                    {
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7 7 7-7"/></svg>
+                                    }
+                                    else
+                                    {
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 12-7-7-7 7"/></svg>
+                                    }
+                                </span>
+                            </th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in SortedItems)
+                    {
+                        <tr class="ds-tr">
+                            @foreach (var col in GetVisibleColumnNames())
+                            {
+                                <td class="ds-td">@(GetCellValue(item, col)?.ToString() ?? "")</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
     </div>
 
     <!-- Pagination -->
     @if (ShowPagination && TotalRows > PageSize)
     {
-        <div class="pagination-container" style="margin-top: 16px; display: flex; justify-content: center; align-items: center; gap: 8px;">
-            <FluentButton Appearance="Appearance.Outline" 
-                         Disabled="@(CurrentPage <= 1)"
-                         OnClick="@(() => ChangePage(CurrentPage - 1))"
-                         style="border-radius: 6px;">
-                <FluentIcon Value="@(new Icons.Regular.Size16.ChevronLeft())" />
-            </FluentButton>
-
-            <span style="margin: 0 16px; color: #374151; font-size: 0.875rem;">
-                Page @CurrentPage of @TotalPages
-            </span>
-
-            <FluentButton Appearance="Appearance.Outline" 
-                         Disabled="@(CurrentPage >= TotalPages)"
-                         OnClick="@(() => ChangePage(CurrentPage + 1))"
-                         style="border-radius: 6px;">
-                <FluentIcon Value="@(new Icons.Regular.Size16.ChevronRight())" />
-            </FluentButton>
+        <div style="display:flex;align-items:center;justify-content:center;gap:0.5rem;padding-top:0.75rem;flex-shrink:0">
+            <button class="btn-page" disabled="@(CurrentPage <= 1)" @onclick="@(() => ChangePage(CurrentPage - 1))">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            </button>
+            <span style="font-size:0.875rem;color:#71717a">Page @CurrentPage of @TotalPages</span>
+            <button class="btn-page" disabled="@(CurrentPage >= TotalPages)" @onclick="@(() => ChangePage(CurrentPage + 1))">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
         </div>
     }
 </div>
 
-<!-- Column Configuration Dialog -->
-@* onhidden="@(() => ShowColumnDialog = false)" *@
-<FluentDialog Hidden="@(!ShowColumnDialog)" 
-             Modal="true" 
-             TrapFocus="true"
-             
-             Style="width: 600px; max-width: 90vw;">
-    <div style="padding: 24px;">
-        <h3 style="margin: 0 0 20px 0; color: #1f2937;">Configure Columns</h3>
-        
-        <div style="max-height: 400px; overflow-y: auto;">
-            @if (AllColumns != null)
-            {
-                @foreach (var column in AllColumns)
+<!-- Column Config Modal -->
+@if (ShowColumnDialog)
+{
+    <div class="ds-modal-backdrop" @onclick="() => ShowColumnDialog = false">
+        <div class="ds-modal" style="width:560px;max-width:92vw" @onclick:stopPropagation>
+            <div class="ds-modal-header">
+                <h3 class="ds-modal-title">Configure Columns</h3>
+                <button class="btn-icon" @onclick="() => ShowColumnDialog = false">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+            </div>
+            <div class="ds-modal-body" style="max-height:380px;overflow-y:auto">
+                @if (AllColumns != null)
                 {
-                    var columnSetting = VisibleColumns?.FirstOrDefault(c => c.ColumnName == column) ??
-                    new ColumnSettings { ColumnName = column, IsVisible = true, Order = AllColumns.IndexOf(column) }; // TODO: Add width , Width = 120
-                    
-                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding: 8px; border: 1px solid #e5e7eb; border-radius: 6px;">
-                        <FluentCheckbox @bind-Value="@columnSetting.IsVisible" />
-                        <span style="flex: 1; font-weight: 500;">@column</span>
-                        @* TODO: Remove comment if the issue with Column Settings Width is foxed*@
-                        @* <FluentNumberField @bind-Value="@columnSetting.Width" 
-                                         Min="80" 
-                                         Max="500" 
-                                         Style="width: 80px;"
-                                         Placeholder="Width" /> *@
-                        <FluentNumberField @bind-Value="@columnSetting.Order" 
-                                         Min="0" 
-                                         Style="width: 60px;"
-                                         Placeholder="Order" />
+                    @foreach (var column in AllColumns)
+                    {
+                        var setting = VisibleColumns?.FirstOrDefault(c => c.ColumnName == column)
+                            ?? new ColumnSettings { ColumnName = column, IsVisible = true, Order = AllColumns.IndexOf(column) };
+                        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.625rem;padding:0.5rem 0.75rem;border:1px solid #e4e4e7;border-radius:0.375rem">
+                            <input type="checkbox" class="ds-checkbox" @bind="setting.IsVisible" />
+                            <span style="flex:1;font-size:0.875rem;font-weight:500;color:#18181b">@column</span>
+                            <input type="number" class="ds-input" style="width:64px;text-align:center" min="0" @bind="setting.Order" placeholder="Order" />
+                        </div>
+                    }
+                }
+            </div>
+            <div class="ds-modal-footer">
+                <button class="btn btn-outline" @onclick="() => ShowColumnDialog = false">Cancel</button>
+                <button class="btn btn-default" @onclick="ApplyColumnSettings">Apply</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Filter Modal -->
+@if (ShowFilterDialog)
+{
+    <div class="ds-modal-backdrop" @onclick="() => ShowFilterDialog = false">
+        <div class="ds-modal" style="width:680px;max-width:92vw" @onclick:stopPropagation>
+            <div class="ds-modal-header">
+                <h3 class="ds-modal-title">Filter Data</h3>
+                <button class="btn-icon" @onclick="() => ShowFilterDialog = false">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+            </div>
+            <div class="ds-modal-body" style="max-height:380px;overflow-y:auto">
+                @foreach (var filter in ActiveFilters.ToList())
+                {
+                    var f = filter;
+                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.625rem;padding:0.625rem;border:1px solid #e4e4e7;border-radius:0.375rem">
+                        <select class="ds-select" style="min-width:140px" @bind="f.ColumnName">
+                            @if (AllColumns != null)
+                            {
+                                @foreach (var col in AllColumns) { <option value="@col">@col</option> }
+                            }
+                        </select>
+                        <select class="ds-select" style="min-width:120px" @bind="f.Operator">
+                            <option value="equals">Equals</option>
+                            <option value="contains">Contains</option>
+                            <option value="startswith">Starts With</option>
+                            <option value="endswith">Ends With</option>
+                            <option value="greaterthan">Greater Than</option>
+                            <option value="lessthan">Less Than</option>
+                        </select>
+                        <input class="ds-input" type="text" style="flex:1" placeholder="Value" @bind="f.Value" />
+                        <button class="btn-icon btn-icon-delete" @onclick="() => RemoveFilter(f)">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                        </button>
                     </div>
                 }
-            }
-        </div>
-
-        <div style="margin-top: 20px; display: flex; gap: 8px; justify-content: flex-end;">
-            <FluentButton Appearance="Appearance.Outline" 
-                         OnClick="@(() => ShowColumnDialog = false)"
-                         style="border-radius: 6px;">
-                Cancel
-            </FluentButton>
-            <FluentButton Appearance="Appearance.Accent" 
-                         OnClick="@ApplyColumnSettings"
-                         style="border-radius: 6px;">
-                Apply
-            </FluentButton>
+                <button class="btn btn-outline" style="margin-top:0.25rem" @onclick="AddFilter">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                    Add Filter
+                </button>
+            </div>
+            <div class="ds-modal-footer">
+                <button class="btn btn-outline" @onclick="() => ShowFilterDialog = false">Cancel</button>
+                <button class="btn btn-outline" @onclick="ClearAllFilters">Clear All</button>
+                <button class="btn btn-default" @onclick="ApplyFilters">Apply Filters</button>
+            </div>
         </div>
     </div>
-</FluentDialog>
-
-<!-- Filter Dialog -->
-@**onhidden="@(() => ShowFilterDialog = false)"*@
-<FluentDialog Hidden="@(!ShowFilterDialog)" 
-             Modal="true" 
-             TrapFocus="true"
-             
-             Style="width: 700px; max-width: 90vw;">
-    <div style="padding: 24px;">
-        <h3 style="margin: 0 0 20px 0; color: #1f2937;">Filter Data</h3>
-        
-        <div style="max-height: 400px; overflow-y: auto;">
-            @foreach (var filter in ActiveFilters.ToList())
-            {
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 6px;">                    <FluentSelect TOption="string" @bind-Value="@filter.ColumnName" 
-                                Style="min-width: 150px;">
-                        @if (AllColumns != null)
-                        {
-                            @foreach (var column in AllColumns)
-                            {
-                                <FluentOption Value="@column">@column</FluentOption>
-                            }
-                        }
-                    </FluentSelect>
-
-                    <FluentSelect TOption="string" @bind-Value="@filter.Operator" 
-                                Style="min-width: 120px;">
-                        <FluentOption Value="equals">Equals</FluentOption>
-                        <FluentOption Value="contains">Contains</FluentOption>
-                        <FluentOption Value="startswith">Starts With</FluentOption>
-                        <FluentOption Value="endswith">Ends With</FluentOption>
-                        <FluentOption Value="greaterthan">Greater Than</FluentOption>
-                        <FluentOption Value="lessthan">Less Than</FluentOption>
-                    </FluentSelect>
-
-                    <FluentTextField @bind-Value="@filter.Value" 
-                                   Placeholder="Value"
-                                   Style="flex: 1;" />
-
-                    <FluentButton Appearance="Appearance.Outline" 
-                                OnClick="@(() => RemoveFilter(filter))"
-                                style="border-radius: 6px;">
-                        <FluentIcon Value="@(new Icons.Regular.Size16.Delete())" />
-                    </FluentButton>
-                </div>
-            }
-
-            <FluentButton Appearance="Appearance.Outline" 
-                         OnClick="@AddFilter"
-                         style="border-radius: 6px; margin-bottom: 16px;">
-                <FluentIcon Value="@(new Icons.Regular.Size16.Add())" style="margin-right: 4px;" />
-                Add Filter
-            </FluentButton>
-        </div>
-
-        <div style="margin-top: 20px; display: flex; gap: 8px; justify-content: flex-end;">
-            <FluentButton Appearance="Appearance.Outline" 
-                         OnClick="@(() => ShowFilterDialog = false)"
-                         style="border-radius: 6px;">
-                Cancel
-            </FluentButton>
-            <FluentButton Appearance="Appearance.Outline" 
-                         OnClick="@ClearAllFilters"
-                         style="border-radius: 6px;">
-                Clear All
-            </FluentButton>
-            <FluentButton Appearance="Appearance.Accent" 
-                         OnClick="@ApplyFilters"
-                         style="border-radius: 6px;">
-                Apply Filters
-            </FluentButton>
-        </div>
-    </div>
-</FluentDialog>
+}
 
 @code {
     [Parameter] public IEnumerable<TItem> Items { get; set; } = Enumerable.Empty<TItem>();
@@ -258,11 +204,12 @@
     [Parameter] public EventCallback<string> OnSearchChanged { get; set; }
     [Parameter] public EventCallback<int> OnPageChanged { get; set; }
 
-    private FluentDataGrid<TItem>? DataGrid;
     private bool ShowColumnDialog = false;
     private bool ShowFilterDialog = false;
     private string SearchTerm = string.Empty;
     private List<FilterCondition> ActiveFilters = new();
+    private string? SortColumn;
+    private bool SortAscending = true;
 
     private int TotalPages => (int)Math.Ceiling((double)TotalRows / PageSize);
 
@@ -272,44 +219,53 @@
         {
             VisibleColumns = AllColumns.Select((col, index) => new ColumnSettings
             {
-                ColumnName = col,
-                IsVisible = true,
-                Order = index,
-                // Width = 120 // TODO: Set default width based on column type or other logic if the width is fixed in ColumnSettings
+                ColumnName = col, IsVisible = true, Order = index
             }).ToList();
         }
+    }
+
+    private IEnumerable<string> GetVisibleColumnNames()
+    {
+        if (VisibleColumns != null && VisibleColumns.Any())
+            return VisibleColumns.Where(c => c.IsVisible).OrderBy(c => c.Order).Select(c => c.ColumnName);
+        return DefaultColumns;
+    }
+
+    private IEnumerable<TItem> SortedItems
+    {
+        get
+        {
+            if (SortColumn == null) return Items;
+            return SortAscending
+                ? Items.OrderBy(i => GetCellValue(i, SortColumn)?.ToString())
+                : Items.OrderByDescending(i => GetCellValue(i, SortColumn)?.ToString());
+        }
+    }
+
+    private void ToggleSort(string column)
+    {
+        if (SortColumn == column) SortAscending = !SortAscending;
+        else { SortColumn = column; SortAscending = true; }
+    }
+
+    private object? GetCellValue(TItem item, string columnName)
+    {
+        if (item is Dictionary<string, object> dict)
+            return dict.TryGetValue(columnName, out var val) ? val : null;
+        return item?.GetType().GetProperty(columnName)?.GetValue(item);
     }
 
     private string GetDisplayRange()
     {
         var start = Math.Min((CurrentPage - 1) * PageSize + 1, TotalRows);
         var end = Math.Min(CurrentPage * PageSize, TotalRows);
-        return $"{start}-{end}";
-    }    private Expression<Func<TItem, object?>> GetPropertyExpression<T>(string propertyName)
-    {
-        var parameter = Expression.Parameter(typeof(TItem), "x");
-        
-        // Handle dictionary access for dynamic data
-        if (typeof(TItem) == typeof(Dictionary<string, object>))
-        {
-            var indexer = typeof(Dictionary<string, object>).GetProperty("Item");
-            var propertyAccess = Expression.Property(parameter, indexer!, Expression.Constant(propertyName));
-            var conversion = Expression.Convert(propertyAccess, typeof(object));
-            return Expression.Lambda<Func<TItem, object?>>(conversion, parameter);
-        }
-        
-        // Handle regular object properties
-        var property = Expression.Property(parameter, propertyName);
-        var objectConversion = Expression.Convert(property, typeof(object));
-        return Expression.Lambda<Func<TItem, object?>>(objectConversion, parameter);
+        return $"{start}–{end}";
     }
 
     private async Task OnSearchKeyPress(KeyboardEventArgs e)
     {
         if (e.Key == "Enter")
-        {
             await OnSearchChanged.InvokeAsync(SearchTerm);
-        }
     }
 
     private async Task ChangePage(int newPage)
@@ -325,13 +281,12 @@
     {
         ShowColumnDialog = false;
         if (VisibleColumns != null)
-        {
             await OnColumnSettingsChanged.InvokeAsync(VisibleColumns);
-        }
     }
 
     private void AddFilter()
-    {        ActiveFilters.Add(new FilterCondition
+    {
+        ActiveFilters.Add(new FilterCondition
         {
             ColumnName = AllColumns?.FirstOrDefault() ?? "",
             Operator = "equals",
@@ -339,10 +294,7 @@
         });
     }
 
-    private void RemoveFilter(FilterCondition filter)
-    {
-        ActiveFilters.Remove(filter);
-    }
+    private void RemoveFilter(FilterCondition filter) => ActiveFilters.Remove(filter);
 
     private async Task ApplyFilters()
     {
@@ -356,19 +308,3 @@
         await OnFiltersChanged.InvokeAsync(new List<FilterCondition>());
     }
 }
-
-@* <style>
-    .dynamic-table-container .filter-count {
-        color: #ef4444;
-        font-weight: 600;
-    }
-
-    .dynamic-table-container .data-column {
-        padding: 8px 12px;
-        border-right: 1px solid #f3f4f6;
-    }
-
-    .dynamic-table-container .data-column:last-child {
-        border-right: none;
-    }
-</style> *@

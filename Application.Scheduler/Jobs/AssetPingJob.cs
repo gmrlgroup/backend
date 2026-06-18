@@ -29,17 +29,29 @@ public class AssetPingJob
 
         _logger.LogInformation("[AssetPingJob] Checking {Count} active entities", entities.Count);
 
-        var tasks = entities.Select(entity => CheckEntityAsync(entity, ct));
-        await Task.WhenAll(tasks);
+        // Phase 1: probe all entities in parallel — this is network I/O only and touches no DbContext.
+        var probeTasks = entities.Select(async entity => (
+            Entity: entity,
+            Probe: entity.EntityType == AssetType.Server
+                ? await PingHostAsync(entity.Url ?? entity.Name, ct)
+                : await CheckHttpAsync(entity.Url, ct)));
+
+        var probes = await Task.WhenAll(probeTasks);
+
+        // Phase 2: persist sequentially. DbContext is not thread-safe, so all reads/writes
+        // happen one at a time on the single shared context.
+        foreach (var (entity, probe) in probes)
+            await PersistResultAsync(entity, probe, ct);
 
         _logger.LogInformation("[AssetPingJob] Done.");
     }
 
-    private async Task CheckEntityAsync(MonitoredAsset entity, CancellationToken ct)
+    private async Task PersistResultAsync(
+        MonitoredAsset entity,
+        (AssetStatus status, string message, double? responseMs) probe,
+        CancellationToken ct)
     {
-        var (newStatus, statusMessage, responseTimeMs) = entity.EntityType == AssetType.Server
-            ? await PingHostAsync(entity.Url ?? entity.Name, ct)
-            : await CheckHttpAsync(entity.Url, ct);
+        var (newStatus, statusMessage, responseTimeMs) = probe;
 
         var previousStatus = await GetPreviousStatusAsync(entity.Id, ct);
 

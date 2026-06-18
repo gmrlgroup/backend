@@ -30,6 +30,7 @@ public class RealTimeDataController : ControllerBase
     }
 
     [HttpPost("sales")]
+    [AllowAnonymous] // Trusted internal ingest from the Hangfire scheduler (no user token); guarded by RequireCompanyHeader.
     [RequireCompanyHeader]
     public async Task<ActionResult<SalesData>> CreateSalesData([FromBody] List<SalesData> salesData)
     {

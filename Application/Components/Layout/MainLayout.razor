@@ -8,51 +8,42 @@
 @inject ICompanyService _companyService
 @inject IConfiguration _configuration
 
-
-<FluentLayout>
-    <FluentHeader>
-        Application
-        <FluentSpacer />
-       
-        
-        <FluentDesignTheme @bind-Mode="@Mode"
-                           @bind-OfficeColor="@OfficeColor"
-                           OnLoaded="@OnLoaded"
-                           OnLuminanceChanged="@OnLuminanceChanged"
-                           StorageName="theme" />
-        
-            
-        
-        <FluentButton Appearance="Appearance.Lightweight" >@(_stateContainer.Company != null ? _stateContainer.Company.Id : "...")</FluentButton>
-        
-    </FluentHeader>
-    
-    <FluentStack Class="main" Orientation="Orientation.Horizontal" Width="100%">
-        <NavMenu />
-        <FluentBodyContent Class="body-content">
-            <div class="content">
-                @Body
+<div class="al-root">
+    <header class="al-header">
+        <div class="al-brand">
+            <div class="al-brand-icon">D</div>
+            <span class="al-brand-name">DATA APP</span>
+        </div>
+        <div class="al-spacer"></div>
+        @if (_stateContainer.Company != null)
+        {
+            <div class="al-company-badge">
+                <span class="al-company-dot"></span>
+                @_stateContainer.Company.Id
             </div>
-        </FluentBodyContent>
-    </FluentStack>
-    <FluentFooter>
-        <div>< /> with 💙 by @companyName</div>
-        <FluentSpacer />
-    </FluentFooter>
-</FluentLayout>
+        }
+        <button class="al-hamburger" type="button" onclick="document.body.classList.toggle('nav-open')" aria-label="Toggle menu">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" viewBox="0 0 24 24">
+                <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+        </button>
+    </header>
 
+    <div class="al-body">
+        <NavMenu />
+        <main class="al-main">
+            @Body
+        </main>
+    </div>
 
+    <footer class="al-footer">
+        <span>Built with ❤️ by @companyName</span>
+    </footer>
+</div>
 
-<FluentMenuProvider />
 <FluentToastProvider MaxToastCount="10" @rendermode="@RenderMode.InteractiveWebAssembly" />
-<FluentMessageBarProvider />
 <FluentDialogProvider @rendermode="@RenderMode.InteractiveWebAssembly" />
-
-@* @if (_stateContainer.Company != null && !string.IsNullOrEmpty(currentUserId))
-{
-    <Application.Client.Components.ConversationWidget CompanyId="@_stateContainer.Company.Id" UserId="@currentUserId" />
-}
- *@
+<FluentMenuProvider @rendermode="@RenderMode.InteractiveWebAssembly" />
 
 <div id="blazor-error-ui">
     An unhandled error has occurred.
@@ -60,145 +51,46 @@
     <a class="dismiss">🗙</a>
 </div>
 
-
-
-
-
-
 @code {
-
     [CascadingParameter]
     private Task<AuthenticationState>? authenticationState { get; set; }
-    private Company Company { get; set; } = new Company();
-    private string authMessage = "The user is NOT authenticated.";
-    private string? currentUserId;
     private string companyName = string.Empty;
-    
-
-    private string? surname;
-    private IEnumerable<Claim> claims = Enumerable.Empty<Claim>();
-
-    public DesignThemeModes Mode { get; set; } = DesignThemeModes.Light;
-    public OfficeColor? OfficeColor { get; set; }
-
-    void OnLoaded(LoadedEventArgs e)
-    {
-        Console.WriteLine($"Loaded: {(e.Mode == DesignThemeModes.System ? "System" : "")} {(e.IsDark ? "Dark" : "Light")}");
-    }
-
-    void OnLuminanceChanged(LuminanceChangedEventArgs e)
-    {
-        Console.WriteLine($"Changed: {(e.Mode == DesignThemeModes.System ? "System" : "")} {(e.IsDark ? "Dark" : "Light")}");
-    }
-
-    void PickRandomColor()
-    {
-        OfficeColor = OfficeColorUtilities.GetRandom();
-    }
-
-    
-
-    // get the base URL of the application and firts part of the URL after the base url
 
     protected override async Task OnInitializedAsync()
     {
-        companyName = _configuration["CompanyName"] ?? "...";
-        currentUserId = await GetUserId();
+        companyName = _configuration["CompanyName"] ?? "Flowbyte";
+        var currentUserId = await GetUserId();
+        if (currentUserId is null) return;
 
-        // if user is not authenticated, stop here
-        if (currentUserId is null)
-        {
-            return;
-        }
-
-
-        var stateCompany = _stateContainer.Company;
-
-        // add ?c=comp in the url
         var uri = new Uri(_navigationManager.Uri);
-        var query = uri.Query;
-        
-        // check if url contains ?c=x
-        if (QueryHelpers.ParseQuery(query).TryGetValue("c", out var companyId))
+        if (QueryHelpers.ParseQuery(uri.Query).TryGetValue("c", out var companyId))
         {
-            var company = await _companyService.GetCompany(companyId);
-
-            _stateContainer.Company = company;
-            
+            _stateContainer.Company = await _companyService.GetCompany(companyId);
         }
-
         else
         {
             var company = await GetUserDefaultCompany(currentUserId);
-            if(company is null)
-            {
-                return;
-            }
-
+            if (company is null) return;
             _stateContainer.Company = company;
-
-                // add ?c=x to the url
-                var newUri = QueryHelpers.AddQueryString(uri.AbsoluteUri, "c", company.Id);
-
-                _navigationManager.NavigateTo(newUri);
-
-            
+            var newUri = QueryHelpers.AddQueryString(uri.AbsoluteUri, "c", company.Id);
+            _navigationManager.NavigateTo(newUri);
         }
 
-        if(stateCompany is null)
-        {
-            var company = await GetUserDefaultCompany(currentUserId);
-
-            _stateContainer.Company = company;
-            
-        }
-        
         _stateContainer.OnChange += StateHasChanged;
-
-
     }
 
-    
-
-
-
-
-    private async Task<Company> GetUserDefaultCompany(string userId)
+    private async Task<Company?> GetUserDefaultCompany(string userId)
     {
-        var companies = new List<Company>();
-        try {
-
-            companies = await _companyService.GetCompanies(userId);
-        }
-        catch(InvalidOperationException e)
-        {
-            Console.WriteLine(e.Message);
-        }
-        
-
-        // // get the first company
-        return companies.FirstOrDefault();
+        try { return (await _companyService.GetCompanies(userId))?.FirstOrDefault(); }
+        catch (InvalidOperationException e) { Console.WriteLine(e.Message); return null; }
     }
 
-
-
-
-
-
-    private async Task<string> GetUserId()
+    private async Task<string?> GetUserId()
     {
         var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
         var user = authState.User;
-
         if (user.Identity is not null && user.Identity.IsAuthenticated)
-        {
-            return user.FindFirst(c => c.Type == ClaimTypes.NameIdentifier)?.Value;
-        }
-
+            return user.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         return null;
-
-
     }
-
-
 }

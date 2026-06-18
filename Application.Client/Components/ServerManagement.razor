@@ -1,0 +1,416 @@
+@using Application.Shared.Enums
+@using Application.Shared.Models
+@using Application.Client.Services
+@using Microsoft.FluentUI.AspNetCore.Components
+@inject ServerManagementClientService ServerService
+@inject StateContainer StateContainer
+@inject IJSRuntime JSRuntime
+
+<!-- Server Credentials -->
+<div class="bg-white overflow-hidden shadow rounded-lg">
+    <div class="px-6 py-5 sm:p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg leading-6 font-medium text-gray-900">Server Credentials</h3>
+            <button @onclick="() => OpenCredentialDialog(null)"
+                    class="inline-flex items-center px-3 py-1 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                + Add Credential
+            </button>
+        </div>
+
+        @if (credentials.Any())
+        {
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Platform</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Host</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Username</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Secret</th>
+                        <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    @foreach (var cred in credentials)
+                    {
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-3 py-2 text-sm font-medium text-gray-900">
+                                @cred.Name
+                                @if (cred.IsDefault)
+                                {
+                                    <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs bg-indigo-100 text-indigo-800">Default</span>
+                                }
+                            </td>
+                            <td class="px-3 py-2 text-sm text-gray-700">@cred.Platform</td>
+                            <td class="px-3 py-2 text-sm text-gray-700">@(string.IsNullOrEmpty(cred.Host) ? "(entity URL)" : cred.Host):@cred.Port</td>
+                            <td class="px-3 py-2 text-sm text-gray-700">@(cred.Username ?? "-")</td>
+                            <td class="px-3 py-2 text-sm text-gray-400">@(cred.HasSecret ? "••••••••" : "(none)")</td>
+                            <td class="px-3 py-2 text-right">
+                                <button @onclick="() => OpenCredentialDialog(cred)" class="text-indigo-600 hover:text-indigo-900 text-sm mr-3" style="border:none;background:none;">Edit</button>
+                                <button @onclick="() => DeleteCredential(cred)" class="text-red-600 hover:text-red-900 text-sm" style="border:none;background:none;">Delete</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p class="text-center py-4 text-sm text-gray-500">No credentials yet. Add one to manage this server's services.</p>
+        }
+    </div>
+</div>
+
+<!-- Services -->
+<div class="bg-white overflow-hidden shadow rounded-lg">
+    <div class="px-6 py-5 sm:p-6">
+        <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+            <h3 class="text-lg leading-6 font-medium text-gray-900">Services</h3>
+            <div class="flex items-center gap-2">
+                @if (credentials.Count > 1)
+                {
+                    <select @bind="selectedCredentialId" class="border border-gray-300 rounded-md text-sm px-2 py-1">
+                        @foreach (var cred in credentials)
+                        {
+                            <option value="@cred.Id">@cred.Name (@cred.Platform)</option>
+                        }
+                    </select>
+                }
+                <button @onclick="DiscoverServices" disabled="@(isDiscovering || !credentials.Any())"
+                        class="inline-flex items-center px-3 py-1 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+                    @(isDiscovering ? "Connecting..." : "Connect & Discover")
+                </button>
+            </div>
+        </div>
+
+        @if (!credentials.Any())
+        {
+            <p class="text-center py-4 text-sm text-gray-500">Add a credential first to discover services.</p>
+        }
+        else if (!string.IsNullOrEmpty(servicesError))
+        {
+            <div class="bg-red-50 border border-red-200 rounded-md p-3 text-sm text-red-700">@servicesError</div>
+        }
+        else if (services.Any())
+        {
+            <input @bind="serviceFilter" @bind:event="oninput" placeholder="Filter services..."
+                   class="w-full border border-gray-300 rounded-md text-sm px-3 py-2 mb-3" />
+            <div class="max-h-96 overflow-y-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50 sticky top-0">
+                        <tr>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Service</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">State</th>
+                            <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        @foreach (var svc in FilteredServices)
+                        {
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-3 py-2">
+                                    <div class="text-sm font-medium text-gray-900">@(string.IsNullOrEmpty(svc.DisplayName) ? svc.Name : svc.DisplayName)</div>
+                                    <div class="text-xs text-gray-400">@svc.Name</div>
+                                </td>
+                                <td class="px-3 py-2">
+                                    <span class="inline-flex items-center gap-1 text-xs font-medium">
+                                        <span class="w-2 h-2 rounded-full @(svc.IsRunning ? "bg-green-400" : "bg-gray-400")"></span>
+                                        @svc.State
+                                    </span>
+                                </td>
+                                <td class="px-3 py-2">
+                                    <div class="flex items-center justify-end gap-2">
+                                        @if (busyService == svc.Name)
+                                        {
+                                            <span class="inline-block w-4 h-4 border-2 border-gray-300 border-t-indigo-600 rounded-full animate-spin"></span>
+                                        }
+                                        else
+                                        {
+                                            <button @onclick="() => ChangeServiceState(svc, true)"
+                                                    disabled="@svc.IsRunning"
+                                                    title="Start" aria-label="Start service"
+                                                    class="text-green-600 hover:text-green-800 disabled:opacity-30 disabled:cursor-not-allowed" style="border:none;background:none;">
+                                                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                                            </button>
+                                            <button @onclick="() => ChangeServiceState(svc, false)"
+                                                    disabled="@(!svc.IsRunning)"
+                                                    title="Stop" aria-label="Stop service"
+                                                    class="text-red-600 hover:text-red-800 disabled:opacity-30 disabled:cursor-not-allowed" style="border:none;background:none;">
+                                                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z" /></svg>
+                                            </button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else if (hasDiscovered)
+        {
+            <p class="text-center py-4 text-sm text-gray-500">No services returned.</p>
+        }
+        else
+        {
+            <p class="text-center py-4 text-sm text-gray-500">Click "Connect &amp; Discover" to list this server's services.</p>
+        }
+    </div>
+</div>
+
+<!-- Credential Dialog -->
+@if (showCredentialDialog)
+{
+    <FluentDialog>
+        <div class="bg-white rounded-lg shadow-xl max-w-lg w-full">
+            <div class="flex items-center justify-between p-6 border-b border-gray-200 bg-gray-50 rounded-t-lg">
+                <h3 class="text-lg font-semibold text-gray-900">@(editingCredentialId == null ? "Add Credential" : "Edit Credential")</h3>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Name <span class="text-red-500">*</span></label>
+                    <input @bind="credentialForm.Name" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2" />
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Platform</label>
+                        <select @bind="credentialForm.Platform" @bind:after="OnPlatformChanged" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2">
+                            <option value="@ServerPlatform.Linux">Linux (SSH)</option>
+                            <option value="@ServerPlatform.Windows">Windows (SSH)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Auth Type</label>
+                        <select @bind="credentialForm.AuthType" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2">
+                            <option value="@CredentialAuthType.Password">Password</option>
+                            @if (credentialForm.Platform == ServerPlatform.Linux)
+                            {
+                                <option value="@CredentialAuthType.SshKey">SSH Key</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Host</label>
+                        <input @bind="credentialForm.Host" placeholder="Defaults to entity URL" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2" />
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Port</label>
+                        <input type="number" @bind="credentialForm.Port" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2" />
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                    <input @bind="credentialForm.Username" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        @(credentialForm.AuthType == CredentialAuthType.SshKey ? "Private Key (PEM)" : "Password")
+                        @if (editingCredentialId == null) { <span class="text-red-500">*</span> }
+                    </label>
+                    @if (credentialForm.AuthType == CredentialAuthType.SshKey)
+                    {
+                        <textarea @bind="credentialForm.Secret" rows="4"
+                                  placeholder="@(editingCredentialId == null ? "Paste PEM private key" : "Leave blank to keep existing")"
+                                  class="w-full border border-gray-300 rounded-md text-sm px-3 py-2 font-mono"></textarea>
+                    }
+                    else
+                    {
+                        <input type="password" @bind="credentialForm.Secret"
+                               placeholder="@(editingCredentialId == null ? "Enter password" : "Leave blank to keep existing")"
+                               class="w-full border border-gray-300 rounded-md text-sm px-3 py-2" />
+                    }
+                </div>
+                <div class="flex items-center">
+                    <input type="checkbox" @bind="credentialForm.IsDefault" id="isDefault" class="mr-2" />
+                    <label for="isDefault" class="text-sm text-gray-700">Use as default credential</label>
+                </div>
+                @if (!string.IsNullOrEmpty(credentialError))
+                {
+                    <div class="bg-red-50 border border-red-200 rounded-md p-2 text-sm text-red-700">@credentialError</div>
+                }
+            </div>
+            <div class="flex justify-end space-x-3 p-6 border-t border-gray-200">
+                <FluentButton Appearance="Appearance.Neutral" @onclick="CloseCredentialDialog">Cancel</FluentButton>
+                <FluentButton Appearance="Appearance.Accent" @onclick="SaveCredential" Disabled="@isSavingCredential">
+                    @(isSavingCredential ? "Saving..." : "Save")
+                </FluentButton>
+            </div>
+        </div>
+    </FluentDialog>
+}
+
+@code {
+    [Parameter] public string EntityId { get; set; } = string.Empty;
+
+    private string CompanyId => StateContainer.Company?.Id ?? string.Empty;
+
+    private List<ServerCredentialDto> credentials = new();
+
+    // Services state
+    private List<RemoteServiceInfo> services = new();
+    private string serviceFilter = string.Empty;
+    private string? selectedCredentialId;
+    private bool isDiscovering;
+    private bool hasDiscovered;
+    private string? servicesError;
+    private string? busyService;
+
+    private IEnumerable<RemoteServiceInfo> FilteredServices =>
+        string.IsNullOrWhiteSpace(serviceFilter)
+            ? services
+            : services.Where(s => (s.Name?.Contains(serviceFilter, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (s.DisplayName?.Contains(serviceFilter, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    // Credential dialog state
+    private bool showCredentialDialog;
+    private bool isSavingCredential;
+    private string? editingCredentialId;
+    private string? credentialError;
+    private ServerCredentialRequest credentialForm = new();
+
+    protected override async Task OnInitializedAsync() => await LoadCredentials();
+
+    private async Task LoadCredentials()
+    {
+        if (string.IsNullOrEmpty(CompanyId)) return;
+        credentials = await ServerService.GetCredentialsAsync(CompanyId, EntityId);
+        selectedCredentialId ??= credentials.FirstOrDefault(c => c.IsDefault)?.Id ?? credentials.FirstOrDefault()?.Id;
+    }
+
+    // ---- Credentials ----
+
+    private void OpenCredentialDialog(ServerCredentialDto? cred)
+    {
+        credentialError = null;
+        if (cred == null)
+        {
+            editingCredentialId = null;
+            credentialForm = new ServerCredentialRequest { Platform = ServerPlatform.Linux, AuthType = CredentialAuthType.Password, Port = 22 };
+        }
+        else
+        {
+            editingCredentialId = cred.Id;
+            credentialForm = new ServerCredentialRequest
+            {
+                Name = cred.Name,
+                Platform = cred.Platform,
+                AuthType = cred.AuthType,
+                Host = cred.Host,
+                Port = cred.Port,
+                Username = cred.Username,
+                IsDefault = cred.IsDefault,
+                Secret = null
+            };
+        }
+        showCredentialDialog = true;
+    }
+
+    private void OnPlatformChanged()
+    {
+        // Both platforms are managed over SSH (Windows requires OpenSSH Server), so default to port 22.
+        if (credentialForm.Port is 0 or 22 or 5985)
+            credentialForm.Port = 22;
+    }
+
+    private void CloseCredentialDialog()
+    {
+        showCredentialDialog = false;
+        credentialForm = new();
+        editingCredentialId = null;
+    }
+
+    private async Task SaveCredential()
+    {
+        credentialError = null;
+        if (string.IsNullOrWhiteSpace(credentialForm.Name))
+        {
+            credentialError = "Name is required.";
+            return;
+        }
+        if (editingCredentialId == null && string.IsNullOrEmpty(credentialForm.Secret))
+        {
+            credentialError = "A password or key is required for a new credential.";
+            return;
+        }
+
+        isSavingCredential = true;
+        try
+        {
+            bool ok;
+            if (editingCredentialId == null)
+                ok = await ServerService.CreateCredentialAsync(CompanyId, EntityId, credentialForm) != null;
+            else
+                ok = await ServerService.UpdateCredentialAsync(CompanyId, EntityId, editingCredentialId, credentialForm);
+
+            if (!ok)
+            {
+                credentialError = "Failed to save credential.";
+                return;
+            }
+
+            CloseCredentialDialog();
+            await LoadCredentials();
+        }
+        finally
+        {
+            isSavingCredential = false;
+        }
+    }
+
+    private async Task DeleteCredential(ServerCredentialDto cred)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Delete credential '{cred.Name}'?")) return;
+        if (await ServerService.DeleteCredentialAsync(CompanyId, EntityId, cred.Id))
+        {
+            if (selectedCredentialId == cred.Id) selectedCredentialId = null;
+            await LoadCredentials();
+        }
+    }
+
+    // ---- Services ----
+
+    private async Task DiscoverServices()
+    {
+        isDiscovering = true;
+        servicesError = null;
+        try
+        {
+            services = await ServerService.DiscoverServicesAsync(CompanyId, EntityId, selectedCredentialId);
+            hasDiscovered = true;
+        }
+        catch (Exception ex)
+        {
+            services = new();
+            servicesError = ex.Message;
+        }
+        finally
+        {
+            isDiscovering = false;
+        }
+    }
+
+    private async Task ChangeServiceState(RemoteServiceInfo svc, bool start)
+    {
+        busyService = svc.Name;
+        try
+        {
+            var result = start
+                ? await ServerService.StartServiceAsync(CompanyId, EntityId, svc.Name, selectedCredentialId)
+                : await ServerService.StopServiceAsync(CompanyId, EntityId, svc.Name, selectedCredentialId);
+
+            if (result.Success)
+                svc.IsRunning = start; // optimistic; re-discovery below confirms
+            else
+                await JSRuntime.InvokeVoidAsync("alert", result.Message);
+
+            // Refresh state from the server to reflect the real outcome.
+            await DiscoverServices();
+        }
+        finally
+        {
+            busyService = null;
+        }
+    }
+}

@@ -1,80 +1,117 @@
 ﻿@page "/"
-@using Application.Client.Components
 @using Microsoft.AspNetCore.WebUtilities
-@inject IJSRuntime _jsRuntime
 @inject NavigationManager _navigationManager
-
 
 <PageTitle>Home</PageTitle>
 
-<div class="home">
-  <div class="bg-grid" aria-hidden="true"></div>
+<div class="hp-root">
 
-  <section class="hero">
-    <span class="badge">data • realtime • ai</span>
-
-    <h1 class="title">
-      <span class="pixel">@CompanyId</span>
-      <span class="title-fade">— data in motion</span>
-    </h1>
-
-    <p class="sub">
-      Real‑time sales. Import, share, and chat with your data using AI.
-      Dashboards <span class="soon">(coming soon)</span>.
-    </p>
-
-    <div class="cta">
-      <button class="btn primary" @onclick="GoHome">Get started</button>
-      <button class="btn ghost" disabled title="Coming soon">View dashboards</button>
+    <div class="hp-hero">
+        <div class="hp-hero-eyebrow">
+            <span class="hp-dot"></span>
+            <span>@CompanyId workspace</span>
+        </div>
+        <h1 class="hp-hero-title">Your data, in motion</h1>
+        <p class="hp-hero-sub">Import, explore, and share data. Stream real‑time sales events. Query your warehouse — all in one place.</p>
+        <div class="hp-hero-actions">
+            <a class="hp-btn-primary" href="@WithQuery("/data/import")">
+                <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Import data
+            </a>
+            <a class="hp-btn-ghost" href="@WithQuery("/metrics")">
+                <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                View metrics
+            </a>
+        </div>
     </div>
 
-  </section>
+    <div class="hp-divider"></div>
 
-  <section class="features">
-    <a class="card card-link" href="@WithQuery("/realtime/sales-dashboard")">
-      <div class="icon">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2l-2 6h4l-4 8 1-6H8l5-8z"/></svg>
-      </div>
-      <h3>Real‑time sales</h3>
-      <p>Stream updates as they happen with live pipelines and notifications.</p>
-      <ul>
-        <li>Instant updates</li>
-        <li>Signal‑style events</li>
-        <li>Team visibility</li>
-      </ul>
-    </a>
+    <div class="hp-section-label">Quick access</div>
 
-    <a class="card card-link" href="@WithQuery("/data/import")">
-      <div class="icon">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17h16v2H4v-2zm0-6h6v4H4v-4zm8 0h8v4h-8v-4zM4 5h16v4H4V5z"/></svg>
-      </div>
-      <h3>Import, share & chat (AI)</h3>
-      <p>Bring your data (CSV/Excel), share securely, and ask questions with AI.</p>
-      <ul>
-        <li>Fast imports</li>
-        <li>Fine‑grained sharing</li>
-        <li>Natural‑language Q&A</li>
-      </ul>
-    </a>
+    <div class="hp-cards">
 
-    <article class="card soonish" title="Dashboards are coming soon">
-      <div class="icon">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h18v2H3V3zm2 4h14v10H5V7zm-2 12h18v2H3v-2z"/></svg>
-      </div>
-      <div class="chip">coming soon</div>
-      <h3>Dashboards</h3>
-      <p>Curate pixel‑clean, data‑first dashboards for your teams.</p>
-      <ul>
-        <li>Composable widgets</li>
-        <li>Shareable views</li>
-        <li>Lightweight theming</li>
-      </ul>
-    </article>
-  </section>
+        <a class="hp-card" href="@WithQuery("/realtime/sales-dashboard")">
+            <div class="hp-card-icon hp-icon-indigo">
+                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            </div>
+            <div class="hp-card-body">
+                <div class="hp-card-title">Real‑time sales</div>
+                <div class="hp-card-desc">Stream live sales events with instant team visibility.</div>
+            </div>
+            <div class="hp-card-arrow">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+        </a>
+
+        <a class="hp-card" href="@WithQuery("/data/import")">
+            <div class="hp-card-icon hp-icon-violet">
+                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </div>
+            <div class="hp-card-body">
+                <div class="hp-card-title">Import & share data</div>
+                <div class="hp-card-desc">Bring CSV/Excel files, share with your team, and ask questions with AI.</div>
+            </div>
+            <div class="hp-card-arrow">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+        </a>
+
+        <a class="hp-card" href="@WithQuery("/data/datasets")">
+            <div class="hp-card-icon hp-icon-emerald">
+                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+            </div>
+            <div class="hp-card-body">
+                <div class="hp-card-title">Datasets</div>
+                <div class="hp-card-desc">Browse and manage all your shared datasets in one place.</div>
+            </div>
+            <div class="hp-card-arrow">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+        </a>
+
+        <a class="hp-card" href="@WithQuery("/metrics")">
+            <div class="hp-card-icon hp-icon-amber">
+                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            </div>
+            <div class="hp-card-body">
+                <div class="hp-card-title">Metrics</div>
+                <div class="hp-card-desc">Define, track and run queries against your data warehouse metrics.</div>
+            </div>
+            <div class="hp-card-arrow">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+        </a>
+
+        <a class="hp-card" href="@WithQuery("/datawarehouse")">
+            <div class="hp-card-icon hp-icon-sky">
+                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            </div>
+            <div class="hp-card-body">
+                <div class="hp-card-title">Data warehouse</div>
+                <div class="hp-card-desc">Explore tables and run queries directly on your warehouse.</div>
+            </div>
+            <div class="hp-card-arrow">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+        </a>
+
+        <div class="hp-card hp-card-soon">
+            <div class="hp-card-icon hp-icon-gray">
+                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            </div>
+            <div class="hp-card-body">
+                <div class="hp-card-title">Dashboards <span class="hp-soon-chip">soon</span></div>
+                <div class="hp-card-desc">Composable, shareable dashboards for your team. Coming soon.</div>
+            </div>
+        </div>
+
+    </div>
+
 </div>
 
 @code {
-    [SupplyParameterFromQuery(Name ="c")]
+    [SupplyParameterFromQuery(Name = "c")]
     private string CompanyId { get; set; } = "Company";
     private string _qs = string.Empty;
 
@@ -83,22 +120,15 @@
         var uri = new Uri(_navigationManager.Uri);
         _qs = uri.Query;
 
-        // Try to get a friendly company name from the query string if provided
         var query = QueryHelpers.ParseQuery(uri.Query);
         if (query.TryGetValue("companyName", out var v) && !string.IsNullOrWhiteSpace(v))
-        {
             CompanyId = v!;
-        }
         else if (query.TryGetValue("name", out v) && !string.IsNullOrWhiteSpace(v))
-        {
             CompanyId = v!;
-        }
     }
 
     string WithQuery(string path) => string.IsNullOrEmpty(_qs) ? path : $"{path}{_qs}";
-
-    void GoHome() => _navigationManager.NavigateTo("/");
-    }
+}
 
 
 

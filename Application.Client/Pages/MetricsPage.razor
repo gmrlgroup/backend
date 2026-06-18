@@ -1,196 +1,365 @@
 @page "/metrics"
 @using Application.Shared.Models
 @using Application.Shared.Enums
-@using Microsoft.FluentUI.AspNetCore.Components
+@using Application.Client.Models
 @using Microsoft.AspNetCore.Components.Authorization
 @inject HttpClient HttpClient
 @inject NavigationManager NavigationManager
-@inject IToastService ToastService
-@inject IDialogService DialogService
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
-@attribute [Authorize]
+@attribute [Authorize(Policy = PolicyNames.MetricsRead)]
 
-<PageTitle>Metrics Management</PageTitle>
+<PageTitle>Metrics</PageTitle>
 
-<div class="metrics-container" style="height: 88vh; display: flex; flex-direction: column; background: #f8fafc;">
-    
-    <!-- Header -->
-    <div class="header" style="background: white; border-bottom: 1px solid #e5e7eb; padding: 16px 24px; flex-shrink: 0;">
-        <div class="page-header">
-            <div>
-                <h1 style="margin: 0; font-size: 1.5rem; font-weight: 600; color: #1f2937;">
-                    Metrics Management
-                </h1>
-                <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.875rem;">
-                    Manage your key performance indicators and metrics
-                </p>
+<style>
+    .mp-page { display: flex; flex-direction: column; height: 88vh; background: #f9fafb; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; }
+
+    /* Toast */
+    .mp-toast { position: fixed; top: 20px; right: 20px; z-index: 9999; padding: 11px 16px;
+        border-radius: 8px; font-size: 13px; font-weight: 500;
+        box-shadow: 0 4px 16px rgba(0,0,0,.08); }
+    .mp-toast-success { background: #f0fdf4; border: 1px solid #86efac; color: #15803d; }
+    .mp-toast-error   { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }
+
+    /* Header */
+    .mp-header { background: white; border-bottom: 1px solid #e5e7eb; padding: 16px 24px;
+        display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; }
+    .mp-header-left { display: flex; flex-direction: column; gap: 4px; }
+    .mp-eyebrow { display: inline-flex; align-items: center; gap: 6px;
+        font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #9ca3af; }
+    .mp-title { margin: 0; font-size: 18px; font-weight: 700; color: #111827; letter-spacing: -.01em; }
+    .mp-header-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+    /* Toolbar */
+    .mp-toolbar { display: flex; align-items: center; gap: 8px; padding: 12px 24px; flex-shrink: 0;
+        background: white; border-bottom: 1px solid #e5e7eb; }
+    .mp-search-wrap { position: relative; }
+    .mp-search-wrap svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+        width: 14px; height: 14px; color: #9ca3af; pointer-events: none; }
+    .mp-search { padding: 0 10px 0 32px; height: 36px; border: 1px solid #e5e7eb; border-radius: 8px;
+        font-size: 13.5px; background: white; color: #111827; outline: none; width: 240px; }
+    .mp-search:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.1); }
+    .mp-filter-select { height: 36px; padding: 0 10px; border: 1px solid #e5e7eb; border-radius: 8px;
+        font-size: 13.5px; background: white; color: #374151; outline: none; cursor: pointer; }
+    .mp-filter-select:focus { border-color: #6366f1; }
+    .mp-spacer { flex: 1; }
+    .mp-count { font-size: 12px; color: #9ca3af; font-weight: 500; white-space: nowrap; }
+
+    /* Buttons */
+    .mp-btn { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px;
+        border-radius: 8px; font-size: 13.5px; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+    .mp-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .mp-btn-outline { background: white; border-color: #e5e7eb; color: #374151; }
+    .mp-btn-outline:hover:not(:disabled) { background: #f9fafb; border-color: #d1d5db; }
+    .mp-btn-primary { background: #6366f1; color: white; border-color: #6366f1; }
+    .mp-btn-primary:hover:not(:disabled) { background: #4f46e5; }
+
+    /* Content + Card + Table */
+    .mp-content { flex: 1; padding: 16px 24px 20px; overflow: hidden; display: flex; flex-direction: column; }
+    .mp-card { background: white; border-radius: 10px; border: 1px solid #e5e7eb; overflow: hidden;
+        display: flex; flex-direction: column; flex: 1; }
+    .mp-table-wrap { flex: 1; overflow: auto; }
+    table.mp-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    .mp-table thead th { position: sticky; top: 0; background: #f9fafb; padding: 10px 14px;
+        text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase;
+        letter-spacing: .06em; color: #6b7280; border-bottom: 1px solid #e5e7eb;
+        white-space: nowrap; cursor: pointer; user-select: none; }
+    .mp-table thead th:hover { color: #374151; }
+    .mp-table tbody tr { border-bottom: 1px solid #f3f4f6; cursor: pointer; transition: background .1s; }
+    .mp-table tbody tr:hover { background: #f9fafb; }
+    .mp-table tbody td { padding: 11px 14px; color: #111827; vertical-align: middle; }
+    .mp-table tbody td.mp-muted { color: #6b7280; font-size: 13px; }
+    .mp-sort-icon { margin-left: 3px; opacity: .4; font-style: normal; }
+    .mp-sort-active .mp-sort-icon { opacity: 1; color: #6366f1; }
+
+    /* Badges */
+    .mp-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 4px;
+        font-size: 12px; font-weight: 500; white-space: nowrap; }
+    .mp-badge-green { background: #dcfce7; color: #15803d; }
+    .mp-badge-gray  { background: #f3f4f6; color: #6b7280; }
+
+    /* Row actions */
+    .mp-actions { display: flex; gap: 2px; justify-content: flex-end; }
+    .mp-icon-btn { display: inline-flex; align-items: center; justify-content: center;
+        width: 30px; height: 30px; border-radius: 6px; border: none; background: transparent;
+        cursor: pointer; color: #9ca3af; }
+    .mp-icon-btn:hover { background: #f3f4f6; color: #374151; }
+    .mp-icon-btn.danger:hover { background: #fee2e2; color: #dc2626; }
+    .mp-icon-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+    /* Empty / Loading */
+    .mp-empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
+        padding: 60px 24px; color: #9ca3af; text-align: center; gap: 8px; }
+    .mp-empty-icon { width: 36px; height: 36px; color: #e5e7eb; }
+    .mp-empty p { margin: 0; font-size: 13.5px; color: #6b7280; }
+    .mp-spinner { width: 24px; height: 24px; border: 2px solid #e5e7eb; border-top-color: #6366f1;
+        border-radius: 50%; animation: mp-spin .6s linear infinite; }
+    @@keyframes mp-spin { to { transform: rotate(360deg); } }
+
+    /* Pagination */
+    .mp-pagination { display: flex; align-items: center; justify-content: space-between;
+        padding: 10px 16px; border-top: 1px solid #e5e7eb; flex-shrink: 0; }
+    .mp-pager-info { font-size: 12.5px; color: #6b7280; }
+    .mp-pager-btns { display: flex; gap: 3px; }
+    .mp-pager-btn { height: 30px; padding: 0 10px; border: 1px solid #e5e7eb; border-radius: 6px;
+        font-size: 12.5px; background: white; color: #374151; cursor: pointer; }
+    .mp-pager-btn:hover:not(:disabled) { background: #f9fafb; }
+    .mp-pager-btn.active { background: #6366f1; color: white; border-color: #6366f1; }
+    .mp-pager-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* Delete confirm */
+    .mp-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.3); z-index: 1000;
+        display: flex; align-items: center; justify-content: center; }
+    .mp-dialog { background: white; border-radius: 10px; padding: 24px; max-width: 400px; width: 90%;
+        box-shadow: 0 8px 30px rgba(0,0,0,.1); }
+    .mp-dialog-title { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .mp-dialog-title h3 { margin: 0; font-size: 15px; font-weight: 600; color: #111827; }
+    .mp-dialog-icon { width: 32px; height: 32px; background: #fee2e2; border-radius: 8px;
+        display: flex; align-items: center; justify-content: center; color: #dc2626; flex-shrink: 0; }
+    .mp-dialog p { margin: 0 0 20px; color: #6b7280; font-size: 13.5px; line-height: 1.5; }
+    .mp-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .mp-btn-danger { background: #ef4444; color: white; border-color: #ef4444; }
+    .mp-btn-danger:hover { background: #dc2626; }
+</style>
+
+<div class="mp-page">
+
+    @if (ShowToast)
+    {
+        <div class="mp-toast @(ToastType == "success" ? "mp-toast-success" : "mp-toast-error")">
+            @ToastMessage
+        </div>
+    }
+
+    <div class="mp-header">
+        <div class="mp-header-left">
+            <div class="mp-eyebrow">
+                <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+                Metrics
             </div>
-
-            <div class="header-actions">
-                <FluentButton IconStart="@(new Icons.Regular.Size16.ArrowClockwise())"
-                              OnClick="@RefreshData"
-                              Disabled="@IsLoading"
-                              Appearance="Appearance.Outline">
-                    Refresh
-                </FluentButton>
-                <FluentButton IconStart="@(new Icons.Regular.Size16.Add())"
-                              OnClick="@OpenCreateDialog"
-                              Disabled="@IsLoading"
-                              Appearance="Appearance.Accent">
-                    Add Metric
-                </FluentButton>
-            </div>
+            <h1 class="mp-title">Key Performance Indicators</h1>
+        </div>
+        <div class="mp-header-actions">
+            <button class="mp-btn mp-btn-outline" @onclick="RefreshData" disabled="@IsLoading">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                Refresh
+            </button>
+            <AuthorizeView Roles="@($"{CompanyId}_METRICS_WRITE,{CompanyId}_ADMIN")">
+                <Authorized>
+                    <button class="mp-btn mp-btn-primary" @onclick="OpenCreate" disabled="@IsLoading">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        New Metric
+                    </button>
+                </Authorized>
+            </AuthorizeView>
         </div>
     </div>
 
-    <!-- Main Content -->
-    <div class="main-content" style="flex: 1; padding: 24px; overflow: hidden;">
-        @if (IsLoading && !Metrics.Any())
+    <div class="mp-toolbar">
+        <div class="mp-search-wrap">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input class="mp-search" type="search" placeholder="Search…" @bind="SearchText" @bind:after="ApplyFilters" />
+        </div>
+        <select class="mp-filter-select" @bind="FilterDataReady" @bind:after="ApplyFilters">
+            <option value="">All statuses</option>
+            <option value="true">Data Ready</option>
+            <option value="false">Not Ready</option>
+        </select>
+        <select class="mp-filter-select" @bind="FilterType" @bind:after="ApplyFilters">
+            <option value="">All types</option>
+            @foreach (var t in MetricTypeValues)
+            {
+                <option value="@t">@t</option>
+            }
+        </select>
+        <div class="mp-spacer"></div>
+        @if (!IsLoading)
         {
-            <div style="display: flex; justify-content: center; align-items: center; height: 100%; background: white; border-radius: 8px;">
-                <div style="text-align: center;">
-                    <FluentProgressRing style="margin-bottom: 16px;" />
-                    <p style="color: #6b7280; margin: 0;">Loading metrics...</p>
-                </div>
-            </div>
+            <span class="mp-count">@FilteredList.Count metrics</span>
         }
-        else
-        {
-            <div style="background: white; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; height: 100%;">
-                <FluentDataGrid @ref="DataGrid"
-                                Items="@FilteredMetrics"
-                                ResizableColumns="true"
-                                ShowHover="true"
-                                Pagination="@Pagination"
-                                RowSize="DataGridRowSize.Medium"
-                                TGridItem="Metric"
-                                GridTemplateColumns="0.8fr 1.2fr 0.8fr 0.6fr 0.6fr 0.6fr 0.5fr 0.3fr"
-                                Style="height: 100%; overflow: auto;"
-                                OnRowClick="@OnRowClicked">
-                    
-                    <PropertyColumn Property="@(m => m.KPI)" Title="KPI" Sortable="true" Filtered="!string.IsNullOrWhiteSpace(FilterKPI)">
-                        <ColumnOptions>
-                            <div class="search-box">
-                                <FluentSearch type="search" @bind-Value="@FilterKPI" @bind-Value:after="@ApplyFilters" Placeholder="Filter by KPI..." />
-                            </div>
-                        </ColumnOptions>
-                    </PropertyColumn>
+    </div>
 
-                    <PropertyColumn Property="@(m => m.KeyPerformanceArea)" Title="KPA" Sortable="true" Filtered="!string.IsNullOrWhiteSpace(FilterKPA)">
-                        <ColumnOptions>
-                            <div class="search-box">
-                                <FluentSearch type="search" @bind-Value="@FilterKPA" @bind-Value:after="@ApplyFilters" Placeholder="Filter by KPA..." />
-                            </div>
-                        </ColumnOptions>
-                    </PropertyColumn>
-
-                    <PropertyColumn Property="@(m => m.Type)" Title="Type" Sortable="true" Filtered="!string.IsNullOrWhiteSpace(FilterType)">
-                        <ColumnOptions>
-                            <div class="search-box">
-                                <FluentSearch type="search" @bind-Value="@FilterType" @bind-Value:after="@ApplyFilters" Placeholder="Filter by Type..." />
-                            </div>
-                        </ColumnOptions>
-                    </PropertyColumn>
-
-                    <PropertyColumn Property="@(m => m.Perspective)" Title="Perspective" Sortable="true" Filtered="!string.IsNullOrWhiteSpace(FilterPerspective)">
-                        <ColumnOptions>
-                            <div class="search-box">
-                                <FluentSearch type="search" @bind-Value="@FilterPerspective" @bind-Value:after="@ApplyFilters" Placeholder="Filter by Perspective..." />
-                            </div>
-                        </ColumnOptions>
-                    </PropertyColumn>
-
-                    <PropertyColumn Property="@(m => m.KPILevel)" Title="Level" Sortable="true" Filtered="!string.IsNullOrWhiteSpace(FilterLevel)">
-                        <ColumnOptions>
-                            <div class="search-box">
-                                <FluentSearch type="search" @bind-Value="@FilterLevel" @bind-Value:after="@ApplyFilters" Placeholder="Filter by Level..." />
-                            </div>
-                        </ColumnOptions>
-                    </PropertyColumn>
-
-                    <TemplateColumn Title="Data Ready" Sortable="true" Filtered="!string.IsNullOrEmpty(FilterDataReady)">
-                        <ColumnOptions>
-                            <div class="search-box">
-                                <FluentSelect TOption="string"
-                                            @bind-Value="@FilterDataReady"
-                                            @bind-Value:after="@ApplyFilters"
-                                            Style="width: 100%;">
-                                    <FluentOption Value="">All</FluentOption>
-                                    <FluentOption Value="true">Ready</FluentOption>
-                                    <FluentOption Value="false">Not Ready</FluentOption>
-                                </FluentSelect>
-                            </div>
-                        </ColumnOptions>
-                        <ChildContent>
-                            @if (context.DataReady)
-                            {
-                                <FluentBadge Appearance="Appearance.Accent">Ready</FluentBadge>
-                            }
-                            else
-                            {
-                                <FluentBadge Appearance="Appearance.Neutral">Not Ready</FluentBadge>
-                            }
-                        </ChildContent>
-                    </TemplateColumn>
-
-                    <TemplateColumn Title="Actions" Align="@Align.End">
-                        <ChildContent>
-                            <div @onclick:stopPropagation="true">
-                                <FluentStack Orientation="Orientation.Horizontal" HorizontalGap="8">
-                                    <FluentButton IconStart="@(new Icons.Regular.Size16.Play())"
-                                                  OnClick="@(() => OpenQueryResultsDialog(context))"
-                                                  Appearance="Appearance.Stealth"
-                                                  Title="Run Query"
-                                                  Disabled="@(string.IsNullOrEmpty(context.Query) || context.MetricDataSource == null)">
-                                    </FluentButton>
-                                    <FluentButton IconStart="@(new Icons.Regular.Size16.Edit())"
-                                                  OnClick="@(() => OpenEditDialog(context))"
-                                                  Appearance="Appearance.Stealth"
-                                                  Title="Edit">
-                                    </FluentButton>
-                                    <FluentButton IconStart="@(new Icons.Regular.Size16.Delete())"
-                                                  OnClick="@(() => DeleteMetric(context))"
-                                                  Appearance="Appearance.Stealth"
-                                                  Title="Delete"
-                                                  style="color: #ef4444;">
-                                    </FluentButton>
-                                </FluentStack>
-                            </div>
-                        </ChildContent>
-                    </TemplateColumn>
-                </FluentDataGrid>
-
-                <div style="padding: 16px; border-top: 1px solid #e5e7eb;">
-                    <FluentPaginator State="@Pagination">
-                        <SummaryTemplate>
-                            Showing <strong>@((Pagination.CurrentPageIndex * Pagination.ItemsPerPage) + 1)</strong> to 
-                            <strong>@(Math.Min((Pagination.CurrentPageIndex + 1) * Pagination.ItemsPerPage, Pagination.TotalItemCount ?? 0))</strong> of 
-                            <strong>@(Pagination.TotalItemCount ?? 0)</strong> metrics
-                        </SummaryTemplate>
-                    </FluentPaginator>
+    <div class="mp-content">
+        <div class="mp-card">
+            @if (IsLoading)
+            {
+                <div class="mp-empty">
+                    <div class="mp-spinner"></div>
+                    <p>Loading…</p>
                 </div>
-            </div>
-        }
+            }
+            else if (!FilteredList.Any())
+            {
+                <div class="mp-empty">
+                    <svg class="mp-empty-icon" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+                    <p>@(Metrics.Any() ? "No results match your filters." : "No metrics yet. Create your first one.")</p>
+                </div>
+            }
+            else
+            {
+                <div class="mp-table-wrap">
+                    <table class="mp-table">
+                        <thead>
+                            <tr>
+                                <th @onclick='() => SetSort("KPI")' class="@SortClass("KPI")">KPI <em class="mp-sort-icon">@SortIcon("KPI")</em></th>
+                                <th @onclick='() => SetSort("KPA")' class="@SortClass("KPA")">KPA <em class="mp-sort-icon">@SortIcon("KPA")</em></th>
+                                <th @onclick='() => SetSort("Type")' class="@SortClass("Type")">Type <em class="mp-sort-icon">@SortIcon("Type")</em></th>
+                                <th @onclick='() => SetSort("Perspective")' class="@SortClass("Perspective")">Perspective <em class="mp-sort-icon">@SortIcon("Perspective")</em></th>
+                                <th @onclick='() => SetSort("Level")' class="@SortClass("Level")">Level <em class="mp-sort-icon">@SortIcon("Level")</em></th>
+                                <th>Status</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var metric in PagedList)
+                            {
+                                <tr @onclick="() => OpenDetails(metric)">
+                                    <td><strong>@metric.KPI</strong></td>
+                                    <td class="mp-muted">@metric.KeyPerformanceArea</td>
+                                    <td class="mp-muted">@metric.Type</td>
+                                    <td class="mp-muted">@metric.Perspective</td>
+                                    <td class="mp-muted">@metric.KPILevel</td>
+                                    <td>
+                                        @if (metric.DataReady)
+                                        {
+                                            <span class="mp-badge mp-badge-green">Ready</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="mp-badge mp-badge-gray">Not Ready</span>
+                                        }
+                                    </td>
+                                    <td @onclick:stopPropagation="true">
+                                        <div class="mp-actions">
+                                            <button class="mp-icon-btn" title="Run Query"
+                                                    @onclick="() => OpenQueryResults(metric)"
+                                                    disabled="@(string.IsNullOrEmpty(metric.Query) || metric.MetricDataSourceId == null)">
+                                                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                            </button>
+                                            <AuthorizeView Roles="@($"{CompanyId}_METRICS_WRITE,{CompanyId}_ADMIN")" Context="writeCtx">
+                                                <Authorized>
+                                                    <button class="mp-icon-btn" title="Edit" @onclick="() => OpenEdit(metric)">
+                                                        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                                    </button>
+                                                    <button class="mp-icon-btn danger" title="Delete" @onclick="() => ConfirmDelete(metric)">
+                                                        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                                                    </button>
+                                                </Authorized>
+                                            </AuthorizeView>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="mp-pagination">
+                    <span class="mp-pager-info">
+                        Showing @(Math.Min(PageStart + 1, FilteredList.Count))–@(Math.Min(PageStart + PageSize, FilteredList.Count)) of @FilteredList.Count
+                    </span>
+                    <div class="mp-pager-btns">
+                        <button class="mp-pager-btn" @onclick="PrevPage" disabled="@(CurrentPage == 0)">← Prev</button>
+                        @for (int p = 0; p < TotalPages; p++)
+                        {
+                            var pg = p;
+                            <button class="mp-pager-btn @(pg == CurrentPage ? "active" : "")" @onclick="() => GoToPage(pg)">@(pg + 1)</button>
+                        }
+                        <button class="mp-pager-btn" @onclick="NextPage" disabled="@(CurrentPage >= TotalPages - 1)">Next →</button>
+                    </div>
+                </div>
+            }
+        </div>
     </div>
 </div>
 
+@if (ShowDeleteConfirm && MetricToDelete != null)
+{
+    <div class="mp-overlay" @onclick="CancelDelete">
+        <div class="mp-dialog" @onclick:stopPropagation="true">
+            <div class="mp-dialog-title">
+                <div class="mp-dialog-icon">
+                    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                </div>
+                <h3>Delete Metric</h3>
+            </div>
+            <p>Are you sure you want to delete <strong>@MetricToDelete.KPI</strong>? This action cannot be undone.</p>
+            <div class="mp-dialog-actions">
+                <button class="mp-btn mp-btn-outline" @onclick="CancelDelete">Cancel</button>
+                <button class="mp-btn mp-btn-danger" @onclick="ExecuteDelete">Delete</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (ShowCreateWizard || ShowEditWizard)
+{
+    <MetricFormWizard Content="@WizardMetric"
+                      OnSave="HandleWizardSave"
+                      OnCancel="CloseWizard" />
+}
+
+@if (ShowDetailsPanel && SelectedMetric != null)
+{
+    <MetricDetailsPanel Content="@SelectedMetric"
+                        OnClose="CloseDetails"
+                        OnEdit="m => { CloseDetails(); OpenEdit(m); }"
+                        OnRunQuery="m => { CloseDetails(); OpenQueryResults(m); }" />
+}
+
+@if (ShowFilterDialog && FilterMetric != null)
+{
+    <MetricFilterDialog Content="@FilterMetric"
+                        OnRun="HandleFilterRun"
+                        OnCancel="() => ShowFilterDialog = false" />
+}
+
+@if (ShowQueryResults && QueryResultsData != null)
+{
+    <QueryResultsDialog Content="@QueryResultsData"
+                        OnClose="() => ShowQueryResults = false" />
+}
+
 @code {
-    private FluentDataGrid<Metric>? DataGrid;
     private List<Metric> Metrics = new();
-    private IQueryable<Metric>? FilteredMetrics { get; set; } //=> Metrics.AsQueryable();
-    private PaginationState Pagination = new PaginationState { ItemsPerPage = 20 };
-    
+    private List<Metric> FilteredList = new();
     private bool IsLoading = false;
     private string? CompanyId;
-    
-    // Filters
-    private string FilterFunction = string.Empty;
-    private string FilterKPI = string.Empty;
-    private string FilterKPA = string.Empty;
-    private string FilterType = string.Empty;
-    private string FilterPerspective = string.Empty;
-    private string FilterLevel = string.Empty;
+
+    // Search & filter
+    private string SearchText = string.Empty;
     private string FilterDataReady = string.Empty;
+    private string FilterType = string.Empty;
+    private string[] MetricTypeValues = Enum.GetNames<MetricType>();
+
+    // Sorting
+    private string SortColumn = "KPI";
+    private bool SortAsc = true;
+
+    // Pagination
+    private int CurrentPage = 0;
+    private int PageSize = 20;
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(FilteredList.Count / (double)PageSize));
+    private int PageStart => CurrentPage * PageSize;
+    private List<Metric> PagedList => FilteredList.Skip(PageStart).Take(PageSize).ToList();
+
+    // Modal state
+    private bool ShowCreateWizard = false;
+    private bool ShowEditWizard = false;
+    private bool ShowDetailsPanel = false;
+    private bool ShowFilterDialog = false;
+    private bool ShowQueryResults = false;
+    private bool ShowDeleteConfirm = false;
+
+    private Metric WizardMetric = new();
+    private Metric? SelectedMetric;
+    private Metric? FilterMetric;
+    private Metric? MetricToDelete;
+    private QueryResultsDialogData? QueryResultsData;
+
+    // Toast
+    private bool ShowToast = false;
+    private string ToastMessage = string.Empty;
+    private string ToastType = "success";
+    private System.Threading.CancellationTokenSource? ToastCts;
 
     protected override async Task OnInitializedAsync()
     {
@@ -203,168 +372,142 @@
         try
         {
             var response = await HttpClient.GetFromJsonAsync<List<Company>>("api/companies");
-            if (response?.Any() == true)
-            {
-                CompanyId = response.First().Id;
-            }
+            if (response?.Any() == true) CompanyId = response.First().Id;
         }
-        catch (Exception ex)
-        {
-            ToastService.ShowError($"Error loading company: {ex.Message}");
-        }
+        catch (Exception ex) { ShowToastNotification($"Error loading company: {ex.Message}", "error"); }
     }
 
     private async Task LoadMetrics()
     {
-        if (string.IsNullOrEmpty(CompanyId))
-        {
-            return;
-        }
-
+        if (string.IsNullOrEmpty(CompanyId)) return;
         IsLoading = true;
         try
         {
             HttpClient.DefaultRequestHeaders.Remove("X-Company-Id");
             HttpClient.DefaultRequestHeaders.Add("X-Company-Id", CompanyId);
-
             var response = await HttpClient.GetFromJsonAsync<List<Metric>>("api/metrics");
-            if (response != null)
-            {
-                Metrics = response;
-                FilteredMetrics = Metrics.AsQueryable();
-                ApplyFilters();
-            }
+            if (response != null) Metrics = response;
+            ApplyFilters();
         }
-        catch (Exception ex)
-        {
-            ToastService.ShowError($"Error loading metrics: {ex.Message}");
-        }
-        finally
-        {
-            IsLoading = false;
-        }
+        catch (Exception ex) { ShowToastNotification($"Error loading metrics: {ex.Message}", "error"); }
+        finally { IsLoading = false; }
     }
 
     private void ApplyFilters()
     {
-        var filtered = Metrics.AsQueryable();
+        var q = Metrics.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(SearchText))
+            q = q.Where(m => m.KPI.Contains(SearchText, StringComparison.OrdinalIgnoreCase)
+                           || m.KeyPerformanceArea.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrEmpty(FilterDataReady) && bool.TryParse(FilterDataReady, out var dr))
+            q = q.Where(m => m.DataReady == dr);
+        if (!string.IsNullOrEmpty(FilterType))
+            q = q.Where(m => m.Type.ToString() == FilterType);
 
-        if (!string.IsNullOrWhiteSpace(FilterKPI))
+        q = (SortColumn, SortAsc) switch
         {
-            filtered = filtered.Where(m => m.KPI.Contains(FilterKPI, StringComparison.OrdinalIgnoreCase));
-        }
+            ("KPI",  true)  => q.OrderBy(m => m.KPI),
+            ("KPI",  false) => q.OrderByDescending(m => m.KPI),
+            ("KPA",  true)  => q.OrderBy(m => m.KeyPerformanceArea),
+            ("KPA",  false) => q.OrderByDescending(m => m.KeyPerformanceArea),
+            ("Type", true)  => q.OrderBy(m => m.Type.ToString()),
+            ("Type", false) => q.OrderByDescending(m => m.Type.ToString()),
+            ("Perspective", true)  => q.OrderBy(m => m.Perspective.ToString()),
+            ("Perspective", false) => q.OrderByDescending(m => m.Perspective.ToString()),
+            ("Level", true)  => q.OrderBy(m => m.KPILevel.ToString()),
+            ("Level", false) => q.OrderByDescending(m => m.KPILevel.ToString()),
+            _ => q.OrderBy(m => m.KPI)
+        };
 
-        if (!string.IsNullOrWhiteSpace(FilterKPA))
-        {
-            filtered = filtered.Where(m => m.KeyPerformanceArea.Contains(FilterKPA, StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (!string.IsNullOrWhiteSpace(FilterType))
-        {
-            filtered = filtered.Where(m => m.Type.ToString().Contains(FilterType, StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (!string.IsNullOrWhiteSpace(FilterPerspective))
-        {
-            filtered = filtered.Where(m => m.Perspective.ToString().Contains(FilterPerspective, StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (!string.IsNullOrWhiteSpace(FilterLevel))
-        {
-            filtered = filtered.Where(m => m.KPILevel.ToString().Contains(FilterLevel, StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (!string.IsNullOrEmpty(FilterDataReady))
-        {
-            if (bool.TryParse(FilterDataReady, out bool dataReadyValue))
-            {
-                filtered = filtered.Where(m => m.DataReady == dataReadyValue);
-            }
-        }
-
-        FilteredMetrics = filtered;
+        FilteredList = q.ToList();
+        CurrentPage = 0;
         StateHasChanged();
     }
 
-    private async Task RefreshData()
+    private void SetSort(string col)
     {
-        await LoadMetrics();
+        if (SortColumn == col) SortAsc = !SortAsc;
+        else { SortColumn = col; SortAsc = true; }
+        ApplyFilters();
     }
 
-    private async Task OpenCreateDialog()
-    {
-        var dialog = await DialogService.ShowDialogAsync<MetricFormWizard>(new Metric { CompanyId = CompanyId }, new DialogParameters
-        {
-            Title = "Create New Metric",
-            PrimaryAction = "Create",
-            SecondaryAction = "Cancel",
-            Width = "900px",
-            Height = "auto",
-            TrapFocus = true,
-            Modal = true
-        });
+    private string SortClass(string col) => SortColumn == col ? "mp-sort-active" : "";
+    private string SortIcon(string col) => SortColumn != col ? "↕" : (SortAsc ? "↑" : "↓");
 
-        var result = await dialog.Result;
-        if (!result.Cancelled && result.Data is Metric metric)
+    private void PrevPage() { if (CurrentPage > 0) CurrentPage--; }
+    private void NextPage() { if (CurrentPage < TotalPages - 1) CurrentPage++; }
+    private void GoToPage(int p) { CurrentPage = p; }
+
+    private async Task RefreshData() => await LoadMetrics();
+
+    private void OpenCreate()
+    {
+        WizardMetric = new Metric { CompanyId = CompanyId };
+        ShowCreateWizard = true;
+    }
+
+    private void OpenEdit(Metric metric)
+    {
+        WizardMetric = metric;
+        ShowEditWizard = true;
+    }
+
+    private void OpenDetails(Metric metric)
+    {
+        SelectedMetric = metric;
+        ShowDetailsPanel = true;
+    }
+
+    private void CloseDetails() { ShowDetailsPanel = false; SelectedMetric = null; }
+    private void CloseWizard() { ShowCreateWizard = false; ShowEditWizard = false; }
+
+    private async Task HandleWizardSave(Metric metric)
+    {
+        CloseWizard();
+        if (metric.Id == 0) await CreateMetric(metric);
+        else await UpdateMetric(metric);
+    }
+
+    private void OpenQueryResults(Metric metric)
+    {
+        if (metric.Filters?.Any() == true)
         {
-            await CreateMetric(metric);
+            FilterMetric = metric;
+            ShowFilterDialog = true;
+        }
+        else
+        {
+            QueryResultsData = new QueryResultsDialogData { Metric = metric };
+            ShowQueryResults = true;
         }
     }
 
-    private async Task OnRowClicked(FluentDataGridRow<Metric> row)
+    private void HandleFilterRun(List<MetricFilterValue> filterValues)
     {
-        if (row.Item != null)
+        ShowFilterDialog = false;
+        QueryResultsData = new QueryResultsDialogData { Metric = FilterMetric!, FilterValues = filterValues };
+        ShowQueryResults = true;
+    }
+
+    private void ConfirmDelete(Metric metric) { MetricToDelete = metric; ShowDeleteConfirm = true; }
+    private void CancelDelete() { ShowDeleteConfirm = false; MetricToDelete = null; }
+
+    private async Task ExecuteDelete()
+    {
+        if (MetricToDelete == null) return;
+        var metric = MetricToDelete;
+        CancelDelete();
+        IsLoading = true;
+        try
         {
-            await OpenViewDetailsDialog(row.Item);
+            HttpClient.DefaultRequestHeaders.Remove("X-Company-Id");
+            HttpClient.DefaultRequestHeaders.Add("X-Company-Id", CompanyId!);
+            var response = await HttpClient.DeleteAsync($"api/metrics/{metric.Id}");
+            if (response.IsSuccessStatusCode) { ShowToastNotification("Metric deleted"); await LoadMetrics(); }
+            else ShowToastNotification("Failed to delete metric", "error");
         }
-    }
-
-    private async Task OpenViewDetailsDialog(Metric metric)
-    {
-        await DialogService.ShowPanelAsync<MetricDetailsPanel>(metric, new DialogParameters
-        {
-            Title = $"Metric Details: {metric.KPI}",
-            PrimaryAction = null,
-            SecondaryAction = "Close",
-            Width = "min(700px, 100vw)",
-            Height = "auto",
-            Modal = true,
-            ShowDismiss = true
-        });
-    }
-
-    private async Task OpenQueryResultsDialog(Metric metric)
-    {
-        await DialogService.ShowDialogAsync<QueryResultsDialog>(metric, new DialogParameters
-        {
-            Title = $"Query Results: {metric.KPI}",
-            PrimaryAction = null,
-            SecondaryAction = "Close",
-            Width = "900px",
-            Height = "auto",
-            Modal = true,
-            ShowDismiss = true
-        });
-    }
-
-    private async Task OpenEditDialog(Metric metric)
-    {
-        var dialog = await DialogService.ShowDialogAsync<MetricFormWizard>(metric, new DialogParameters
-        {
-            Title = $"Edit Metric: {metric.KPI}",
-            PrimaryAction = "Update",
-            SecondaryAction = "Cancel",
-            Width = "900px",
-            Height = "auto",
-            TrapFocus = true,
-            Modal = true
-        });
-
-        var result = await dialog.Result;
-        if (!result.Cancelled && result.Data is Metric updatedMetric)
-        {
-            await UpdateMetric(updatedMetric);
-        }
+        catch (Exception ex) { ShowToastNotification($"Error: {ex.Message}", "error"); }
+        finally { IsLoading = false; }
     }
 
     private async Task CreateMetric(Metric metric)
@@ -374,52 +517,23 @@
         {
             HttpClient.DefaultRequestHeaders.Remove("X-Company-Id");
             HttpClient.DefaultRequestHeaders.Add("X-Company-Id", CompanyId!);
-
-            // Handle data source scenarios
-            if (metric.MetricDataSourceId != null)
-            {
-                // Using existing data source - clear any navigation property to avoid validation errors
-                metric.MetricDataSource = null;
-            }
+            if (metric.MetricDataSourceId != null) metric.MetricDataSource = null;
             else if (metric.MetricDataSource != null)
             {
-                // Creating new data source - create it first
-                var dataSourceResponse = await HttpClient.PostAsJsonAsync("api/metrics/datasources", metric.MetricDataSource);
-                if (dataSourceResponse.IsSuccessStatusCode)
+                var dsResp = await HttpClient.PostAsJsonAsync("api/metrics/datasources", metric.MetricDataSource);
+                if (dsResp.IsSuccessStatusCode)
                 {
-                    var createdDataSource = await dataSourceResponse.Content.ReadFromJsonAsync<MetricDataSource>();
-                    if (createdDataSource != null)
-                    {
-                        metric.MetricDataSourceId = createdDataSource.Id;
-                        metric.MetricDataSource = null; // Clear to avoid sending nested object
-                    }
+                    var ds = await dsResp.Content.ReadFromJsonAsync<MetricDataSource>();
+                    if (ds != null) { metric.MetricDataSourceId = ds.Id; metric.MetricDataSource = null; }
                 }
-                else
-                {
-                    ToastService.ShowError("Failed to create data source");
-                    return;
-                }
+                else { ShowToastNotification("Failed to create data source", "error"); return; }
             }
-
             var response = await HttpClient.PostAsJsonAsync("api/metrics", metric);
-            if (response.IsSuccessStatusCode)
-            {
-                ToastService.ShowSuccess("Metric created successfully");
-                await LoadMetrics();
-            }
-            else
-            {
-                ToastService.ShowError("Failed to create metric");
-            }
+            if (response.IsSuccessStatusCode) { ShowToastNotification("Metric created successfully"); await LoadMetrics(); }
+            else ShowToastNotification("Failed to create metric", "error");
         }
-        catch (Exception ex)
-        {
-            ToastService.ShowError($"Error creating metric: {ex.Message}");
-        }
-        finally
-        {
-            IsLoading = false;
-        }
+        catch (Exception ex) { ShowToastNotification($"Error: {ex.Message}", "error"); }
+        finally { IsLoading = false; }
     }
 
     private async Task UpdateMetric(Metric metric)
@@ -429,90 +543,37 @@
         {
             HttpClient.DefaultRequestHeaders.Remove("X-Company-Id");
             HttpClient.DefaultRequestHeaders.Add("X-Company-Id", CompanyId!);
-
-            // Handle data source scenarios
-            if (metric.MetricDataSourceId != null)
-            {
-                // Using existing data source - clear any navigation property to avoid validation errors
-                metric.MetricDataSource = null;
-            }
+            if (metric.MetricDataSourceId != null) metric.MetricDataSource = null;
             else if (metric.MetricDataSource != null)
             {
-                // Creating new data source - create it first
-                var dataSourceResponse = await HttpClient.PostAsJsonAsync("api/metrics/datasources", metric.MetricDataSource);
-                if (dataSourceResponse.IsSuccessStatusCode)
+                var dsResp = await HttpClient.PostAsJsonAsync("api/metrics/datasources", metric.MetricDataSource);
+                if (dsResp.IsSuccessStatusCode)
                 {
-                    var createdDataSource = await dataSourceResponse.Content.ReadFromJsonAsync<MetricDataSource>();
-                    if (createdDataSource != null)
-                    {
-                        metric.MetricDataSourceId = createdDataSource.Id;
-                        metric.MetricDataSource = null; // Clear to avoid sending nested object
-                    }
+                    var ds = await dsResp.Content.ReadFromJsonAsync<MetricDataSource>();
+                    if (ds != null) { metric.MetricDataSourceId = ds.Id; metric.MetricDataSource = null; }
                 }
-                else
-                {
-                    ToastService.ShowError("Failed to create data source");
-                    return;
-                }
+                else { ShowToastNotification("Failed to create data source", "error"); return; }
             }
-
             var response = await HttpClient.PutAsJsonAsync($"api/metrics/{metric.Id}", metric);
-            if (response.IsSuccessStatusCode)
-            {
-                ToastService.ShowSuccess("Metric updated successfully");
-                await LoadMetrics();
-            }
-            else
-            {
-                ToastService.ShowError("Failed to update metric");
-            }
+            if (response.IsSuccessStatusCode) { ShowToastNotification("Metric updated successfully"); await LoadMetrics(); }
+            else ShowToastNotification("Failed to update metric", "error");
         }
-        catch (Exception ex)
-        {
-            ToastService.ShowError($"Error updating metric: {ex.Message}");
-        }
-        finally
-        {
-            IsLoading = false;
-        }
+        catch (Exception ex) { ShowToastNotification($"Error: {ex.Message}", "error"); }
+        finally { IsLoading = false; }
     }
 
-    private async Task DeleteMetric(Metric metric)
+    private void ShowToastNotification(string message, string type = "success")
     {
-        var dialog = await DialogService.ShowConfirmationAsync(
-            $"Are you sure you want to delete the metric '{metric.KPI}'?",
-            "Delete Metric",
-            "Delete",
-            "Cancel");
-
-        var result = await dialog.Result;
-        if (!result.Cancelled)
+        ToastCts?.Cancel();
+        ToastMessage = message;
+        ToastType = type;
+        ShowToast = true;
+        StateHasChanged();
+        ToastCts = new System.Threading.CancellationTokenSource();
+        var token = ToastCts.Token;
+        _ = Task.Delay(3500, token).ContinueWith(t =>
         {
-            IsLoading = true;
-            try
-            {
-                HttpClient.DefaultRequestHeaders.Remove("X-Company-Id");
-                HttpClient.DefaultRequestHeaders.Add("X-Company-Id", CompanyId!);
-
-                var response = await HttpClient.DeleteAsync($"api/metrics/{metric.Id}");
-                if (response.IsSuccessStatusCode)
-                {
-                    ToastService.ShowSuccess("Metric deleted successfully");
-                    await LoadMetrics();
-                }
-                else
-                {
-                    ToastService.ShowError("Failed to delete metric");
-                }
-            }
-            catch (Exception ex)
-            {
-                ToastService.ShowError($"Error deleting metric: {ex.Message}");
-            }
-            finally
-            {
-                IsLoading = false;
-            }
-        }
+            if (!t.IsCanceled) { ShowToast = false; InvokeAsync(StateHasChanged); }
+        }, token);
     }
 }

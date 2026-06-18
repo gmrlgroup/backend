@@ -1,10 +1,13 @@
+using Application.Shared.Authorization;
 using Application.Shared.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Application.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Policy = PolicyNames.DataWarehouseRead)]
     public class DataWarehouseController : ControllerBase
     {
         private readonly DataWarehouseService _dataWarehouseService;

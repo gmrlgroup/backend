@@ -1,5 +1,7 @@
+using Application.Shared.Authorization;
 using Application.Shared.Models;
 using Application.Shared.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
@@ -7,6 +9,7 @@ namespace Application.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize(Policy = PolicyNames.MetricsRead)]
     public class MetricValuesController : ControllerBase
     {
         private readonly IMetricValueService _metricValueService;
@@ -21,9 +24,10 @@ namespace Application.Controllers
         public async Task<ActionResult<IEnumerable<MetricValue>>> GetMetricValues(int metricId, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             if (string.IsNullOrEmpty(companyId))
-            {
                 return BadRequest("Company ID is required in headers");
-            }
+
+            if (!User.IsInRole($"{companyId}_VIEW_METRIC"))
+                return Forbid();
 
             var metricValues = await _metricValueService.GetMetricValues(metricId, companyId);
             return Ok(metricValues);
@@ -38,9 +42,10 @@ namespace Application.Controllers
             [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             if (string.IsNullOrEmpty(companyId))
-            {
                 return BadRequest("Company ID is required in headers");
-            }
+
+            if (!User.IsInRole($"{companyId}_VIEW_METRIC"))
+                return Forbid();
 
             var metricValues = await _metricValueService.GetMetricValuesByPeriod(metricId, startDate, endDate, companyId);
             return Ok(metricValues);
@@ -51,22 +56,22 @@ namespace Application.Controllers
         public async Task<ActionResult<MetricValue>> GetMetricValue(int id, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             if (string.IsNullOrEmpty(companyId))
-            {
                 return BadRequest("Company ID is required in headers");
-            }
+
+            if (!User.IsInRole($"{companyId}_VIEW_METRIC"))
+                return Forbid();
 
             var metricValue = await _metricValueService.GetMetricValue(id, companyId);
 
             if (metricValue == null)
-            {
                 return NotFound();
-            }
 
             return Ok(metricValue);
         }
 
         // POST: api/MetricValues
         [HttpPost]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<ActionResult<MetricValue>> CreateMetricValue(MetricValue metricValue, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             try
@@ -74,14 +79,13 @@ namespace Application.Controllers
                 var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
                 if (string.IsNullOrEmpty(userId))
-                {
                     return BadRequest("User ID is required");
-                }
 
                 if (string.IsNullOrEmpty(companyId))
-                {
                     return BadRequest("Company ID is required in headers");
-                }
+
+                if (!User.IsInRole($"{companyId}_EDIT_METRIC"))
+                    return Forbid();
 
                 var createdMetricValue = await _metricValueService.CreateMetricValue(metricValue, userId, companyId);
 
@@ -99,6 +103,7 @@ namespace Application.Controllers
 
         // PUT: api/MetricValues/5
         [HttpPut("{id}")]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<IActionResult> UpdateMetricValue(int id, MetricValue metricValue, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             try
@@ -106,21 +111,18 @@ namespace Application.Controllers
                 var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
                 if (string.IsNullOrEmpty(userId))
-                {
                     return BadRequest("User ID is required");
-                }
 
                 if (string.IsNullOrEmpty(companyId))
-                {
                     return BadRequest("Company ID is required in headers");
-                }
+
+                if (!User.IsInRole($"{companyId}_EDIT_METRIC"))
+                    return Forbid();
 
                 var updatedMetricValue = await _metricValueService.UpdateMetricValue(id, metricValue, companyId, userId);
 
                 if (updatedMetricValue == null)
-                {
                     return NotFound();
-                }
 
                 return Ok(updatedMetricValue);
             }
@@ -132,45 +134,43 @@ namespace Application.Controllers
 
         // DELETE: api/MetricValues/5
         [HttpDelete("{id}")]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<IActionResult> DeleteMetricValue(int id, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             if (string.IsNullOrEmpty(companyId))
-            {
                 return BadRequest("Company ID is required in headers");
-            }
+
+            if (!User.IsInRole($"{companyId}_EDIT_METRIC"))
+                return Forbid();
 
             var result = await _metricValueService.DeleteMetricValue(id, companyId);
 
             if (!result)
-            {
                 return NotFound();
-            }
 
             return NoContent();
         }
 
         // POST: api/MetricValues/5/validate
         [HttpPost("{id}/validate")]
+        [Authorize(Policy = PolicyNames.MetricsWrite)]
         public async Task<IActionResult> ValidateMetricValue(int id, [FromHeader(Name = "X-Company-Id")] string companyId)
         {
             var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
             if (string.IsNullOrEmpty(userId))
-            {
                 return BadRequest("User ID is required");
-            }
 
             if (string.IsNullOrEmpty(companyId))
-            {
                 return BadRequest("Company ID is required in headers");
-            }
+
+            if (!User.IsInRole($"{companyId}_EDIT_METRIC"))
+                return Forbid();
 
             var result = await _metricValueService.ValidateMetricValue(id, companyId, userId);
 
             if (!result)
-            {
                 return NotFound();
-            }
 
             return Ok(new { message = "Metric value validated successfully" });
         }

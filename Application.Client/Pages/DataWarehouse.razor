@@ -1,102 +1,262 @@
 @page "/datawarehouse"
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@attribute [Authorize(Policy = PolicyNames.DataWarehouseRead)]
 @using System.Net.Http.Json
 @using Application.Client.Components
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 @inject HttpClient Http
 @inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthStateProvider
+@inject StateContainer StateContainer
+@attribute [Authorize]
 
 <PageTitle>Data Warehouse</PageTitle>
 
-<div class="datawarehouse-page">
-    <div class="page-layout">
-        <!-- Sidebar with table list -->
-        <div class="sidebar @(sidebarCollapsed ? "collapsed" : "")">
-            <div class="sidebar-header">
-                <h2>@(sidebarCollapsed ? "DW" : "Data Warehouse")</h2>
-                <button class="toggle-btn" @onclick="ToggleSidebar">
-                    @(sidebarCollapsed ? "►" : "◄")
-                </button>
-            </div>
+<style>
+    .dw-root {
+        display: flex;
+        height: calc(100vh - 88px);
+        background: #f9fafb;
+        overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    }
 
+    /* ── Sidebar ────────────────────────────────────── */
+    .dw-sidebar {
+        width: 240px;
+        background: white;
+        border-right: 1px solid #e5e7eb;
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+        transition: width .2s ease;
+        overflow: hidden;
+    }
+    .dw-sidebar-collapsed { width: 48px; }
+
+    .dw-sidebar-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 12px 12px 14px;
+        border-bottom: 1px solid #e5e7eb;
+        flex-shrink: 0;
+        min-height: 48px;
+    }
+    .dw-sidebar-collapsed .dw-sidebar-header { justify-content: center; padding: 12px; }
+
+    .dw-sidebar-title {
+        display: flex; align-items: center; gap: 7px;
+        font-size: 12px; font-weight: 600; color: #374151; letter-spacing: .01em;
+    }
+    .dw-sidebar-title svg { color: #6366f1; flex-shrink: 0; }
+
+    .dw-toggle-btn {
+        width: 28px; height: 28px;
+        display: flex; align-items: center; justify-content: center;
+        border: 1px solid #e5e7eb; border-radius: 6px;
+        background: white; cursor: pointer; color: #6b7280;
+        flex-shrink: 0;
+    }
+    .dw-toggle-btn:hover { background: #f3f4f6; color: #374151; }
+
+    .dw-sidebar-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+
+    .dw-sidebar-search {
+        position: relative;
+        padding: 10px 12px;
+        border-bottom: 1px solid #f3f4f6;
+        flex-shrink: 0;
+    }
+    .dw-sidebar-search svg {
+        position: absolute; left: 20px; top: 50%; transform: translateY(-50%);
+        width: 13px; height: 13px; color: #9ca3af; pointer-events: none;
+    }
+    .dw-sidebar-search input {
+        width: 100%; height: 32px; padding: 0 8px 0 28px;
+        border: 1px solid #e5e7eb; border-radius: 6px;
+        font-size: 13px; background: #f9fafb; color: #111827; outline: none;
+        box-sizing: border-box;
+    }
+    .dw-sidebar-search input:focus { border-color: #6366f1; background: white; }
+
+    .dw-sidebar-count {
+        padding: 6px 14px 4px;
+        font-size: 11px; font-weight: 600; text-transform: uppercase;
+        letter-spacing: .07em; color: #9ca3af;
+    }
+
+    .dw-table-list { flex: 1; padding: 4px 8px 8px; }
+
+    .dw-table-item {
+        display: flex; align-items: center; gap: 8px;
+        padding: 7px 8px; border-radius: 6px; cursor: pointer;
+        transition: background .1s; user-select: none;
+    }
+    .dw-table-item:hover { background: #f3f4f6; }
+    .dw-table-item-active { background: #eef2ff !important; }
+    .dw-table-item svg { width: 14px; height: 14px; color: #9ca3af; flex-shrink: 0; }
+    .dw-table-item-active svg { color: #6366f1; }
+
+    .dw-table-item-text { display: flex; flex-direction: column; min-width: 0; }
+    .dw-table-schema { font-size: 10px; color: #9ca3af; text-transform: uppercase; letter-spacing: .05em; line-height: 1.2; }
+    .dw-table-name { font-size: 13px; color: #374151; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dw-table-item-active .dw-table-name { color: #4f46e5; }
+
+    .dw-sidebar-error {
+        display: flex; align-items: flex-start; gap: 8px;
+        margin: 12px; padding: 10px 12px;
+        background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px;
+        font-size: 12.5px; color: #dc2626;
+    }
+    .dw-sidebar-error svg { flex-shrink: 0; margin-top: 1px; }
+
+    .dw-sidebar-empty {
+        padding: 24px 14px;
+        font-size: 13px; color: #9ca3af; text-align: center;
+    }
+
+    .dw-sidebar-loading {
+        display: flex; flex-direction: column; align-items: center; gap: 10px;
+        padding: 32px 14px; color: #9ca3af; font-size: 13px;
+    }
+    .dw-spinner { width: 22px; height: 22px; border: 2px solid #e5e7eb; border-top-color: #6366f1;
+        border-radius: 50%; animation: dw-spin .7s linear infinite; }
+    @@keyframes dw-spin { to { transform: rotate(360deg); } }
+
+    /* ── Main area ──────────────────────────────────── */
+    .dw-main { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+
+    .dw-welcome {
+        flex: 1; display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        gap: 12px; padding: 40px; text-align: center;
+    }
+    .dw-welcome-icon {
+        width: 52px; height: 52px; border-radius: 12px;
+        background: #eef2ff; display: flex; align-items: center; justify-content: center;
+        color: #6366f1; margin-bottom: 4px;
+    }
+    .dw-welcome-title { margin: 0; font-size: 18px; font-weight: 700; color: #111827; letter-spacing: -.01em; }
+    .dw-welcome-sub { margin: 0; font-size: 14px; color: #6b7280; max-width: 360px; line-height: 1.6; }
+</style>
+
+@if (!canView)
+{
+    <div class="flex flex-col items-center justify-center h-64 text-gray-500 gap-2">
+        <svg class="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <p class="text-sm font-semibold text-gray-700">Access Denied</p>
+        <p class="text-xs text-gray-400">You don't have permission to view the data warehouse.</p>
+    </div>
+}
+else
+{
+<div class="dw-root">
+    <!-- Sidebar -->
+    <div class="dw-sidebar @(sidebarCollapsed ? "dw-sidebar-collapsed" : "")">
+        <div class="dw-sidebar-header">
             @if (!sidebarCollapsed)
             {
-                <div class="sidebar-content">
-                    @if (isLoadingTables)
-                    {
-                        <div class="loading-section">
-                            <div class="spinner"></div>
-                            <p>Loading tables...</p>
-                        </div>
-                    }
-                    else if (tables.Any())
-                    {
-                        <div class="search-box">
-                            <input type="text" 
-                                   @bind="tableSearchText" 
-                                   @bind:event="oninput"
-                                   placeholder="Search tables..." 
-                                   class="search-input" />
-                        </div>
+                <div class="dw-sidebar-title">
+                    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                    Tables
+                </div>
+            }
+            <button class="dw-toggle-btn" @onclick="ToggleSidebar">
+                @if (sidebarCollapsed)
+                {
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+                }
+                else
+                {
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+                }
+            </button>
+        </div>
 
-                        <div class="table-list">
-                            @foreach (var table in FilteredTables)
-                            {
-                                <div class="table-item @(selectedTable == table.FullName ? "selected" : "")"
-                                     @onclick="@(() => SelectTable(table.FullName))">
-                                    <div class="table-icon">📊</div>
-                                    <div class="table-name">
-                                        <div class="schema">@table.Schema</div>
-                                        <div class="name">@table.Name</div>
-                                    </div>
+        @if (!sidebarCollapsed)
+        {
+            <div class="dw-sidebar-body">
+                @if (isLoadingTables)
+                {
+                    <div class="dw-sidebar-loading">
+                        <div class="dw-spinner"></div>
+                        <span>Loading tables...</span>
+                    </div>
+                }
+                else if (tables.Any())
+                {
+                    <div class="dw-sidebar-search">
+                        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <input @bind="tableSearchText" @bind:event="oninput" placeholder="Search tables..." />
+                    </div>
+
+                    <div class="dw-sidebar-count">@FilteredTables.Count tables</div>
+
+                    <div class="dw-table-list">
+                        @foreach (var table in FilteredTables)
+                        {
+                            <div class="dw-table-item @(selectedTable == table.FullName ? "dw-table-item-active" : "")"
+                                 @onclick="@(() => SelectTable(table.FullName))">
+                                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+                                <div class="dw-table-item-text">
+                                    <span class="dw-table-schema">@table.Schema</span>
+                                    <span class="dw-table-name">@table.Name</span>
                                 </div>
-                            }
-                        </div>
-                    }
-                    else if (!string.IsNullOrEmpty(errorMessage))
-                    {
-                        <div class="error-section">
-                            <p>⚠️ @errorMessage</p>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="empty-section">
-                            <p>No tables found</p>
-                        </div>
-                    }
-                </div>
-            }
-        </div>
+                            </div>
+                        }
+                    </div>
+                }
+                else if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="dw-sidebar-error">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        <span>@errorMessage</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="dw-sidebar-empty">No tables found</div>
+                }
+            </div>
+        }
+    </div>
 
-        <!-- Main content area -->
-        <div class="main-content">
-            @if (!string.IsNullOrEmpty(selectedTable))
-            {
-                <DataWarehouseTable 
-                    TableName="@selectedTable"
-                    AllColumns="@columns"
-                    Data="@tableData"
-                    TotalRows="@totalRows"
-                    CurrentPage="@currentPage"
-                    TotalPages="@totalPages"
-                    PageSize="@pageSize"
-                    IsLoading="@isLoadingData"
-                    OnPageChanged="@OnPageChanged"
-                    OnPageSizeChanged="@OnPageSizeChanged" />
-            }
-            else
-            {
-                <div class="welcome-section">
-                    <div class="welcome-icon">🗄️</div>
-                    <h1>Data Warehouse Explorer</h1>
-                    <p>Select a table from the sidebar to view its data</p>
+    <!-- Main area -->
+    <div class="dw-main">
+        @if (!string.IsNullOrEmpty(selectedTable))
+        {
+            <DataWarehouseTable
+                TableName="@selectedTable"
+                AllColumns="@columns"
+                Data="@tableData"
+                TotalRows="@totalRows"
+                CurrentPage="@currentPage"
+                TotalPages="@totalPages"
+                PageSize="@pageSize"
+                IsLoading="@isLoadingData"
+                OnPageChanged="@OnPageChanged"
+                OnPageSizeChanged="@OnPageSizeChanged" />
+        }
+        else
+        {
+            <div class="dw-welcome">
+                <div class="dw-welcome-icon">
+                    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
                 </div>
-            }
-        </div>
+                <h2 class="dw-welcome-title">Data Warehouse Explorer</h2>
+                <p class="dw-welcome-sub">Select a table from the sidebar to browse its data.</p>
+            </div>
+        }
     </div>
 </div>
+}
 
 @code {
+    [SupplyParameterFromQuery(Name = "c")]
+    private string? companyId { get; set; }
+
     private List<TableInfo> tables = new();
     private List<TableInfo> FilteredTables => string.IsNullOrWhiteSpace(tableSearchText)
         ? tables
@@ -112,6 +272,7 @@
     private int totalPages = 0;
     private int pageSize = 100;
 
+    private bool canView;
     private bool isLoadingTables = false;
     private bool isLoadingData = false;
     private bool sidebarCollapsed = false;
@@ -120,11 +281,26 @@
 
     protected override async Task OnInitializedAsync()
     {
+        var companyId = StateContainer.Company?.Id ?? "";
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        canView = !string.IsNullOrEmpty(companyId) && authState.User.IsInRole($"{companyId}_VIEW_DATA");
+        if (!canView) { isLoadingTables = false; return; }
+
         await LoadTablesAsync();
+    }
+
+    // The DataWarehouse endpoints are gated by the DataWarehouseRead policy, which resolves the
+    // active company from the X-Company-Id header.
+    private void EnsureCompanyHeader()
+    {
+        Http.DefaultRequestHeaders.Remove("X-Company-Id");
+        if (!string.IsNullOrEmpty(companyId))
+            Http.DefaultRequestHeaders.Add("X-Company-Id", companyId);
     }
 
     private async Task LoadTablesAsync()
     {
+        EnsureCompanyHeader();
         isLoadingTables = true;
         errorMessage = string.Empty;
 
@@ -160,6 +336,7 @@
     {
         if (string.IsNullOrEmpty(selectedTable)) return;
 
+        EnsureCompanyHeader();
         isLoadingData = true;
         errorMessage = string.Empty;
 

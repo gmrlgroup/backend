@@ -30,6 +30,10 @@ public class DataViewsController : ControllerBase
     {
         try
         {
+            var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+            if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+                return Forbid();
+
             var comments = await _commentService.GetCommentsAsync(datasetId, tableName);
             return Ok(comments);
         }
@@ -46,6 +50,10 @@ public class DataViewsController : ControllerBase
         var userId = Request.Headers["UserId"].ToString();
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+            return Forbid();
 
         try
         {
@@ -67,6 +75,10 @@ public class DataViewsController : ControllerBase
         var userId = Request.Headers["UserId"].ToString();
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+            return Forbid();
 
         try
         {
@@ -90,6 +102,10 @@ public class DataViewsController : ControllerBase
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
 
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+            return Forbid();
+
         try
         {
             var updatedComment = await _commentService.UpdateCommentAsync(commentId, content, userId);
@@ -112,6 +128,10 @@ public class DataViewsController : ControllerBase
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
 
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+            return Forbid();
+
         try
         {
             var preferences = await _userPreferencesService.GetUserColumnPreferencesAsync(userId, datasetId, tableName);
@@ -130,6 +150,10 @@ public class DataViewsController : ControllerBase
         var userId = Request.Headers["UserId"].ToString();
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+            return Forbid();
 
         try
         {
@@ -150,6 +174,9 @@ public class DataViewsController : ControllerBase
         var companyId = Request.Headers["X-Company-ID"].ToString();
         if (string.IsNullOrWhiteSpace(companyId))
             return BadRequest("Company ID is required in headers");
+
+        if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+            return Forbid();
 
         if (string.IsNullOrWhiteSpace(searchTerm))
             return BadRequest("Search term is required");

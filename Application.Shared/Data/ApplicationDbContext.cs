@@ -24,10 +24,7 @@ namespace Application.Shared.Data
             // Configure the model to use snake case naming
             base.OnModelCreating(modelBuilder);
 
-
-
-
-            // add builder to remove the cascading for all the foreign keys in all classes
+            // add builder to remove the cascadingfor all the foreign keys in all classes
             foreach (var relationship in modelBuilder.Model.GetEntityTypes().SelectMany(e => e.GetForeignKeys()))
             {
                 relationship.DeleteBehavior = DeleteBehavior.Restrict;
@@ -103,6 +100,9 @@ namespace Application.Shared.Data
         public DbSet<MetricDimension> MetricDimensions { get; set; }
 
         public DbSet<MetricDataSource> MetricDataSources { get; set; }
+
+        public DbSet<MetricFilter> MetricFilters { get; set; }
+
 
 
 

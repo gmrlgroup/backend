@@ -1,78 +1,96 @@
-@using Microsoft.FluentUI.AspNetCore.Components
 @using System.Globalization
 @using Application.Client.Models
 @inject IJSRuntime JSRuntime
 
-<div class="data-results-table">
+<style>
+    .drt-wrap { display: flex; flex-direction: column; height: 100%; }
+    .drt-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px; gap: 8px; color: #94a3b8; }
+    .drt-empty-icon { font-size: 32px; }
+    .drt-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 0 10px 0; gap: 8px; flex-wrap: wrap; }
+    .drt-record-count { font-size: 13px; color: #64748b; }
+    .drt-toolbar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .drt-search { height: 32px; padding: 0 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px; outline: none; width: 220px; }
+    .drt-search:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
+    .drt-btn { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 12px; border: 1px solid #e2e8f0; background: white; border-radius: 6px; font-size: 13px; cursor: pointer; color: #374151; transition: all 0.15s; }
+    .drt-btn:hover { background: #f9fafb; }
+    .drt-table-container { overflow: auto; flex: 1; border: 1px solid #e2e8f0; border-radius: 8px; }
+    .drt-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 600px; }
+    .drt-table thead th { background: #f8fafc; padding: 8px 12px; text-align: left; font-weight: 600; color: #374151; border-bottom: 1px solid #e2e8f0; white-space: nowrap; cursor: pointer; user-select: none; }
+    .drt-table thead th:hover { background: #f1f5f9; }
+    .drt-table thead th.sorted { color: #6366f1; }
+    .drt-sort-icon { margin-left: 4px; font-size: 10px; color: #6366f1; }
+    .drt-filter-th { padding: 4px 4px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
+    .drt-filter-input { width: 100%; height: 26px; padding: 0 6px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; outline: none; background: white; }
+    .drt-filter-input:focus { border-color: #6366f1; }
+    .drt-table tbody tr { border-bottom: 1px solid #f1f5f9; transition: background 0.1s; }
+    .drt-table tbody tr:hover { background: #f8fafc; }
+    .drt-table tbody td { padding: 8px 12px; color: #0f172a; vertical-align: middle; }
+    .drt-table .align-right td, td.align-right { text-align: right; }
+    .drt-table .align-center td, td.align-center { text-align: center; }
+    .drt-footer { display: flex; align-items: center; justify-content: space-between; padding: 10px 0 0 0; flex-wrap: wrap; gap: 8px; }
+    .drt-page-info { font-size: 13px; color: #64748b; }
+    .drt-page-controls { display: flex; align-items: center; gap: 4px; }
+    .drt-page-btn { width: 32px; height: 32px; border: 1px solid #e2e8f0; background: white; border-radius: 6px; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: #374151; transition: all 0.15s; }
+    .drt-page-btn:hover:not(:disabled) { background: #f1f5f9; }
+    .drt-page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .drt-page-btn.active { background: #6366f1; color: white; border-color: #6366f1; }
+</style>
+
+<div class="drt-wrap">
     @if (Data == null || !Data.Any())
     {
-        <div class="empty-state">
-            <FluentIcon Value="@(new Icons.Regular.Size24.DatabaseSearch())" Color="Color.Neutral" />
-            <FluentLabel Color="Color.Neutral">@EmptyMessage</FluentLabel>
+        <div class="drt-empty">
+            <div class="drt-empty-icon">🗄️</div>
+            <span>@EmptyMessage</span>
         </div>
     }
     else
     {
-        <div class="table-toolbar">
-            <div class="toolbar-left">
-                <FluentLabel Typo="Typography.Body" Color="Color.Neutral">
-                    @GetRecordCountText()
-                </FluentLabel>
-            </div>
-            <div class="toolbar-right">
+        <div class="drt-toolbar">
+            <span class="drt-record-count">@GetRecordCountText()</span>
+            <div class="drt-toolbar-right">
                 @if (ShowGlobalFilter)
                 {
-                    <FluentSearch @bind-Value="GlobalFilter"
-                                  @bind-Value:after="ApplyFilters"
-                                  Placeholder="Search all columns..."
-                                  Style="width: 250px; max-width: 100%;" />
-                }
-                @if (ShowExport)
-                {
-                    <FluentButton IconStart="@(new Icons.Regular.Size16.ArrowDownload())"
-                                  OnClick="@ExportToCsv"
-                                  Appearance="Appearance.Outline"
-                                  Size="ButtonSize.Small">
-                        Export
-                    </FluentButton>
+                    <input type="text" class="drt-search" placeholder="Search all columns..."
+                           value="@GlobalFilter"
+                           @oninput="@(e => { GlobalFilter = e.Value?.ToString() ?? ""; ApplyFilters(); })" />
                 }
                 @if (AdditionalToolbarContent != null)
                 {
                     @AdditionalToolbarContent
                 }
+                @if (ShowExport)
+                {
+                    <button class="drt-btn" @onclick="ExportToCsv">⬇ Export</button>
+                }
             </div>
         </div>
 
-        <div class="table-container">
-            <table class="modern-table">
+        <div class="drt-table-container">
+            <table class="drt-table">
                 <thead>
-                    <tr class="header-row">
+                    <tr>
                         @foreach (var column in Columns)
                         {
                             var sorted = column == SortColumn ? "sorted" : "";
-                            <th class='@($"header-cell {sorted}")'
-                                @onclick="@(() => ToggleSort(column))">
-                                <div class="header-content">
-                                    <span class="header-text">@FormatColumnHeader(column)</span>
-                                    @if (column == SortColumn)
-                                    {
-                                        <FluentIcon Value="@(SortAscending ? (Icon)new Icons.Regular.Size12.ArrowUp() : new Icons.Regular.Size12.ArrowDown())"
-                                                    Color="@Color.Accent" />
-                                    }
-                                </div>
+                            <th class="@sorted" @onclick="@(() => ToggleSort(column))">
+                                @FormatColumnHeader(column)
+                                @if (column == SortColumn)
+                                {
+                                    <span class="drt-sort-icon">@(SortAscending ? "▲" : "▼")</span>
+                                }
                             </th>
                         }
                     </tr>
                     @if (ShowColumnFilters)
                     {
-                        <tr class="filter-row">
+                        <tr>
                             @foreach (var column in Columns)
                             {
-                                <th class="filter-cell">
-                                    <FluentTextField @bind-Value="ColumnFilters[column]"
-                                                     @bind-Value:after="ApplyFilters"
-                                                     Placeholder="Filter..."
-                                                     Style="width: 100%; font-size: 0.75rem;" />
+                                <th class="drt-filter-th">
+                                    <input type="text" class="drt-filter-input" placeholder="Filter..."
+                                           value="@ColumnFilters[column]"
+                                           @oninput="@(e => { ColumnFilters[column] = e.Value?.ToString() ?? ""; ApplyFilters(); })" />
                                 </th>
                             }
                         </tr>
@@ -81,10 +99,10 @@
                 <tbody>
                     @foreach (var row in PagedData)
                     {
-                        <tr class="data-row" @onclick="@(() => OnRowClick.InvokeAsync(row))">
+                        <tr @onclick="@(() => OnRowClick.InvokeAsync(row))">
                             @foreach (var column in Columns)
                             {
-                                <td class="data-cell @GetCellAlignmentClass(column, row)">
+                                <td class="@GetCellAlignmentClass(column, row)">
                                     @((MarkupString)FormatCellValue(column, row.TryGetValue(column, out var value) ? value : null))
                                 </td>
                             }
@@ -96,32 +114,20 @@
 
         @if (ShowPagination && TotalPages > 1)
         {
-            <div class="table-footer">
-                <div class="pagination-info">
-                    Showing @(((CurrentPage - 1) * PageSize) + 1) to @Math.Min(CurrentPage * PageSize, FilteredData.Count) of @FilteredData.Count
-                </div>
-                <div class="pagination-controls">
-                    <FluentButton IconStart="@(new Icons.Regular.Size16.ChevronDoubleLeft())"
-                                  OnClick="@(() => GoToPage(1))"
-                                  Disabled="@(CurrentPage == 1)"
-                                  Appearance="Appearance.Stealth"
-                                  Size="ButtonSize.Small" />
-                    <FluentButton IconStart="@(new Icons.Regular.Size16.ChevronLeft())"
-                                  OnClick="@(() => GoToPage(CurrentPage - 1))"
-                                  Disabled="@(CurrentPage == 1)"
-                                  Appearance="Appearance.Stealth"
-                                  Size="ButtonSize.Small" />
-                    <span class="page-indicator">Page @CurrentPage of @TotalPages</span>
-                    <FluentButton IconStart="@(new Icons.Regular.Size16.ChevronRight())"
-                                  OnClick="@(() => GoToPage(CurrentPage + 1))"
-                                  Disabled="@(CurrentPage == TotalPages)"
-                                  Appearance="Appearance.Stealth"
-                                  Size="ButtonSize.Small" />
-                    <FluentButton IconStart="@(new Icons.Regular.Size16.ChevronDoubleRight())"
-                                  OnClick="@(() => GoToPage(TotalPages))"
-                                  Disabled="@(CurrentPage == TotalPages)"
-                                  Appearance="Appearance.Stealth"
-                                  Size="ButtonSize.Small" />
+            <div class="drt-footer">
+                <span class="drt-page-info">
+                    Showing @(((CurrentPage - 1) * PageSize) + 1)–@Math.Min(CurrentPage * PageSize, FilteredData.Count) of @FilteredData.Count
+                </span>
+                <div class="drt-page-controls">
+                    <button class="drt-page-btn" disabled="@(CurrentPage == 1)" @onclick="() => GoToPage(1)">«</button>
+                    <button class="drt-page-btn" disabled="@(CurrentPage == 1)" @onclick="() => GoToPage(CurrentPage - 1)">‹</button>
+                    @for (int p = Math.Max(1, CurrentPage - 2); p <= Math.Min(TotalPages, CurrentPage + 2); p++)
+                    {
+                        var pg = p;
+                        <button class="drt-page-btn @(pg == CurrentPage ? "active" : "")" @onclick="() => GoToPage(pg)">@pg</button>
+                    }
+                    <button class="drt-page-btn" disabled="@(CurrentPage == TotalPages)" @onclick="() => GoToPage(CurrentPage + 1)">›</button>
+                    <button class="drt-page-btn" disabled="@(CurrentPage == TotalPages)" @onclick="() => GoToPage(TotalPages)">»</button>
                 </div>
             </div>
         }

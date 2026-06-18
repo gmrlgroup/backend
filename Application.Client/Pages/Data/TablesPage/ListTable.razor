@@ -1,321 +1,213 @@
 @page "/data/tables"
 @using Application.Shared.Models
 @using Application.Shared.Models.Data
-@using Microsoft.AspNetCore.Components.Authorization
-@using Microsoft.FluentUI.AspNetCore.Components
-@using Microsoft.JSInterop
 @inject HttpClient _httpClient
 @inject IToastService _toastService
 @inject NavigationManager _navigationManager
 @inject AuthenticationStateProvider _authenticationStateProvider
 @inject IJSRuntime _jsRuntime
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
-@attribute [Authorize]
+@attribute [Authorize(Policy = PolicyNames.DatasetsAccess)]
 
 <PageTitle>Tables</PageTitle>
 
-
-        <!-- Main Content Card -->
-        <FluentCard style="
-            background: rgba(255,255,255,0.95); 
-            border-radius: 16px; 
-            border: none; 
-            backdrop-filter: blur(10px); 
-            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
-            padding: 0;
-            overflow: hidden;">
-            
-            <!-- Card Header -->
-            <div style="
-                padding: 32px 32px 24px 32px; 
-                border-bottom: 1px solid rgba(0,0,0,0.06);
-                background: linear-gradient(90deg, rgba(102,126,234,0.05) 0%, rgba(118,75,162,0.05) 100%);">
-                <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween" VerticalAlignment="VerticalAlignment.Center">
-                    <div>
-                        <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" VerticalGap="8">
-                            <FluentButton 
-                                Appearance="Appearance.Stealth" 
-                                OnClick="@GoBack"
-                                style="
-                                    padding: 8px; 
-                                    border-radius: 8px;
-                                    color: #6b7280;
-                                    margin-right: 8px;">
-                                <FluentIcon Value="@(new Icons.Regular.Size20.ArrowLeft())" />
-                            </FluentButton>
-                            <div>
-                                <h2 style="
-                                    font-size: 1.5rem; 
-                                    font-weight: 600; 
-                                    color: #1f2937; 
-                                    margin: 0 0 4px 0;">
-                                    @if (string.IsNullOrEmpty(datasetName))
-                                    {
-                                        <span>Tables</span>
-                                    }
-                                    else
-                                    {
-                                        <span>@datasetName Tables</span>
-                                    }
-                                </h2>
-                                <p style="
-                                    color: #6b7280; 
-                                    margin: 0; 
-                                    font-size: 0.875rem;">
-                                    @if (isLoading)
-                                    {
-                                        <span>Loading tables...</span>
-                                    }
-                                    else
-                                    {
-                                        <span>@(tables?.Count ?? 0) tables found</span>
-                                    }
-                                </p>
-                            </div>
-                        </FluentStack>
-                    </div>
-                    
-                    <FluentButton 
-                        Appearance="Appearance.Accent" 
-                        OnClick="@CreateTable"
-                        style="
-                            font-weight: 600; 
-                            border-radius: 8px; 
-                            padding: 12px 24px;
-                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                            border: none;">
-                        <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="@Color.Lightweight" style="margin-right: 8px;" />
-                        Create Table
-                    </FluentButton>
-                </FluentStack>
+@if (!canView && !isLoading)
+{
+    <div class="flex flex-col items-center justify-center h-64 text-gray-500 gap-2">
+        <svg class="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <p class="text-sm font-semibold text-gray-700">Access Denied</p>
+        <p class="text-xs text-gray-400">You don't have permission to view tables.</p>
+    </div>
+}
+else
+{
+<div class="ds-page">
+    <div class="ds-header">
+        <div style="display:flex;align-items:center;gap:0.75rem">
+            <button class="btn-icon" title="Back to Datasets" @onclick="GoBack">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+            </button>
+            <div>
+                <h1 class="ds-title">
+                    @if (!string.IsNullOrEmpty(datasetName)) { @datasetName<span style="font-weight:400;color:#71717a"> / Tables</span> }
+                    else { <span>Tables</span> }
+                </h1>
+                <p class="ds-subtitle">
+                    @if (!isLoading) { <span>@(tables?.Count ?? 0) table@(tables?.Count == 1 ? "" : "s")</span> }
+                </p>
             </div>
+        </div>
+        @if (canEdit)
+        {
+        <button class="btn btn-default" @onclick="CreateTable">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+            New Table
+        </button>
+        }
+    </div>
 
-            <!-- Data Grid Container -->
-            <div style="padding: 24px 32px 32px 32px;min-height: 70vh;">
-                @if (isLoading)
-                {
-                    <div style="
-                        display: flex; 
-                        justify-content: center; 
-                        align-items: center; 
-                        padding: 80px 0;
-                        flex-direction: column;
-                        gap: 16px;">
-                        <FluentProgressRing style="width: 48px; height: 48px;" />
-                        <p style="color: #6b7280; margin: 0;">Loading tables...</p>
-                    </div>
-                }
-                else if (tables?.Any() == true)
-                {
-                    <!-- Data Grid -->
-                    <div style="
-                        border-radius: 12px; 
-                        overflow: hidden; 
-                        border: 1px solid rgba(0,0,0,0.06);
-                        background: white;
-                        min-height: 60vh;">
-                        <FluentDataGrid @ref="dataGrid" 
-                            Items="@filteredTables"
-                            ResizableColumns="true"
-                            ResizeType="@DataGridResizeType.Discrete"
-                            HeaderCellAsButtonWithMenu="true"
-                            Pagination="@pagination"
-                            TGridItem="string"
-                            RowSize="DataGridRowSize.Medium"
-                            GridTemplateColumns="1fr 0.8fr"
-                            ShowHover="true"
-                            style="border: none;">
+    <div class="ds-card">
+        <div class="ds-card-toolbar">
+            <div class="ds-search-wrap">
+                <svg class="ds-search-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input class="ds-search" type="search" placeholder="Search tables..." @bind="searchTerm" @bind:event="oninput" @bind:after="HandleSearch" />
+            </div>
+        </div>
 
-                            <PropertyColumn Property="@(t => t)" 
-                                Title="Table Name" 
-                                Sortable="true" 
-                                InitialSortDirection="SortDirection.Ascending"
-                                IsDefaultSortColumn="true"
-                                Filtered="!string.IsNullOrWhiteSpace(Filter)">
-                                <ColumnOptions>
-                                    <div class="search-box" style="padding: 8px;">
-                                        <FluentSearch 
-                                            type="search" 
-                                            @bind-Value="@Filter" 
-                                            @bind-Value:after="@HandleFilter" 
-                                            Placeholder="Search tables..." 
-                                            style="width: 100%;" />
-                                    </div>
-                                </ColumnOptions>
-                                
-                            </PropertyColumn>
-
-                            <TemplateColumn Title="Actions" Align="@Align.End">
-                                <ChildContent>
-                                    <div style="display: flex; gap: 8px; justify-content: flex-end;">
-                                        <FluentButton 
-                                            aria-label="View table data" 
-                                            Appearance="Appearance.Stealth"
-                                            OnClick="@(() => ViewTable(context))"
-                                            style="
-                                                padding: 8px; 
-                                                border-radius: 6px;
-                                                color: #667eea;">
-                                            <FluentIcon Value="@(new Icons.Regular.Size16.Table())" />
-                                        </FluentButton>
-
-                                        <FluentButton 
-                                            aria-label="Download table data" 
-                                            Appearance="Appearance.Stealth"
-                                            OnClick="@(() => DownloadTable(context))"
-                                            style="
-                                                padding: 8px; 
-                                                border-radius: 6px;
-                                                color: #059669;">
-                                            <FluentIcon Value="@(new Icons.Regular.Size16.ArrowDownload())" />
-                                        </FluentButton>
-
-                                        <FluentButton 
-                                            aria-label="Edit table structure" 
-                                            Appearance="Appearance.Stealth"
-                                            OnClick="@(() => EditTable(context))"
-                                            style="
-                                                padding: 8px; 
-                                                border-radius: 6px;
-                                                color: #667eea;">
-                                            <FluentIcon Value="@(new Icons.Regular.Size16.Edit())" />
-                                        </FluentButton>
-                                        
-                                        <FluentButton 
-                                            aria-label="Delete table" 
-                                            Appearance="Appearance.Stealth"
-                                            OnClick="@(() => DeleteTable(context))"
-                                            style="
-                                                padding: 8px; 
-                                                border-radius: 6px;
-                                                color: #ef4444;">
-                                            <FluentIcon Value="@(new Icons.Regular.Size16.Delete())" />
-                                        </FluentButton>
-                                    </div>
-                                </ChildContent>
-                            </TemplateColumn>
-
-                        </FluentDataGrid>
-                    </div>
-
-                    <!-- Pagination -->
-                    <div style="margin-top: 24px; border-top: 1px solid rgba(0,0,0,0.06); padding-top: 24px;">
-                        <FluentPaginator State="@pagination" style="
-                            display: flex; 
-                            justify-content: center;
-                            gap: 16px;">
-                            <SummaryTemplate>
-                                <div style="
-                                    color: #6b7280; 
-                                    font-size: 0.875rem;
-                                    display: flex;
-                                    align-items: center;
-                                    gap: 8px;">
-                                    <FluentIcon Value="@(new Icons.Regular.Size16.Info())" style="color: #9ca3af;" />
-                                    <span>Showing <strong>@(pagination.TotalItemCount ?? 0)</strong> tables</span>
-                                </div>
-                            </SummaryTemplate>
-                            <PaginationTextTemplate>
-                                <div style="
-                                    color: #6b7280; 
-                                    font-size: 0.875rem;">
-                                    Page <strong>@(pagination.CurrentPageIndex + 1)</strong> of <strong>@(pagination.LastPageIndex + 1)</strong>
-                                </div>
-                            </PaginationTextTemplate>
-                        </FluentPaginator>
-                    </div>
-                }
-                else
-                {
-                    <!-- Empty State -->
-                    <div style="
-                        display: flex; 
-                        flex-direction: column; 
-                        align-items: center; 
-                        justify-content: center; 
-                        padding: 80px 0;
-                        text-align: center;">
-                        <FluentIcon Value="@(new Icons.Regular.Size48.Table())" style="
-                            color: #d1d5db; 
-                            margin-bottom: 16px;" />
-                        <h3 style="
-                            color: #374151; 
-                            font-size: 1.25rem; 
-                            font-weight: 600; 
-                            margin: 0 0 8px 0;">
-                            No Tables Found
-                        </h3>
-                        <p style="
-                            color: #6b7280; 
-                            margin: 0 0 24px 0; 
-                            font-size: 0.875rem;">
-                            @if (string.IsNullOrEmpty(companyId) || string.IsNullOrEmpty(datasetId))
-                            {
-                                <span>Company ID and Dataset ID are required to load tables.</span>
-                            }
-                            else
-                            {
-                                <span>Get started by creating your first table in this dataset.</span>
-                            }
-                        </p>
-                        @if (!string.IsNullOrEmpty(companyId) && !string.IsNullOrEmpty(datasetId))
+        @if (isLoading)
+        {
+            <div class="ds-loading">
+                <div class="ds-spinner"></div>
+                <span>Loading tables...</span>
+            </div>
+        }
+        else if (pagedItems?.Any() == true)
+        {
+            <div class="ds-table-wrap">
+                <table class="ds-table">
+                    <thead>
+                        <tr>
+                            <th class="ds-th ds-th-sortable" @onclick="ToggleSort">
+                                <span>Table Name</span>
+                                @if (sortAsc)
+                                {
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+                                }
+                                else
+                                {
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                                }
+                            </th>
+                            <th class="ds-th ds-th-actions">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var tableName in pagedItems)
                         {
-                            <FluentButton 
-                                Appearance="Appearance.Accent" 
-                                OnClick="@CreateTable"
-                                style="
-                                    font-weight: 600; 
-                                    border-radius: 8px; 
-                                    padding: 12px 24px;
-                                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                                    border: none;">
-                                <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="@Color.Lightweight" style="margin-right: 8px;" />
-                                Create Your First Table
-                            </FluentButton>
+                            <tr class="ds-tr">
+                                <td class="ds-td ds-td-name">
+                                    <div style="display:flex;align-items:center;gap:0.5rem">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#71717a;flex-shrink:0"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>
+                                        <span class="ds-dataset-name">@tableName</span>
+                                    </div>
+                                </td>
+                                <td class="ds-td ds-td-actions-cell">
+                                    <div class="ds-actions">
+                                        <button class="btn-icon btn-icon-open" title="View table data" @onclick="() => ViewTable(tableName)">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>
+                                        </button>
+                                        <button class="btn-icon" title="Download CSV" @onclick="() => DownloadTable(tableName)" style="color:#71717a">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                                        </button>
+                                        <button class="btn-icon btn-icon-edit" title="Edit table structure" @onclick="() => EditTable(tableName)">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                                        </button>
+                                        <button class="btn-icon btn-icon-delete" title="Delete table" @onclick="() => DeleteTable(tableName)">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
                         }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (totalPages > 1)
+            {
+                <div class="ds-pagination">
+                    <span>Page @(currentPage + 1) of @totalPages</span>
+                    <div class="ds-page-btns">
+                        <button class="btn-page" disabled="@(currentPage == 0)" @onclick="PrevPage">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                        </button>
+                        @for (int i = 0; i < totalPages; i++)
+                        {
+                            var pageIndex = i;
+                            <button class="btn-page @(currentPage == pageIndex ? "btn-page-active" : "")" @onclick="() => GoToPage(pageIndex)">@(i + 1)</button>
+                        }
+                        <button class="btn-page" disabled="@(currentPage >= totalPages - 1)" @onclick="NextPage">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
                     </div>
+                </div>
+            }
+        }
+        else
+        {
+            <div class="ds-empty">
+                <div class="ds-empty-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>
+                </div>
+                <h3 class="ds-empty-title">No tables found</h3>
+                <p class="ds-empty-sub">
+                    @if (!string.IsNullOrWhiteSpace(searchTerm))
+                    {
+                        <span>No tables match "<strong>@searchTerm</strong>". Try a different search.</span>
+                    }
+                    else if (string.IsNullOrEmpty(companyId) || string.IsNullOrEmpty(datasetId))
+                    {
+                        <span>Company ID and Dataset ID are required to load tables.</span>
+                    }
+                    else
+                    {
+                        <span>Get started by creating your first table in this dataset.</span>
+                    }
+                </p>
+                @if (canEdit && !string.IsNullOrEmpty(companyId) && !string.IsNullOrEmpty(datasetId) && string.IsNullOrWhiteSpace(searchTerm))
+                {
+                    <button class="btn btn-default" @onclick="CreateTable">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                        Create Table
+                    </button>
                 }
             </div>
-        </FluentCard>
+        }
+    </div>
+</div>
+}
 
 @code {
-
     [SupplyParameterFromQuery] public string? c { get; set; }
-
     [SupplyParameterFromQuery] public string? d { get; set; }
 
-    private FluentDataGrid<string> dataGrid = null!;
+    private bool canView;
+    private bool canEdit;
     private List<string>? tables;
-    private IQueryable<string>? filteredTables;
-    private string Filter { get; set; } = string.Empty;
-    private PaginationState pagination = new PaginationState { ItemsPerPage = 10 };
+    private List<string>? filteredItems;
+    private IEnumerable<string>? pagedItems;
+    private string searchTerm = string.Empty;
+    private bool sortAsc = true;
+    private int currentPage = 0;
+    private const int pageSize = 10;
+    private int totalPages => (int)Math.Ceiling((filteredItems?.Count ?? 0) / (double)pageSize);
     private bool isLoading = true;
     private string? companyId;
     private string? datasetId;
     private string? datasetName;
 
-    
-
     protected override async Task OnInitializedAsync()
     {
-        // Get company ID and dataset ID from query parameters
         companyId = c;
         datasetId = d;
-        
+
         if (string.IsNullOrEmpty(companyId))
         {
             _toastService.ShowWarning("Company ID is required to view tables");
             isLoading = false;
             return;
         }
-
         if (string.IsNullOrEmpty(datasetId))
         {
             _toastService.ShowWarning("Dataset ID is required to view tables");
             isLoading = false;
             return;
         }
-
+        var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        canView = user.IsInRole($"{companyId}_VIEW_DATA");
+        canEdit = user.IsInRole($"{companyId}_EDIT_DATA");
+        if (!canView) { isLoading = false; return; }
         await LoadTables();
     }
 
@@ -326,10 +218,8 @@
             isLoading = true;
             StateHasChanged();
 
-            // Add user ID to headers for the API call
             var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
             var user = authState.User;
-            
             if (user.Identity?.IsAuthenticated == true)
             {
                 var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
@@ -340,7 +230,6 @@
                 }
             }
 
-            // Load dataset info for display
             var datasetResponse = await _httpClient.GetAsync($"api/Datasets/item/{datasetId}");
             if (datasetResponse.IsSuccessStatusCode)
             {
@@ -348,26 +237,26 @@
                 datasetName = dataset?.Name;
             }
 
-            // Load tables
             var response = await _httpClient.GetAsync($"api/Datasets/{datasetId}/tables");
-            
             if (response.IsSuccessStatusCode)
             {
                 tables = await response.Content.ReadFromJsonAsync<List<string>>();
-                filteredTables = tables?.AsQueryable() ?? new List<string>().AsQueryable();
+                ApplyFilterAndSort();
             }
             else
             {
                 _toastService.ShowError($"Failed to load tables: {response.StatusCode}");
-                tables = new List<string>();
-                filteredTables = new List<string>().AsQueryable();
+                tables = [];
+                filteredItems = [];
+                pagedItems = [];
             }
         }
         catch (Exception ex)
         {
             _toastService.ShowError($"Error loading tables: {ex.Message}");
-            tables = new List<string>();
-            filteredTables = new List<string>().AsQueryable();
+            tables = [];
+            filteredItems = [];
+            pagedItems = [];
         }
         finally
         {
@@ -376,51 +265,45 @@
         }
     }
 
-    private async Task HandleFilter()
+    private void HandleSearch()
     {
-        if (tables == null) return;
-
-        // Reset to first page when filtering
-        await pagination.SetCurrentPageIndexAsync(0);
-        
-        // Apply filters
-        var filtered = tables.AsEnumerable();
-
-        if (!string.IsNullOrWhiteSpace(Filter))
-        {
-            filtered = filtered.Where(t => 
-                t.Contains(Filter, StringComparison.OrdinalIgnoreCase));
-        }
-
-        filteredTables = filtered.AsQueryable();
-        await dataGrid.RefreshDataAsync();
+        currentPage = 0;
+        ApplyFilterAndSort();
     }
 
-    private void CreateTable()
+    private void ToggleSort()
     {
-        _navigationManager.NavigateTo($"/data/tables/create?c={companyId}&d={datasetId}");
-    }    
-    
-    private void ViewTable(string tableName)
-    {
-        // Navigate to table data view
-        _navigationManager.NavigateTo($"/data/view?c={companyId}&DatasetId={datasetId}&TableName={tableName}");
+        sortAsc = !sortAsc;
+        ApplyFilterAndSort();
     }
+
+    private void ApplyFilterAndSort()
+    {
+        var query = tables?.AsEnumerable() ?? [];
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+            query = query.Where(t => t.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
+        query = sortAsc ? query.OrderBy(t => t) : query.OrderByDescending(t => t);
+        filteredItems = query.ToList();
+        pagedItems = filteredItems.Skip(currentPage * pageSize).Take(pageSize);
+        StateHasChanged();
+    }
+
+    private void PrevPage() { if (currentPage > 0) { currentPage--; ApplyFilterAndSort(); } }
+    private void NextPage() { if (currentPage < totalPages - 1) { currentPage++; ApplyFilterAndSort(); } }
+    private void GoToPage(int page) { currentPage = page; ApplyFilterAndSort(); }
+
+    private void CreateTable() => _navigationManager.NavigateTo($"/data/tables/create?c={companyId}&d={datasetId}");
+    private void ViewTable(string tableName) => _navigationManager.NavigateTo($"/data/view?c={companyId}&DatasetId={datasetId}&TableName={tableName}");
+    private void EditTable(string tableName) => _navigationManager.NavigateTo($"/data/tables/edit?c={companyId}&d={datasetId}&t={tableName}");
+    private void GoBack() => _navigationManager.NavigateTo($"/data/datasets?c={companyId}");
 
     private async Task DownloadTable(string tableName)
     {
-        if (string.IsNullOrEmpty(tableName))
-        {
-            _toastService.ShowError("Invalid table name");
-            return;
-        }
-
+        if (string.IsNullOrEmpty(tableName)) { _toastService.ShowError("Invalid table name"); return; }
         try
         {
-            // Add user ID to headers for the API call
             var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
             var user = authState.User;
-            
             if (user.Identity?.IsAuthenticated == true)
             {
                 var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
@@ -430,25 +313,13 @@
                     _httpClient.DefaultRequestHeaders.Add("UserId", userId);
                 }
             }
-
-            // Call the download endpoint
             var response = await _httpClient.GetAsync($"api/Datasets/{datasetId}/tables/{tableName}/download");
-            
             if (response.IsSuccessStatusCode)
             {
                 var content = await response.Content.ReadAsByteArrayAsync();
                 var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/csv";
-                
-                // Get filename from Content-Disposition header or create default
-                var fileName = $"{tableName}.csv";
-                if (response.Content.Headers.ContentDisposition?.FileName != null)
-                {
-                    fileName = response.Content.Headers.ContentDisposition.FileName.Trim('"');
-                }
-
-                // Trigger download using JavaScript interop
+                var fileName = response.Content.Headers.ContentDisposition?.FileName?.Trim('"') ?? $"{tableName}.csv";
                 await _jsRuntime.InvokeVoidAsync("downloadFileFromByteArray", fileName, contentType, content);
-                
                 _toastService.ShowSuccess($"Table '{tableName}' downloaded successfully");
             }
             else
@@ -462,27 +333,13 @@
         }
     }
 
-    private void EditTable(string tableName)
-    {
-        // Navigate to table structure edit page (you'll need to create this)
-        // _navigationManager.NavigateTo($"/data/tables/edit/{tableName}?c={companyId}&d={datasetId}");
-        _navigationManager.NavigateTo($"/data/tables/edit?c={companyId}&d={datasetId}&t={tableName}");
-    }
-
     private async Task DeleteTable(string tableName)
     {
-        if (string.IsNullOrEmpty(tableName))
-        {
-            _toastService.ShowError("Invalid table name");
-            return;
-        }
-
+        if (string.IsNullOrEmpty(tableName)) { _toastService.ShowError("Invalid table name"); return; }
         try
         {
-            // Add user ID to headers for the API call
             var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
             var user = authState.User;
-            
             if (user.Identity?.IsAuthenticated == true)
             {
                 var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
@@ -492,13 +349,11 @@
                     _httpClient.DefaultRequestHeaders.Add("UserId", userId);
                 }
             }
-
             var response = await _httpClient.DeleteAsync($"api/Datasets/{datasetId}/tables/{tableName}");
-            
             if (response.IsSuccessStatusCode)
             {
                 _toastService.ShowSuccess($"Table '{tableName}' deleted successfully");
-                await LoadTables(); // Reload the list
+                await LoadTables();
             }
             else
             {
@@ -510,26 +365,4 @@
             _toastService.ShowError($"Error deleting table: {ex.Message}");
         }
     }
-
-    private void GoBack()
-    {
-        _navigationManager.NavigateTo($"/data/datasets?c={companyId}");
-    }
 }
-
-<style>
-    .search-box {
-        width: 100%;
-    }
-    
-    .search-box input {
-        border-radius: 6px;
-        border: 1px solid #d1d5db;
-        transition: all 0.2s ease;
-    }
-    
-    .search-box input:focus {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-    }
-</style>

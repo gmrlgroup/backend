@@ -57,6 +57,10 @@ builder.Services.AddDbContext<SchedulerDbContext>(options =>
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(appConnectionString, b => b.MigrationsAssembly("Application")));
 
+var statusConnectionString = builder.Configuration.GetConnectionString("StatusDbContext") ?? appConnectionString;
+builder.Services.AddDbContext<StatusDbContext>(options =>
+    options.UseSqlServer(statusConnectionString, b => b.MigrationsAssembly("Application")));
+
 
 builder.Services.AddHangfire(cfg => cfg
     .UseSimpleAssemblyNameTypeSerializer()
@@ -74,6 +78,7 @@ builder.Services.AddScoped<ISalesRepository, SalesRepository>();
 builder.Services.AddScoped<IDatabaseRepository, DatabaseRepository>();
 builder.Services.AddScoped<SalesJob>();
 builder.Services.AddScoped<SalesSnapshotEmailJob>();
+builder.Services.AddScoped<AssetPingJob>();
 
 builder.Services.Configure<SalesSnapshotEmailOptions>(builder.Configuration.GetSection("SalesSnapshotEmail"));
 
@@ -177,6 +182,14 @@ RecurringJob.AddOrUpdate<SalesSnapshotEmailJob>(
     recurringJobId: "sales-snapshot-email",
     methodCall: job => job.RunAsync(CancellationToken.None),
     cronExpression: "5 0 * * *",
+    timeZone: tz
+);
+
+// Status ping monitoring — every 15 minutes
+RecurringJob.AddOrUpdate<AssetPingJob>(
+    recurringJobId: "asset-ping-monitoring",
+    methodCall: job => job.RunAsync(null, CancellationToken.None),
+    cronExpression: "*/15 * * * *",
     timeZone: tz
 );
 

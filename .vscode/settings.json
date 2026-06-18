@@ -1,0 +1,6 @@
+{
+    "dataworkspace.excludedProjects": [
+        "Application.Database/Application.Database.sqlproj",
+        "Application.Database.Backend/Application.Database.sqlproj"
+    ]
+}

@@ -1,292 +1,184 @@
 @page "/data/datasets"
-@using Application.Shared.Models
-@using Microsoft.AspNetCore.Components.Authorization
-@using Microsoft.FluentUI.AspNetCore.Components
-@using Application.Client.Components
 @inject HttpClient _httpClient
 @inject IToastService _toastService
 @inject NavigationManager _navigationManager
 @inject AuthenticationStateProvider _authenticationStateProvider
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
-@attribute [Authorize]
+@attribute [Authorize(Policy = PolicyNames.DatasetsAccess)]
 
 <PageTitle>Datasets</PageTitle>
 
+@if (!canView && !isLoading)
+{
+    <div class="flex flex-col items-center justify-center h-64 text-gray-500 gap-2">
+        <svg class="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <p class="text-sm font-semibold text-gray-700">Access Denied</p>
+        <p class="text-xs text-gray-400">You don't have permission to view datasets.</p>
+    </div>
+}
+else
+{
+<div class="ds-page">
+    <div class="ds-header">
+        <div>
+            <h1 class="ds-title">Datasets</h1>
+            <p class="ds-subtitle">
+                @if (!isLoading)
+                {
+                    <span>@(allItems?.Count ?? 0) dataset@(allItems?.Count == 1 ? "" : "s")</span>
+                }
+            </p>
+        </div>
+        @if (canEdit)
+        {
+        <button class="btn btn-default" @onclick="CreateDataset">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+            New Dataset
+        </button>
+        }
+    </div>
 
-        <!-- Main Content Card -->
-        <FluentCard style="
-            background: rgba(255,255,255,0.95); 
-            border-radius: 16px; 
-            border: none; 
-            backdrop-filter: blur(10px); 
-            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
-            padding: 0;
-            overflow: hidden;">
-            
-            <!-- Card Header -->
-            <div style="
-                padding: 32px 32px 24px 32px; 
-                border-bottom: 1px solid rgba(0,0,0,0.06);
-                background: linear-gradient(90deg, rgba(102,126,234,0.05) 0%, rgba(118,75,162,0.05) 100%);">
-                <FluentStack Orientation="Orientation.Horizontal" HorizontalAlignment="HorizontalAlignment.SpaceBetween" VerticalAlignment="VerticalAlignment.Center">
-                    <div>
-                        <h2 style="
-                            font-size: 1.5rem; 
-                            font-weight: 600; 
-                            color: #1f2937; 
-                            margin: 0 0 4px 0;">
-                            All Datasets
-                        </h2>
-                        <p style="
-                            color: #6b7280; 
-                            margin: 0; 
-                            font-size: 0.875rem;">
-                            @if (isLoading)
-                            {
-                                <span>Loading datasets...</span>
-                            }
-                            else
-                            {
-                                <span>@(items?.Count() ?? 0) datasets found</span>
-                            }
-                        </p>
-                    </div>
-                    
-                    <FluentButton 
-                        Appearance="Appearance.Accent" 
-                        OnClick="@CreateDataset"
-                        style="
-                            font-weight: 600; 
-                            border-radius: 8px; 
-                            padding: 12px 24px;
-                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                            border: none;">
-                        <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="@Color.Lightweight" style="margin-right: 8px;" />
-                        Create Dataset
-                    </FluentButton>
-                </FluentStack>
+    <div class="ds-card">
+        <div class="ds-card-toolbar">
+            <div class="ds-search-wrap">
+                <svg class="ds-search-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input class="ds-search" type="search" placeholder="Search datasets..." @bind="searchTerm" @bind:event="oninput" @bind:after="HandleSearch" />
             </div>
+        </div>
 
-            <!-- Data Grid Container -->
-            <div style="padding: 24px 32px 32px 32px;min-height: 70vh;">
-                @if (isLoading)
-                {
-                    <div style="
-                        display: flex; 
-                        justify-content: center; 
-                        align-items: center; 
-                        padding: 80px 0;
-                        flex-direction: column;
-                        gap: 16px;">
-                        <FluentProgressRing style="width: 48px; height: 48px;" />
-                        <p style="color: #6b7280; margin: 0;">Loading datasets...</p>
-                    </div>
-                }
-                else if (items?.Any() == true)
-                {
-                    <!-- Data Grid -->
-                    <div style="
-                        border-radius: 12px; 
-                        overflow: hidden; 
-                        border: 1px solid rgba(0,0,0,0.06);
-                        background: white;
-                        min-height: 60vh;">
-                        <FluentDataGrid @ref="dataGrid" 
-                            Items="@items"
-                            ResizableColumns="true"
-                            ResizeType="@DataGridResizeType.Discrete"
-                            HeaderCellAsButtonWithMenu="true"
-                            Pagination="@pagination"
-                            TGridItem="Dataset"
-                            RowSize="DataGridRowSize.Medium"
-                            GridTemplateColumns="1fr 2fr 0.8fr"
-                            ShowHover="true"
-                            style="border: none;">
-
-                            <PropertyColumn Property="@(d => d.Name)" 
-                                Title="Dataset Name" 
-                                Sortable="true" 
-                                InitialSortDirection="SortDirection.Ascending"
-                                IsDefaultSortColumn="true"
-                                Filtered="!string.IsNullOrWhiteSpace(Filter.Name)">
-                                <ColumnOptions>
-                                    <div class="search-box" style="padding: 8px;">
-                                        <FluentSearch 
-                                            type="search" 
-                                            @bind-Value="@Filter.Name" 
-                                            @bind-Value:after="@HandleFilter" 
-                                            Placeholder="Search datasets..." 
-                                            style="width: 100%;" />
-                                    </div>
-                                </ColumnOptions>
-                                
-                            </PropertyColumn>
-
-                            <PropertyColumn Property="@(d => d.Description)" 
-                                Title="Description" 
-                                Sortable="true"
-                                Filtered="!string.IsNullOrWhiteSpace(Filter.Description)">
-                                <ColumnOptions>
-                                    <div class="search-box" style="padding: 8px;">
-                                        <FluentSearch 
-                                            type="search" 
-                                            @bind-Value="@Filter.Description" 
-                                            @bind-Value:after="@HandleFilter" 
-                                            Placeholder="Search descriptions..." 
-                                            style="width: 100%;" />
-                                    </div>
-                                </ColumnOptions>
-                                
-                            </PropertyColumn>
-
-                            <TemplateColumn Title="Actions" Align="@Align.End">
-                                <ChildContent>
-                                    <div style="display: flex; gap: 8px; justify-content: flex-end;">
-                                        <FluentButton 
-                                            aria-label="Open dataset" 
-                                            Appearance="Appearance.Stealth"
-                                            OnClick="@(() => OpenDataset(context))"
-                                            style="
-                                                padding: 8px; 
-                                                border-radius: 6px;
-                                                color: #22c55e;">
-                                            <FluentIcon Value="@(new Icons.Regular.Size16.Open())" />
-                                        </FluentButton>
-
-                                        <FluentButton 
-                                            aria-label="Share dataset" 
-                                            Appearance="Appearance.Stealth"
-                                            OnClick="@(() => ShareDataset(context))"
-                                            style="
-                                                padding: 8px; 
-                                                border-radius: 6px;
-                                                color: #3b82f6;">
-                                            <FluentIcon Value="@(new Icons.Regular.Size16.Share())" />
-                                        </FluentButton>
-
-                                        <FluentButton 
-                                            aria-label="Edit dataset" 
-                                            Appearance="Appearance.Stealth"
-                                            OnClick="@(() => EditDataset(context))"
-                                            style="
-                                                padding: 8px; 
-                                                border-radius: 6px;
-                                                color: #667eea;">
-                                            <FluentIcon Value="@(new Icons.Regular.Size16.Edit())" />
-                                        </FluentButton>
-                                        
-                                        <FluentButton 
-                                            aria-label="Delete dataset" 
-                                            Appearance="Appearance.Stealth"
-                                            OnClick="@(() => DeleteDataset(context))"
-                                            style="
-                                                padding: 8px; 
-                                                border-radius: 6px;
-                                                color: #ef4444;">
-                                            <FluentIcon Value="@(new Icons.Regular.Size16.Delete())" />
-                                        </FluentButton>
-                                    </div>
-                                </ChildContent>
-                            </TemplateColumn>
-
-                        </FluentDataGrid>
-                    </div>
-
-                    <!-- Pagination -->
-                    <div style="margin-top: 24px; border-top: 1px solid rgba(0,0,0,0.06); padding-top: 24px;">
-                        <FluentPaginator State="@pagination" style="
-                            display: flex; 
-                            justify-content: center;
-                            gap: 16px;">
-                            <SummaryTemplate>
-                                <div style="
-                                    color: #6b7280; 
-                                    font-size: 0.875rem;
-                                    display: flex;
-                                    align-items: center;
-                                    gap: 8px;">
-                                    <FluentIcon Value="@(new Icons.Regular.Size16.Info())" style="color: #9ca3af;" />
-                                    <span>Showing <strong>@(pagination.TotalItemCount ?? 0)</strong> datasets</span>
-                                </div>
-                            </SummaryTemplate>
-                            <PaginationTextTemplate>
-                                <div style="
-                                    color: #6b7280; 
-                                    font-size: 0.875rem;">
-                                    Page <strong>@(pagination.CurrentPageIndex + 1)</strong> of <strong>@(pagination.LastPageIndex + 1)</strong>
-                                </div>
-                            </PaginationTextTemplate>
-                        </FluentPaginator>
-                    </div>
-                }
-                else
-                {
-                    <!-- Empty State -->
-                    <div style="
-                        display: flex; 
-                        flex-direction: column; 
-                        align-items: center; 
-                        justify-content: center; 
-                        padding: 80px 0;
-                        text-align: center;">
-                        <FluentIcon Value="@(new Icons.Regular.Size48.Database())" style="
-                            color: #d1d5db; 
-                            margin-bottom: 16px;" />
-                        <h3 style="
-                            color: #374151; 
-                            font-size: 1.25rem; 
-                            font-weight: 600; 
-                            margin: 0 0 8px 0;">
-                            No Datasets Found
-                        </h3>
-                        <p style="
-                            color: #6b7280; 
-                            margin: 0 0 24px 0; 
-                            font-size: 0.875rem;">
-                            @if (string.IsNullOrEmpty(companyId))
-                            {
-                                <span>Company ID is required to load datasets.</span>
-                            }
-                            else
-                            {
-                                <span>Get started by creating your first dataset for your company.</span>
-                            }
-                        </p>
-                        @if (!string.IsNullOrEmpty(companyId))
+        @if (isLoading)
+        {
+            <div class="ds-loading">
+                <div class="ds-spinner"></div>
+                <span>Loading datasets...</span>
+            </div>
+        }
+        else if (pagedItems?.Any() == true)
+        {
+            <div class="ds-table-wrap">
+                <table class="ds-table">
+                    <thead>
+                        <tr>
+                            <th class="ds-th ds-th-sortable" @onclick='() => SetSort("name")'>
+                                <span>Name</span> @SortIcon("name")
+                            </th>
+                            <th class="ds-th ds-th-sortable" @onclick='() => SetSort("description")'>
+                                <span>Description</span> @SortIcon("description")
+                            </th>
+                            <th class="ds-th ds-th-sortable" @onclick='() => SetSort("created")'>
+                                <span>Created</span> @SortIcon("created")
+                            </th>
+                            <th class="ds-th ds-th-actions">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var dataset in pagedItems)
                         {
-                            <FluentButton 
-                                Appearance="Appearance.Accent" 
-                                OnClick="@CreateDataset"
-                                style="
-                                    font-weight: 600; 
-                                    border-radius: 8px; 
-                                    padding: 12px 24px;
-                                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                                    border: none;">
-                                <FluentIcon Value="@(new Icons.Regular.Size16.Add())" Color="@Color.Lightweight" style="margin-right: 8px;" />
-                                Create Your First Dataset
-                            </FluentButton>
+                            <tr class="ds-tr">
+                                <td class="ds-td ds-td-name">
+                                    <span class="ds-dataset-name">@dataset.Name</span>
+                                </td>
+                                <td class="ds-td">
+                                    <span class="ds-dataset-desc">@dataset.Description</span>
+                                </td>
+                                <td class="ds-td ds-td-date">@dataset.CreatedAt.ToString("MMM dd, yyyy")</td>
+                                <td class="ds-td ds-td-actions-cell">
+                                    <div class="ds-actions">
+                                        <button class="btn-icon btn-icon-open" title="Open dataset" @onclick="() => OpenDataset(dataset)">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" x2="21" y1="14" y2="3"/></svg>
+                                        </button>
+                                        <button class="btn-icon btn-icon-share" title="Share dataset" @onclick="() => ShareDataset(dataset)">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></svg>
+                                        </button>
+                                        @if (canEdit)
+                                        {
+                                        <button class="btn-icon btn-icon-edit" title="Edit dataset" @onclick="() => EditDataset(dataset)">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                                        </button>
+                                        <button class="btn-icon btn-icon-delete" title="Delete dataset" @onclick="() => DeleteDataset(dataset)">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                                        </button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
                         }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (totalPages > 1)
+            {
+                <div class="ds-pagination">
+                    <span>Page @(currentPage + 1) of @totalPages</span>
+                    <div class="ds-page-btns">
+                        <button class="btn-page" disabled="@(currentPage == 0)" @onclick="PrevPage">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                        </button>
+                        @for (int i = 0; i < totalPages; i++)
+                        {
+                            var pageIndex = i;
+                            <button class="btn-page @(currentPage == pageIndex ? "btn-page-active" : "")" @onclick="() => GoToPage(pageIndex)">@(i + 1)</button>
+                        }
+                        <button class="btn-page" disabled="@(currentPage >= totalPages - 1)" @onclick="NextPage">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
                     </div>
+                </div>
+            }
+        }
+        else
+        {
+            <div class="ds-empty">
+                <div class="ds-empty-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>
+                </div>
+                <h3 class="ds-empty-title">No datasets found</h3>
+                <p class="ds-empty-sub">
+                    @if (!string.IsNullOrWhiteSpace(searchTerm))
+                    {
+                        <span>No datasets match "<strong>@searchTerm</strong>". Try a different search.</span>
+                    }
+                    else if (string.IsNullOrEmpty(companyId))
+                    {
+                        <span>Company ID is required to load datasets.</span>
+                    }
+                    else
+                    {
+                        <span>Get started by creating your first dataset.</span>
+                    }
+                </p>
+                @if (canEdit && !string.IsNullOrEmpty(companyId) && string.IsNullOrWhiteSpace(searchTerm))
+                {
+                    <button class="btn btn-default" @onclick="CreateDataset">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                        Create Dataset
+                    </button>
                 }
             </div>
-        </FluentCard>
+        }
+    </div>
+</div>
+}
 
-
-<!-- Share Dataset Modal -->
-<ShareDatasetModal IsVisible="@showShareModal" 
+<ShareDatasetModal IsVisible="@showShareModal"
                    IsVisibleChanged="@((bool value) => showShareModal = value)"
-                   DatasetId="@(selectedDatasetForSharing?.Id ?? string.Empty)" 
-                   DatasetName="@(selectedDatasetForSharing?.Name ?? string.Empty)" 
+                   DatasetId="@(selectedDatasetForSharing?.Id ?? string.Empty)"
+                   DatasetName="@(selectedDatasetForSharing?.Name ?? string.Empty)"
                    CompanyId="@(companyId ?? string.Empty)" />
 
-
 @code {
-    private FluentDataGrid<Dataset>? dataGrid;
-    private IQueryable<Dataset>? items;
-    private Dataset Filter { get; set; } = new Dataset();
-    private Dictionary<string, string> FilterQuery = new Dictionary<string, string>();
-    private PaginationState pagination = new PaginationState { ItemsPerPage = 10 };
+    private List<Dataset>? allItems;
+    private List<Dataset>? filteredItems;
+    private IEnumerable<Dataset>? pagedItems;
+    private string searchTerm = string.Empty;
+    private string sortField = "name";
+    private bool sortAsc = true;
+    private int currentPage = 0;
+    private const int pageSize = 10;
+    private int totalPages => (int)Math.Ceiling((filteredItems?.Count ?? 0) / (double)pageSize);
+    private bool canView;
+    private bool canEdit;
     private bool isLoading = true;
     private string? companyId;
     private bool showShareModal = false;
@@ -297,16 +189,18 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // Get company ID from query parameter
         companyId = c;
-        
         if (string.IsNullOrEmpty(companyId))
         {
             _toastService.ShowWarning("Company ID is required to view datasets");
             isLoading = false;
             return;
         }
-
+        var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        canView = user.IsInRole($"{companyId}_VIEW_DATA");
+        canEdit = user.IsInRole($"{companyId}_EDIT_DATA");
+        if (!canView) { isLoading = false; return; }
         await LoadDatasets();
     }
 
@@ -317,10 +211,8 @@
             isLoading = true;
             StateHasChanged();
 
-            // Add user ID to headers for the API call
             var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
             var user = authState.User;
-            
             if (user.Identity?.IsAuthenticated == true)
             {
                 var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
@@ -329,31 +221,33 @@
                     _httpClient.DefaultRequestHeaders.Remove("UserId");
                     _httpClient.DefaultRequestHeaders.Add("UserId", userId);
                 }
-
-                 if (!string.IsNullOrEmpty(c))
+                if (!string.IsNullOrEmpty(c))
                 {
                     _httpClient.DefaultRequestHeaders.Remove("X-Company-Id");
                     _httpClient.DefaultRequestHeaders.Add("X-Company-Id", c);
                 }
             }
 
-            var response = await _httpClient.GetAsync($"api/datasets");
-            
+            var response = await _httpClient.GetAsync("api/datasets");
             if (response.IsSuccessStatusCode)
             {
-                var datasets = await response.Content.ReadFromJsonAsync<List<Dataset>>();
-                items = datasets?.AsQueryable() ?? new List<Dataset>().AsQueryable();
+                allItems = await response.Content.ReadFromJsonAsync<List<Dataset>>();
+                ApplyFilterAndSort();
             }
             else
             {
                 _toastService.ShowError($"Failed to load datasets: {response.StatusCode}");
-                items = new List<Dataset>().AsQueryable();
+                allItems = [];
+                filteredItems = [];
+                pagedItems = [];
             }
         }
         catch (Exception ex)
         {
             _toastService.ShowError($"Error loading datasets: {ex.Message}");
-            items = new List<Dataset>().AsQueryable();
+            allItems = [];
+            filteredItems = [];
+            pagedItems = [];
         }
         finally
         {
@@ -362,54 +256,67 @@
         }
     }
 
-    private async Task HandleFilter()
+    private void HandleSearch()
     {
-        if (items == null) return;
+        currentPage = 0;
+        ApplyFilterAndSort();
+    }
 
-        // Reset to first page when filtering
-        await pagination.SetCurrentPageIndexAsync(0);
-        
-        // Apply filters
-        var filteredItems = items.AsEnumerable();
+    private void SetSort(string field)
+    {
+        if (sortField == field) sortAsc = !sortAsc;
+        else { sortField = field; sortAsc = true; }
+        currentPage = 0;
+        ApplyFilterAndSort();
+    }
 
-        if (!string.IsNullOrWhiteSpace(Filter.Name))
+    private void ApplyFilterAndSort()
+    {
+        var query = allItems?.AsEnumerable() ?? [];
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+            query = query.Where(d =>
+                (d.Name?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true) ||
+                (d.Description?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true));
+
+        query = sortField switch
         {
-            filteredItems = filteredItems.Where(d => 
-                d.Name?.Contains(Filter.Name, StringComparison.OrdinalIgnoreCase) == true);
-        }
+            "description" => sortAsc ? query.OrderBy(d => d.Description) : query.OrderByDescending(d => d.Description),
+            "created" => sortAsc ? query.OrderBy(d => d.CreatedAt) : query.OrderByDescending(d => d.CreatedAt),
+            _ => sortAsc ? query.OrderBy(d => d.Name) : query.OrderByDescending(d => d.Name),
+        };
 
-        if (!string.IsNullOrWhiteSpace(Filter.Description))
+        filteredItems = query.ToList();
+        pagedItems = filteredItems.Skip(currentPage * pageSize).Take(pageSize);
+        StateHasChanged();
+    }
+
+    private RenderFragment SortIcon(string field) => __builder =>
+    {
+        if (sortField == field)
         {
-            filteredItems = filteredItems.Where(d => 
-                d.Description?.Contains(Filter.Description, StringComparison.OrdinalIgnoreCase) == true);
+            if (sortAsc)
+            {
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+            }
+            else
+            {
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            }
         }
+        else
+        {
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.3"><path d="m18 15-6-6-6 6"/></svg>
+        }
+    };
 
-        items = filteredItems.AsQueryable();
-        if (dataGrid != null)
-            await dataGrid.RefreshDataAsync();
-    }
+    private void PrevPage() { if (currentPage > 0) { currentPage--; ApplyFilterAndSort(); } }
+    private void NextPage() { if (currentPage < totalPages - 1) { currentPage++; ApplyFilterAndSort(); } }
+    private void GoToPage(int page) { currentPage = page; ApplyFilterAndSort(); }
 
-    private void CreateDataset()
-    {
-        _navigationManager.NavigateTo($"/data/datasets/create?c={companyId}");
-    }
-
-    private void OpenDataset(Dataset dataset)
-    {
-        _navigationManager.NavigateTo($"/data/tables?c={companyId}&d={dataset.Id}");
-    }
-
-    private void EditDataset(Dataset dataset)
-    {
-        // Navigate to edit page (you'll need to create this)
-        _navigationManager.NavigateTo($"/data/datasets/edit/{dataset.Id}?c={companyId}");
-    }
-
-    private void ShareDataset(Dataset dataset)
-    {
-        selectedDatasetForSharing = dataset;
-        showShareModal = true;
-    }
+    private void CreateDataset() => _navigationManager.NavigateTo($"/data/datasets/create?c={companyId}");
+    private void OpenDataset(Dataset dataset) => _navigationManager.NavigateTo($"/data/tables?c={companyId}&d={dataset.Id}");
+    private void EditDataset(Dataset dataset) => _navigationManager.NavigateTo($"/data/datasets/edit/{dataset.Id}?c={companyId}");
+    private void ShareDataset(Dataset dataset) { selectedDatasetForSharing = dataset; showShareModal = true; }
 
     private async Task DeleteDataset(Dataset dataset)
     {
@@ -418,13 +325,10 @@
             _toastService.ShowError("Invalid dataset ID");
             return;
         }
-
         try
         {
-            // Add user ID to headers for the API call
             var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
             var user = authState.User;
-            
             if (user.Identity?.IsAuthenticated == true)
             {
                 var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
@@ -434,13 +338,11 @@
                     _httpClient.DefaultRequestHeaders.Add("UserId", userId);
                 }
             }
-
             var response = await _httpClient.DeleteAsync($"api/Datasets/{dataset.Id}");
-            
             if (response.IsSuccessStatusCode)
             {
                 _toastService.ShowSuccess($"Dataset '{dataset.Name}' deleted successfully");
-                await LoadDatasets(); // Reload the list
+                await LoadDatasets();
             }
             else
             {
@@ -453,20 +355,3 @@
         }
     }
 }
-
-<style>
-    .search-box {
-        width: 100%;
-    }
-    
-    .search-box input {
-        border-radius: 6px;
-        border: 1px solid #d1d5db;
-        transition: all 0.2s ease;
-    }
-    
-    .search-box input:focus {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-    }
-</style>

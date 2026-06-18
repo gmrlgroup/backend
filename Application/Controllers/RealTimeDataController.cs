@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Application.Shared.Authorization;
 using Application.Shared.Models.Data;
 using Application.Shared.Services.Data;
 using Application.Services.Data;
@@ -11,6 +12,7 @@ namespace Application.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Policy = PolicyNames.SalesRead)]
 public class RealTimeDataController : ControllerBase
 {
     private readonly ILogger<RealTimeDataController> _logger;

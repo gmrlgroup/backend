@@ -417,3 +417,8 @@ Migrations/*.cs
 
 # NEXT JS
 .next/
+
+
+# ASP.NET Core Data Protection keys (server credential encryption) — never commit
+**/App_Data/keys/
+App_Data/keys/

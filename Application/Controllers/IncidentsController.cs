@@ -27,6 +27,15 @@ public class IncidentsController : ControllerBase
         return Ok(await _incidentService.GetIncidentsAsync(companyId));
     }
 
+    [HttpGet("paged")]
+    public async Task<ActionResult<PagedResult<Incident>>> GetIncidentsPaged(
+        [FromHeader(Name = "X-Company-Id")] string companyId,
+        [FromQuery] IncidentQueryParameters parameters)
+    {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        return Ok(await _incidentService.GetIncidentsPagedAsync(companyId, parameters));
+    }
+
     [HttpGet("active")]
     public async Task<ActionResult<IEnumerable<Incident>>> GetActiveIncidents(
         [FromHeader(Name = "X-Company-Id")] string companyId)

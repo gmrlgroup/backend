@@ -24,6 +24,63 @@ public class IncidentService : IIncidentService
             .ToListAsync();
     }
 
+    public async Task<PagedResult<Incident>> GetIncidentsPagedAsync(string companyId, IncidentQueryParameters parameters)
+    {
+        var query = _context.Incidents
+            .Where(i => i.CompanyId == companyId && !i.IsDeleted);
+
+        if (parameters.ActiveOnly)
+            query = query.Where(i => i.Status != IncidentStatus.Resolved);
+
+        if (parameters.Severity.HasValue)
+            query = query.Where(i => i.Severity == parameters.Severity.Value);
+
+        if (parameters.Status.HasValue)
+            query = query.Where(i => i.Status == parameters.Status.Value);
+
+        if (!string.IsNullOrWhiteSpace(parameters.Search))
+        {
+            var search = parameters.Search.Trim().ToLower();
+            query = query.Where(i =>
+                i.Title.ToLower().Contains(search) ||
+                i.Description.ToLower().Contains(search) ||
+                (i.Entity != null && i.Entity.Name.ToLower().Contains(search)));
+        }
+
+        var totalCount = await query.CountAsync();
+
+        query = ApplySort(query, parameters.SortBy, parameters.SortDir);
+
+        var items = await query
+            .Skip((parameters.Page - 1) * parameters.PageSize)
+            .Take(parameters.PageSize)
+            .Include(i => i.Entity)
+            .ToListAsync();
+
+        return new PagedResult<Incident>
+        {
+            Items = items,
+            TotalCount = totalCount,
+            Page = parameters.Page,
+            PageSize = parameters.PageSize
+        };
+    }
+
+    private static IQueryable<Incident> ApplySort(IQueryable<Incident> query, string? sortBy, string? sortDir)
+    {
+        var desc = string.Equals(sortDir, "desc", StringComparison.OrdinalIgnoreCase);
+
+        return (sortBy?.ToLower()) switch
+        {
+            "title" => desc ? query.OrderByDescending(i => i.Title) : query.OrderBy(i => i.Title),
+            "entity" => desc ? query.OrderByDescending(i => i.Entity!.Name) : query.OrderBy(i => i.Entity!.Name),
+            "severity" => desc ? query.OrderByDescending(i => i.Severity) : query.OrderBy(i => i.Severity),
+            "status" => desc ? query.OrderByDescending(i => i.Status) : query.OrderBy(i => i.Status),
+            "resolved" => desc ? query.OrderByDescending(i => i.ResolvedAt) : query.OrderBy(i => i.ResolvedAt),
+            _ => desc ? query.OrderByDescending(i => i.StartedAt) : query.OrderBy(i => i.StartedAt),
+        };
+    }
+
     public async Task<List<Incident>> GetIncidentsByEntityAsync(string entityId)
     {
         return await _context.Incidents

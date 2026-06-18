@@ -31,6 +31,32 @@ public class IncidentClientService
         catch (Exception ex) { Console.WriteLine($"Error fetching incidents: {ex.Message}"); return new(); }
     }
 
+    public async Task<PagedResult<Incident>> GetIncidentsPagedAsync(string companyId, IncidentQueryParameters p)
+    {
+        try
+        {
+            SetCompanyHeader(companyId);
+
+            var query = new List<string>
+            {
+                $"page={p.Page}",
+                $"pageSize={p.PageSize}",
+                $"sortBy={Uri.EscapeDataString(p.SortBy)}",
+                $"sortDir={Uri.EscapeDataString(p.SortDir)}"
+            };
+            if (!string.IsNullOrWhiteSpace(p.Search)) query.Add($"search={Uri.EscapeDataString(p.Search)}");
+            if (p.Severity.HasValue) query.Add($"severity={p.Severity.Value}");
+            if (p.Status.HasValue) query.Add($"status={p.Status.Value}");
+            if (p.ActiveOnly) query.Add("activeOnly=true");
+
+            var response = await _httpClient.GetAsync($"api/status/incidents/paged?{string.Join("&", query)}");
+            if (response.IsSuccessStatusCode)
+                return await response.Content.ReadFromJsonAsync<PagedResult<Incident>>() ?? new();
+            return new();
+        }
+        catch (Exception ex) { Console.WriteLine($"Error fetching paged incidents: {ex.Message}"); return new(); }
+    }
+
     public async Task<List<Incident>> GetActiveIncidentsAsync(string companyId)
     {
         try

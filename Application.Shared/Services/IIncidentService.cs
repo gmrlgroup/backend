@@ -6,6 +6,7 @@ namespace Application.Shared.Services;
 public interface IIncidentService
 {
     Task<List<Incident>> GetIncidentsAsync(string companyId);
+    Task<PagedResult<Incident>> GetIncidentsPagedAsync(string companyId, IncidentQueryParameters parameters);
     Task<List<Incident>> GetIncidentsByEntityAsync(string entityId);
     Task<Incident?> GetIncidentAsync(string id);
     Task<List<Incident>> GetActiveIncidentsAsync(string companyId);

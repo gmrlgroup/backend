@@ -13,340 +13,306 @@
 
 <PageTitle>Incident Details - @(incident?.Title ?? "Loading...")</PageTitle>
 
-<div class="min-h-screen bg-gray-50">
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
     @if (isLoading)
     {
         <div class="flex justify-center items-center h-64">
-            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600"></div>
+            <div class="animate-spin rounded-full h-10 w-10 border-2 border-indigo-600 border-t-transparent"></div>
         </div>
     }
     else if (incident == null)
     {
-        <div class="text-center py-12">
-            <h3 class="text-lg font-medium text-gray-900">Incident not found</h3>
-            <p class="mt-2 text-sm text-gray-500">The incident you're looking for doesn't exist.</p>
-            <div class="mt-6">
-                <button @onclick="BackToIncidents"
-                        class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700">
-                    Back to Incidents
-                </button>
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm text-center py-16 px-4">
+            <div class="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto">
+                <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
             </div>
+            <h3 class="mt-3 text-base font-semibold text-gray-900">Incident not found</h3>
+            <p class="mt-1 text-sm text-gray-500">The incident you're looking for doesn't exist.</p>
+            <button @onclick="BackToIncidents"
+                    class="mt-6 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors">
+                Back to Incidents
+            </button>
         </div>
     }
     else
     {
-        <!-- Header -->
-        <div class="bg-white border-b border-gray-200">
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div class="py-6">
-                    <nav class="flex" aria-label="Breadcrumb">
-                        <ol class="flex items-center space-x-4">
-                            <li>
-                                <div>
-                                    <button @onclick="BackToIncidents" class="text-gray-400 hover:text-gray-500">
-                                        <svg class="flex-shrink-0 h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-                                            <path fill-rule="evenodd" d="M9.707 14.707a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 1.414L7.414 9H15a1 1 0 110 2H7.414l2.293 2.293a1 1 0 010 1.414z" clip-rule="evenodd"></path>
-                                        </svg>
-                                        <span class="sr-only">Back</span>
-                                    </button>
-                                </div>
-                            </li>
-                            <li>
-                                <div class="flex items-center">
-                                    <svg class="flex-shrink-0 h-5 w-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 111.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
-                                    </svg>
-                                    <button @onclick="BackToIncidents" class="ml-4 text-sm font-medium text-gray-500 hover:text-gray-700">
-                                        Incidents
-                                    </button>
-                                </div>
-                            </li>
-                            <li>
-                                <div class="flex items-center">
-                                    <svg class="flex-shrink-0 h-5 w-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 111.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
-                                    </svg>
-                                    <span class="ml-4 text-sm font-medium text-gray-500 truncate">
-                                        @incident.Title
-                                    </span>
-                                </div>
-                            </li>
-                        </ol>
-                    </nav>
+        <!-- Back link -->
+        <button @onclick="BackToIncidents"
+                class="inline-flex items-center gap-1.5 mb-5 text-sm font-medium text-gray-500 hover:text-indigo-600 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+            </svg>
+            Back to Incidents
+        </button>
 
-                    <div class="mt-6 md:flex md:items-center md:justify-between">
-                        <div class="flex-1 min-w-0 flex items-center">
-                            <span class="text-2xl mr-3">@incident.GetSeverityIcon()</span>
-                            <div>
-                                <h1 class="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate">
-                                    @incident.Title
-                                </h1>
-                                <div class="mt-1 flex flex-col sm:flex-row sm:flex-wrap sm:mt-0 sm:space-x-6">
-                                    <div class="mt-2 flex items-center text-sm text-gray-500">
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium @incident.GetSeverityClass() mr-2">
-                                            @incident.Severity
-                                        </span>
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium @incident.GetStatusClass()">
-                                            @incident.Status
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
+        <!-- Header card -->
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+            <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div class="flex items-start gap-4 min-w-0">
+                    <div class="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0 @SeverityTileClass(incident.Severity)">
+                        @incident.GetSeverityIcon()
+                    </div>
+                    <div class="min-w-0">
+                        <h1 class="text-xl font-bold text-gray-900 truncate">@incident.Title</h1>
+                        <div class="mt-2 flex flex-wrap items-center gap-2">
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium @incident.GetSeverityClass()">@incident.Severity</span>
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium @incident.GetStatusClass()">@incident.Status</span>
+                            @if (incident.Entity != null)
+                            {
+                                <span class="text-xs text-gray-400">·</span>
+                                <span class="text-xs text-gray-500">@incident.Entity.GetEntityTypeIcon() @incident.Entity.Name</span>
+                            }
+                            <span class="text-xs text-gray-400">·</span>
+                            <span class="text-xs text-gray-500">
+                                @(incident.IsResolved ? $"Resolved · {FormatDuration(incident.Duration)}" : $"Ongoing · {FormatDuration(incident.Duration)}")
+                            </span>
                         </div>
-                        <AuthorizeView Roles="@writeRoles">
-                            <Authorized>
-                                <div class="mt-4 flex md:mt-0 md:ml-4 space-x-3">
-                                    <button @onclick="OpenAddUpdateDialog"
-                                            class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">
-                                        <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
-                                        </svg>
-                                        Add Update
-                                    </button>
-                                    @if (incident.Status != IncidentStatus.Resolved)
-                                    {
-                                        <button @onclick="() => ShowStatusUpdateModal = true"
-                                                class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-                                            Update Status
-                                        </button>
-                                        <button @onclick="() => ShowResolveModal = true"
-                                                class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-gray-700 bg-green-600 hover:bg-green-700">
-                                            Resolve
-                                        </button>
-                                    }
-                                    <button @onclick="EditIncident"
-                                            class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-                                        <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                                        </svg>
-                                        Edit
-                                    </button>
-                                </div>
-                            </Authorized>
-                        </AuthorizeView>
                     </div>
                 </div>
+                <AuthorizeView Roles="@writeRoles">
+                    <Authorized>
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                            <button @onclick="OpenAddUpdateDialog"
+                                    class="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                </svg>
+                                Add Update
+                            </button>
+                            @if (incident.Status != IncidentStatus.Resolved)
+                            {
+                                <button @onclick="() => ShowStatusUpdateModal = true"
+                                        class="inline-flex items-center px-3.5 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition-colors">
+                                    Update Status
+                                </button>
+                                <button @onclick="() => ShowResolveModal = true"
+                                        class="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition-colors">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                    Resolve
+                                </button>
+                            }
+                            <button @onclick="EditIncident" title="Edit"
+                                    class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </Authorized>
+                </AuthorizeView>
             </div>
         </div>
 
-        <!-- Main Content -->
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-            <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-                <!-- Main Details -->
-                <div class="lg:col-span-2">
-                    <div class="bg-white shadow sm:rounded-lg mb-6">
-                        <div class="px-4 py-5 sm:p-6">
-                            <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">Incident Details</h3>
+        <!-- Main content -->
+        <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <!-- Main column -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Details card -->
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                    <h3 class="text-base font-semibold text-gray-900 mb-5">Incident Details</h3>
 
-                            <dl class="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
-                                <div>
-                                    <dt class="text-sm font-medium text-gray-500">Affected Entity</dt>
-                                    <dd class="mt-1 text-sm text-gray-900">
-                                        @if (incident.Entity != null)
-                                        {
-                                            <span class="inline-flex items-center">
-                                                <span class="mr-2">@incident.Entity.GetEntityTypeIcon()</span>
-                                                @incident.Entity.Name
-                                                <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium @incident.Entity.GetEntityTypeClass()">
-                                                    @incident.Entity.EntityType
-                                                </span>
-                                            </span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-gray-500">Unknown</span>
-                                        }
-                                    </dd>
-                                </div>
-
-                                <div>
-                                    <dt class="text-sm font-medium text-gray-500">Duration</dt>
-                                    <dd class="mt-1 text-sm text-gray-900">
-                                        @if (incident.IsResolved)
-                                        {
-                                            <span>@FormatDuration(incident.Duration) (Resolved)</span>
-                                        }
-                                        else
-                                        {
-                                            <span>@FormatDuration(incident.Duration) (Ongoing)</span>
-                                        }
-                                    </dd>
-                                </div>
-
-                                <div>
-                                    <dt class="text-sm font-medium text-gray-500">Started</dt>
-                                    <dd class="mt-1 text-sm text-gray-900">@incident.StartedAt.Value.ToString("MMM dd, yyyy 'at' h:mm tt")</dd>
-                                </div>
-
-                                @if (incident.ResolvedAt.HasValue)
-                                {
-                                    <div>
-                                        <dt class="text-sm font-medium text-gray-500">Resolved</dt>
-                                        <dd class="mt-1 text-sm text-gray-900">@incident.ResolvedAt.Value.ToString("MMM dd, yyyy 'at' h:mm tt")</dd>
-                                    </div>
-                                }
-
-                                @if (!string.IsNullOrEmpty(incident.ReportedBy))
-                                {
-                                    <div>
-                                        <dt class="text-sm font-medium text-gray-500">Reported By</dt>
-                                        <dd class="mt-1 text-sm text-gray-900">@incident.ReportedBy</dd>
-                                    </div>
-                                }
-
-                                @if (!string.IsNullOrEmpty(incident.AssignedTo))
-                                {
-                                    <div>
-                                        <dt class="text-sm font-medium text-gray-500">Assigned To</dt>
-                                        <dd class="mt-1 text-sm text-gray-900">@incident.AssignedTo</dd>
-                                    </div>
-                                }
-
-                                @if (!string.IsNullOrEmpty(incident.ExternalIncidentId))
-                                {
-                                    <div class="sm:col-span-2">
-                                        <dt class="text-sm font-medium text-gray-500">External Reference</dt>
-                                        <dd class="mt-1 text-sm text-gray-900">@incident.ExternalIncidentId</dd>
-                                    </div>
-                                }
-                            </dl>
-
-                            <div class="mt-6">
-                                <dt class="text-sm font-medium text-gray-500">Description</dt>
-                                <dd class="mt-1 text-sm text-gray-900">@incident.Description</dd>
-                            </div>
-
-                            @if (!string.IsNullOrEmpty(incident.ImpactDescription))
-                            {
-                                <div class="mt-6">
-                                    <dt class="text-sm font-medium text-gray-500">Impact</dt>
-                                    <dd class="mt-1 text-sm text-gray-900">@incident.ImpactDescription</dd>
-                                </div>
-                            }
-
-                            @if (!string.IsNullOrEmpty(incident.ResolutionDetails))
-                            {
-                                <div class="mt-6">
-                                    <dt class="text-sm font-medium text-gray-500">Resolution</dt>
-                                    <dd class="mt-1 text-sm text-gray-900">@incident.ResolutionDetails</dd>
-                                </div>
-                            }
-                        </div>
-                    </div>
-
-                    <!-- Updates Section -->
-                    <div class="bg-white shadow sm:rounded-lg">
-                        <div class="px-4 py-5 sm:p-6">
-                            <div class="flex items-center justify-between mb-4">
-                                <h3 class="text-lg leading-6 font-medium text-gray-900">Updates</h3>
-                                <AuthorizeView Roles="@writeRoles" Context="addCtx">
-                                    <Authorized>
-                                        <button @onclick="OpenAddUpdateDialog"
-                                                class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200">
-                                            Add Update
-                                        </button>
-                                    </Authorized>
-                                </AuthorizeView>
-                            </div>
-
-                            @if (incidentUpdates?.Any() == true)
-                            {
-                                <div class="flow-root">
-                                    <ul class="-mb-8">
-                                        @for (int i = 0; i < incidentUpdates.Count; i++)
-                                        {
-                                            var update = incidentUpdates[i];
-                                            <li>
-                                                <div class="relative pb-8">
-                                                    @if (i != incidentUpdates.Count - 1)
-                                                    {
-                                                        <span class="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200" aria-hidden="true"></span>
-                                                    }
-                                                    <div class="relative flex space-x-3">
-                                                        <div>
-                                                            <span class="h-8 w-8 rounded-full bg-red-500 flex items-center justify-center ring-8 ring-white">
-                                                                @if (update.StatusChange.HasValue)
-                                                                {
-                                                                    <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                                                    </svg>
-                                                                }
-                                                                else
-                                                                {
-                                                                    <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.001 8.001 0 01-7.999-8c0-4.418 3.582-8 8-8s8 3.582 8 8z"></path>
-                                                                    </svg>
-                                                                }
-                                                            </span>
-                                                        </div>
-                                                        <div class="min-w-0 flex-1 pt-1.5 flex justify-between space-x-4">
-                                                            <div>
-                                                                @if (update.StatusChange.HasValue)
-                                                                {
-                                                                    <p class="text-sm text-gray-500 mb-1">
-                                                                        Status changed to
-                                                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium @GetStatusClass(update.StatusChange.Value)">
-                                                                            @update.StatusChange.Value
-                                                                        </span>
-                                                                    </p>
-                                                                }
-                                                                <p class="text-sm text-gray-900">@update.Message</p>
-                                                                <p class="text-xs text-gray-500 mt-1">
-                                                                    by @(update.Author ?? "System") • @update.PostedAt.ToString("MMM dd, yyyy 'at' h:mm tt")
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </li>
-                                        }
-                                    </ul>
-                                </div>
-                            }
-                            else
-                            {
-                                <div class="text-center py-6">
-                                    <p class="text-sm text-gray-500">No updates yet.</p>
-                                </div>
-                            }
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Sidebar -->
-                <div class="lg:col-span-1">
-                    <div class="bg-white shadow sm:rounded-lg">
-                        <div class="px-4 py-5 sm:p-6">
-                            <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">Quick Actions</h3>
-                            <div class="space-y-3">
-                                <AuthorizeView Roles="@writeRoles" Context="quickCtx">
-                                    <Authorized>
-                                        @if (incident.Status != IncidentStatus.Resolved)
-                                        {
-                                            <button @onclick="() => UpdateStatus(IncidentStatus.Investigating)"
-                                                    class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700">
-                                                Mark as Investigating
-                                            </button>
-                                            <button @onclick="() => UpdateStatus(IncidentStatus.Identified)"
-                                                    class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">
-                                                Mark as Identified
-                                            </button>
-                                            <button @onclick="() => UpdateStatus(IncidentStatus.Monitoring)"
-                                                    class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-purple-600 hover:bg-purple-700">
-                                                Mark as Monitoring
-                                            </button>
-                                        }
-                                    </Authorized>
-                                </AuthorizeView>
+                    <dl class="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Affected Entity</dt>
+                            <dd class="mt-1 text-sm text-gray-900">
                                 @if (incident.Entity != null)
                                 {
-                                    <button @onclick="() => ViewEntity(incident.EntityId)"
-                                            class="w-full flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-                                        View Entity Details
+                                    <span class="inline-flex items-center gap-2">
+                                        <span>@incident.Entity.GetEntityTypeIcon()</span>
+                                        @incident.Entity.Name
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium @incident.Entity.GetEntityTypeClass()">
+                                            @incident.Entity.EntityType
+                                        </span>
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="text-gray-400">Unknown</span>
+                                }
+                            </dd>
+                        </div>
+
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Duration</dt>
+                            <dd class="mt-1 text-sm text-gray-900">@FormatDuration(incident.Duration) @(incident.IsResolved ? "(Resolved)" : "(Ongoing)")</dd>
+                        </div>
+
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Started</dt>
+                            <dd class="mt-1 text-sm text-gray-900">@incident.StartedAt.Value.ToString("MMM dd, yyyy 'at' h:mm tt")</dd>
+                        </div>
+
+                        @if (incident.ResolvedAt.HasValue)
+                        {
+                            <div>
+                                <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Resolved</dt>
+                                <dd class="mt-1 text-sm text-gray-900">@incident.ResolvedAt.Value.ToString("MMM dd, yyyy 'at' h:mm tt")</dd>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(incident.ReportedBy))
+                        {
+                            <div>
+                                <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Reported By</dt>
+                                <dd class="mt-1 text-sm text-gray-900">@incident.ReportedBy</dd>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(incident.AssignedTo))
+                        {
+                            <div>
+                                <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Assigned To</dt>
+                                <dd class="mt-1 text-sm text-gray-900">@incident.AssignedTo</dd>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(incident.ExternalIncidentId))
+                        {
+                            <div class="sm:col-span-2">
+                                <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">External Reference</dt>
+                                <dd class="mt-1 text-sm text-gray-900">@incident.ExternalIncidentId</dd>
+                            </div>
+                        }
+                    </dl>
+
+                    <div class="mt-6 pt-6 border-t border-gray-100">
+                        <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Description</dt>
+                        <dd class="mt-1 text-sm text-gray-700 whitespace-pre-line">@incident.Description</dd>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(incident.ImpactDescription))
+                    {
+                        <div class="mt-5">
+                            <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Impact</dt>
+                            <dd class="mt-1 text-sm text-gray-700 whitespace-pre-line">@incident.ImpactDescription</dd>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(incident.ResolutionDetails))
+                    {
+                        <div class="mt-5 rounded-lg bg-green-50 border border-green-200 p-4">
+                            <dt class="text-xs font-medium uppercase tracking-wide text-green-700">Resolution</dt>
+                            <dd class="mt-1 text-sm text-green-800 whitespace-pre-line">@incident.ResolutionDetails</dd>
+                        </div>
+                    }
+                </div>
+
+                <!-- Updates timeline -->
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                    <div class="flex items-center justify-between mb-5">
+                        <h3 class="text-base font-semibold text-gray-900">Timeline</h3>
+                        <AuthorizeView Roles="@writeRoles" Context="addCtx">
+                            <Authorized>
+                                <button @onclick="OpenAddUpdateDialog"
+                                        class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-md text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                    </svg>
+                                    Add Update
+                                </button>
+                            </Authorized>
+                        </AuthorizeView>
+                    </div>
+
+                    @if (incidentUpdates?.Any() == true)
+                    {
+                        <div class="flow-root">
+                            <ul class="-mb-8">
+                                @for (int i = 0; i < incidentUpdates.Count; i++)
+                                {
+                                    var update = incidentUpdates[i];
+                                    <li>
+                                        <div class="relative pb-8">
+                                            @if (i != incidentUpdates.Count - 1)
+                                            {
+                                                <span class="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200" aria-hidden="true"></span>
+                                            }
+                                            <div class="relative flex space-x-3">
+                                                <div>
+                                                    <span class="h-8 w-8 rounded-full flex items-center justify-center ring-8 ring-white @(update.StatusChange.HasValue ? "bg-indigo-500" : "bg-gray-400")">
+                                                        @if (update.StatusChange.HasValue)
+                                                        {
+                                                            <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                                            </svg>
+                                                        }
+                                                        else
+                                                        {
+                                                            <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.001 8.001 0 01-7.999-8c0-4.418 3.582-8 8-8s8 3.582 8 8z"></path>
+                                                            </svg>
+                                                        }
+                                                    </span>
+                                                </div>
+                                                <div class="min-w-0 flex-1 pt-1.5">
+                                                    @if (update.StatusChange.HasValue)
+                                                    {
+                                                        <p class="text-sm text-gray-500 mb-1">
+                                                            Status changed to
+                                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium @GetStatusClass(update.StatusChange.Value)">
+                                                                @update.StatusChange.Value
+                                                            </span>
+                                                        </p>
+                                                    }
+                                                    <p class="text-sm text-gray-900">@update.Message</p>
+                                                    <p class="text-xs text-gray-400 mt-1">
+                                                        by @(update.Author ?? "System") • @update.PostedAt.ToString("MMM dd, yyyy 'at' h:mm tt")
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </li>
+                                }
+                            </ul>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center py-8">
+                            <p class="text-sm text-gray-400">No updates yet.</p>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="space-y-6">
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                    <h3 class="text-base font-semibold text-gray-900 mb-4">Quick Actions</h3>
+                    <div class="space-y-1.5">
+                        <AuthorizeView Roles="@writeRoles" Context="quickCtx">
+                            <Authorized>
+                                @if (incident.Status != IncidentStatus.Resolved)
+                                {
+                                    <button @onclick="() => UpdateStatus(IncidentStatus.Investigating)"
+                                            class="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                                        <span class="w-2 h-2 rounded-full bg-yellow-500"></span> Mark as Investigating
+                                    </button>
+                                    <button @onclick="() => UpdateStatus(IncidentStatus.Identified)"
+                                            class="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                                        <span class="w-2 h-2 rounded-full bg-blue-500"></span> Mark as Identified
+                                    </button>
+                                    <button @onclick="() => UpdateStatus(IncidentStatus.Monitoring)"
+                                            class="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                                        <span class="w-2 h-2 rounded-full bg-purple-500"></span> Mark as Monitoring
                                     </button>
                                 }
-                            </div>
-                        </div>
+                            </Authorized>
+                        </AuthorizeView>
+                        @if (incident.Entity != null)
+                        {
+                            <button @onclick="() => ViewEntity(incident.EntityId)"
+                                    class="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                                <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                </svg>
+                                View Entity Details
+                            </button>
+                        }
                     </div>
                 </div>
             </div>
@@ -661,6 +627,15 @@
         if (d.TotalHours >= 1) return $"{(int)d.TotalHours}h {d.Minutes}m";
         return $"{(int)d.TotalMinutes}m";
     }
+
+    private string SeverityTileClass(IncidentSeverity severity) => severity switch
+    {
+        IncidentSeverity.Low => "bg-blue-50",
+        IncidentSeverity.Medium => "bg-yellow-50",
+        IncidentSeverity.High => "bg-orange-50",
+        IncidentSeverity.Critical => "bg-red-50",
+        _ => "bg-gray-100"
+    };
 
     private string GetStatusClass(IncidentStatus status) => status switch
     {

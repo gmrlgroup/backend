@@ -222,7 +222,13 @@ public class SalesRepository : ISalesRepository
                 var serialized = JsonSerializer.Serialize(storeResult);
                 Console.WriteLine(serialized);
 
-                await _httpClient.PostAsJsonAsync("api/RealTimeData/sales", storeResult);
+                var response = await _httpClient.PostAsJsonAsync("api/RealTimeData/sales", storeResult);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var body = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine($"!!! Failed to post sales data for store {store}: {(int)response.StatusCode} {response.ReasonPhrase}. {body}");
+                    response.EnsureSuccessStatusCode();
+                }
                 Console.WriteLine($"------------- Posted sales data for store {store} to {_salesUri}");
             }
 

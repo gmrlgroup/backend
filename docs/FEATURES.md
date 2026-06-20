@@ -11,7 +11,15 @@ Legend: ✅ done · 🚧 in progress · ⬜ planned
 
 ---
 
-## 1. 🚧 Dependency graph + impact analysis ("blast radius")
+## 1. ✅ Dependency graph + impact analysis ("blast radius")
+
+> Shipped as the **Dependencies & Impact** card on the entity detail page
+> (`Application.Client/Components/DependencyImpact.razor`), built on the existing recursive
+> `AssetDependencyTree` (`GET api/status/entities/{id}/dependency-tree`). Shows upstream
+> ("Depends on"), downstream blast radius ("Impact if this fails" — transitive count + critical
+> count), and a root-cause banner when the entity is unhealthy and so are its upstreams. No
+> backend or schema change.
+
 
 **Why:** Lineage discovery and DB table discovery now populate `entity_dependency` richly
 (Dataset→Database, Table→Database, Dataset→Table), but the edges are only stored — not used.

@@ -47,6 +47,7 @@ public class IncidentClientService
             if (!string.IsNullOrWhiteSpace(p.Search)) query.Add($"search={Uri.EscapeDataString(p.Search)}");
             if (p.Severity.HasValue) query.Add($"severity={p.Severity.Value}");
             if (p.Status.HasValue) query.Add($"status={p.Status.Value}");
+            if (p.EntityType.HasValue) query.Add($"entityType={p.EntityType.Value}");
             if (p.ActiveOnly) query.Add("activeOnly=true");
 
             var response = await _httpClient.GetAsync($"api/status/incidents/paged?{string.Join("&", query)}");

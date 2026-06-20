@@ -13,10 +13,12 @@ namespace Application.Controllers;
 public class MonitoredAssetsController : ControllerBase
 {
     private readonly IMonitoredAssetService _entityService;
+    private readonly IEntityAudienceService _audienceService;
 
-    public MonitoredAssetsController(IMonitoredAssetService entityService)
+    public MonitoredAssetsController(IMonitoredAssetService entityService, IEntityAudienceService audienceService)
     {
         _entityService = entityService;
+        _audienceService = audienceService;
     }
 
     [HttpGet]
@@ -209,6 +211,69 @@ public class MonitoredAssetsController : ControllerBase
     {
         return await _entityService.DeleteEntityDependencyAsync(id) ? NoContent() : NotFound();
     }
+
+    // ---- Audience (notification recipients per entity) ----
+
+    [HttpGet("{id}/audience")]
+    public async Task<ActionResult<IEnumerable<EntityAudience>>> GetEntityAudience(
+        [FromHeader(Name = "X-Company-Id")] string companyId, string id)
+    {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        return Ok(await _audienceService.GetAudienceForEntityAsync(id, companyId));
+    }
+
+    [HttpGet("{id}/audience/assignable-users")]
+    public async Task<ActionResult<IEnumerable<object>>> GetAssignableAudienceUsers(
+        [FromHeader(Name = "X-Company-Id")] string companyId, string id)
+    {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        var users = await _audienceService.GetAssignableUsersAsync(companyId);
+        return Ok(users.Select(u => new { u.Id, u.Email, u.UserName }));
+    }
+
+    [HttpPost("{id}/audience")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
+    public async Task<ActionResult<EntityAudience>> AddEntityAudience(
+        [FromHeader(Name = "X-Company-Id")] string companyId, string id,
+        [FromBody] AddAudienceRequest request)
+    {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (string.IsNullOrWhiteSpace(request?.ApplicationUserId)) return BadRequest("ApplicationUserId is required");
+        try
+        {
+            var created = await _audienceService.AddAsync(id, request.ApplicationUserId, request.AudienceType, companyId);
+            return Ok(created);
+        }
+        catch (ArgumentException ex)
+        {
+            return NotFound(ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    [HttpPut("audience/{id}")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
+    public async Task<ActionResult<EntityAudience>> UpdateEntityAudience(
+        [FromHeader(Name = "X-Company-Id")] string companyId, string id,
+        [FromBody] EntityAudience audience)
+    {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        if (id != audience.Id) return BadRequest("Audience ID mismatch");
+        audience.CompanyId = companyId;
+        return Ok(await _audienceService.UpdateAsync(audience));
+    }
+
+    [HttpDelete("audience/{id}")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
+    public async Task<IActionResult> DeleteEntityAudience(
+        [FromHeader(Name = "X-Company-Id")] string companyId, string id)
+    {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        return await _audienceService.RemoveAsync(id, companyId) ? NoContent() : NotFound();
+    }
 }
 
 public class UpdateAssetStatusRequest
@@ -216,4 +281,10 @@ public class UpdateAssetStatusRequest
     public AssetStatus Status { get; set; }
     public string StatusMessage { get; set; } = string.Empty;
     public AssetStatus PreviousStatus { get; set; }
+}
+
+public class AddAudienceRequest
+{
+    public string ApplicationUserId { get; set; } = string.Empty;
+    public EntityAudienceType AudienceType { get; set; } = EntityAudienceType.Stakeholder;
 }

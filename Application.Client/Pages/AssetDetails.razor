@@ -9,6 +9,7 @@
 @inject IJSRuntime JSRuntime
 @inject MonitoredAssetClientService EntityService
 @inject AssetStatusHistoryClientService HistoryService
+@inject EntityAudienceClientService AudienceService
 @inject StateContainer StateContainer
 @attribute [Authorize(Policy = PolicyNames.StatusRead)]
 
@@ -225,9 +226,91 @@
                         }
                     </div>
 
+                    <!-- Audience -->
+                    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                        <div class="flex items-center justify-between mb-5">
+                            <div>
+                                <h3 class="text-base font-semibold text-gray-900">Audience</h3>
+                                <p class="text-xs text-gray-500 mt-0.5">Notified by email when an incident is opened on this entity (or anything it depends on).</p>
+                            </div>
+                        </div>
+
+                        <AuthorizeView Roles="@writeRoles" Context="audienceCtx">
+                            <Authorized>
+                                <div class="flex flex-col sm:flex-row gap-2 mb-4">
+                                    <FluentSelect @bind-Value="selectedUserId" TOption="string" Class="flex-1">
+                                        <FluentOption Value="" TOption="string">Select a user...</FluentOption>
+                                        @foreach (var u in assignableUsers)
+                                        {
+                                            <FluentOption Value="@u.Id" TOption="string">@(string.IsNullOrWhiteSpace(u.UserName) ? u.Email : u.UserName) (@u.Email)</FluentOption>
+                                        }
+                                    </FluentSelect>
+                                    <FluentSelect @bind-Value="selectedAudienceTypeString" TOption="string">
+                                        <FluentOption Value="Owner" TOption="string">Owner</FluentOption>
+                                        <FluentOption Value="Maintainer" TOption="string">Maintainer</FluentOption>
+                                        <FluentOption Value="Stakeholder" TOption="string">Stakeholder</FluentOption>
+                                    </FluentSelect>
+                                    <FluentButton Appearance="Appearance.Accent" @onclick="AddAudienceMember"
+                                                  Disabled="@(string.IsNullOrWhiteSpace(selectedUserId) || isSavingAudience)">
+                                        @(isSavingAudience ? "Adding..." : "Add")
+                                    </FluentButton>
+                                </div>
+                            </Authorized>
+                        </AuthorizeView>
+
+                        @if (audience.Any())
+                        {
+                            <div class="space-y-2.5">
+                                @foreach (var member in audience)
+                                {
+                                    <div class="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium @GetAudienceTypeClass(member.AudienceType) flex-shrink-0 mr-3">
+                                            @member.AudienceType.ToString()
+                                        </span>
+                                        <div class="flex-1 min-w-0">
+                                            <span class="text-sm font-medium text-gray-900">@(string.IsNullOrWhiteSpace(member.DisplayName) ? member.Email : member.DisplayName)</span>
+                                            <p class="mt-0.5 text-xs text-gray-500 break-all">@member.Email</p>
+                                        </div>
+                                        <AuthorizeView Roles="@writeRoles" Context="removeCtx">
+                                            <Authorized>
+                                                <button @onclick="() => RemoveAudienceMember(member.Id)" title="Remove"
+                                                        class="flex-shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-lg border border-gray-300 text-red-600 bg-white hover:bg-red-50 hover:border-red-200 transition-colors ml-3">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                                    </svg>
+                                                </button>
+                                            </Authorized>
+                                        </AuthorizeView>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-center py-8 border border-dashed border-gray-200 rounded-lg">
+                                <svg class="mx-auto h-7 w-7 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 10-4-4 4 4 0 004 4z"></path>
+                                </svg>
+                                <p class="mt-2 text-sm text-gray-400">No audience members yet</p>
+                            </div>
+                        }
+                    </div>
+
                     @if (entity.EntityType == AssetType.Server)
                     {
                         <ServerManagement EntityId="@entity.Id" />
+                    }
+
+                    @if (entity.EntityType == AssetType.Dataset
+                         && !string.IsNullOrEmpty(entity.Url)
+                         && entity.Url.Contains("powerbi.com", StringComparison.OrdinalIgnoreCase))
+                    {
+                        <PowerBiDataset EntityId="@entity.Id" EntityUrl="@entity.Url" />
+                    }
+
+                    @if (entity.EntityType == AssetType.Database)
+                    {
+                        <DatabaseTables EntityId="@entity.Id" />
                     }
                 </div>
 
@@ -406,6 +489,13 @@
     private StatusUpdateModel statusUpdateModel = new();
     private AssetStatus currentEntityStatus = AssetStatus.Unknown;
 
+    // Audience
+    private List<EntityAudience> audience = new();
+    private List<EntityAudienceClientService.AssignableUser> assignableUsers = new();
+    private string selectedUserId = string.Empty;
+    private string selectedAudienceTypeString = nameof(EntityAudienceType.Stakeholder);
+    private bool isSavingAudience = false;
+
     private string selectedStatusString
     {
         get => statusUpdateModel.Status.ToString();
@@ -431,6 +521,9 @@
                 var companyId = StateContainer.Company?.Id ?? "";
                 var latestStatus = await HistoryService.GetLatestEntityStatusAsync(AssetId, companyId);
                 currentEntityStatus = latestStatus?.Status ?? AssetStatus.Unknown;
+
+                audience = await AudienceService.GetAudienceAsync(companyId, AssetId);
+                assignableUsers = await AudienceService.GetAssignableUsersAsync(companyId, AssetId);
             }
         }
         catch (Exception ex)
@@ -515,6 +608,61 @@
             isUpdatingStatus = false;
         }
     }
+
+    private async Task AddAudienceMember()
+    {
+        if (string.IsNullOrWhiteSpace(selectedUserId)) return;
+
+        isSavingAudience = true;
+        try
+        {
+            var companyId = StateContainer.Company?.Id ?? "";
+            var type = Enum.Parse<EntityAudienceType>(selectedAudienceTypeString);
+            var created = await AudienceService.AddAsync(companyId, AssetId, selectedUserId, type);
+            if (created != null)
+            {
+                audience = await AudienceService.GetAudienceAsync(companyId, AssetId);
+                selectedUserId = string.Empty;
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "Could not add audience member. They may already be assigned with this role, or have no email.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error adding audience member: {ex.Message}");
+        }
+        finally
+        {
+            isSavingAudience = false;
+        }
+    }
+
+    private async Task RemoveAudienceMember(string id)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "Remove this audience member?");
+        if (!confirmed) return;
+
+        try
+        {
+            var companyId = StateContainer.Company?.Id ?? "";
+            if (await AudienceService.RemoveAsync(companyId, id))
+                audience = await AudienceService.GetAudienceAsync(companyId, AssetId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error removing audience member: {ex.Message}");
+        }
+    }
+
+    private string GetAudienceTypeClass(EntityAudienceType type) => type switch
+    {
+        EntityAudienceType.Owner => "bg-indigo-100 text-indigo-800",
+        EntityAudienceType.Maintainer => "bg-blue-100 text-blue-800",
+        EntityAudienceType.Stakeholder => "bg-gray-100 text-gray-700",
+        _ => "bg-gray-100 text-gray-700"
+    };
 
     private string GetAssetStatusClass(AssetStatus status) => status switch
     {

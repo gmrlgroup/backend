@@ -1,6 +1,7 @@
 using Application.Shared.Data;
 using Application.Shared.Enums;
 using Application.Shared.Models;
+using Application.Shared.Services;
 using Hangfire.Server;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -13,11 +14,13 @@ namespace Application.Scheduler.Jobs;
 public class AssetPingJob
 {
     private readonly StatusDbContext _context;
+    private readonly IIncidentNotificationService _notification;
     private readonly ILogger<AssetPingJob> _logger;
 
-    public AssetPingJob(StatusDbContext context, ILogger<AssetPingJob> logger)
+    public AssetPingJob(StatusDbContext context, IIncidentNotificationService notification, ILogger<AssetPingJob> logger)
     {
         _context = context;
+        _notification = notification;
         _logger = logger;
     }
 
@@ -67,6 +70,8 @@ public class AssetPingJob
 
         _context.AssetStatusHistory.Add(history);
 
+        Incident? createdIncident = null;
+
         // Auto-create incident when entity goes from Online → non-Online
         if (previousStatus == AssetStatus.Online && newStatus != AssetStatus.Online)
         {
@@ -92,6 +97,7 @@ public class AssetPingJob
             };
 
             _context.Incidents.Add(incident);
+            createdIncident = incident;
             _logger.LogWarning("[AssetPingJob] Incident created for {EntityName}: {Status}", entity.Name, newStatus);
         }
         // Auto-resolve open incidents when entity comes back Online
@@ -117,6 +123,10 @@ public class AssetPingJob
         }
 
         await _context.SaveChangesAsync(ct);
+
+        // Notify the entity's (and upstream entities') audience that an incident was opened.
+        if (createdIncident != null)
+            await _notification.NotifyIncidentOpenedAsync(createdIncident, ct);
 
         _logger.LogInformation("[AssetPingJob] {EntityName}: {Status} ({ResponseTime}ms)",
             entity.Name, newStatus, responseTimeMs?.ToString("F0") ?? "N/A");

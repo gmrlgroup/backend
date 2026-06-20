@@ -60,6 +60,15 @@
             }
         </select>
 
+        <select @bind="entityTypeFilter" @bind:after="ApplyFilters"
+                class="border border-gray-300 rounded-lg text-sm px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none">
+            <option value="">All Entity Types</option>
+            @foreach (var t in Enum.GetValues<AssetType>())
+            {
+                <option value="@t">@EntityTypeLabel(t)</option>
+            }
+        </select>
+
         <button @onclick="ToggleActiveOnly"
                 class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors @(activeOnly ? "bg-indigo-50 border-indigo-200 text-indigo-700" : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50")">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -253,6 +262,7 @@
     private string searchText = "";
     private string severityFilter = "";
     private string statusFilter = "";
+    private string entityTypeFilter = "";
     private bool activeOnly = false;
     private int pageSize = 10;
 
@@ -260,7 +270,7 @@
 
     private bool HasActiveFilters =>
         !string.IsNullOrWhiteSpace(searchText) || !string.IsNullOrEmpty(severityFilter) ||
-        !string.IsNullOrEmpty(statusFilter) || activeOnly;
+        !string.IsNullOrEmpty(statusFilter) || !string.IsNullOrEmpty(entityTypeFilter) || activeOnly;
 
     private int FromRow => pageData.TotalCount == 0 ? 0 : (pageData.Page - 1) * pageData.PageSize + 1;
     private int ToRow => Math.Min(pageData.Page * pageData.PageSize, pageData.TotalCount);
@@ -286,6 +296,7 @@
         query.Search = string.IsNullOrWhiteSpace(searchText) ? null : searchText;
         query.Severity = Enum.TryParse<IncidentSeverity>(severityFilter, out var sev) ? sev : null;
         query.Status = Enum.TryParse<IncidentStatus>(statusFilter, out var st) ? st : null;
+        query.EntityType = Enum.TryParse<AssetType>(entityTypeFilter, out var et) ? et : null;
         query.ActiveOnly = activeOnly;
 
         pageData = await IncidentService.GetIncidentsPagedAsync(companyId, query);
@@ -322,7 +333,7 @@
 
     private async Task ClearFilters()
     {
-        searchText = ""; severityFilter = ""; statusFilter = ""; activeOnly = false;
+        searchText = ""; severityFilter = ""; statusFilter = ""; entityTypeFilter = ""; activeOnly = false;
         query.SortBy = "started"; query.SortDir = "desc";
         await ApplyFilters();
     }
@@ -375,6 +386,16 @@
     private void CreateIncident() => Navigation.NavigateTo($"/status/incidents/create{queryParam}");
     private void ViewIncident(string id) => Navigation.NavigateTo($"/status/incidents/{id}{queryParam}");
     private void EditIncident(string id) => Navigation.NavigateTo($"/status/incidents/{id}/edit{queryParam}");
+
+    private static string EntityTypeLabel(AssetType type)
+    {
+        var member = typeof(AssetType).GetMember(type.ToString());
+        var display = member.Length > 0
+            ? member[0].GetCustomAttributes(typeof(System.ComponentModel.DataAnnotations.DisplayAttribute), false)
+                       .Cast<System.ComponentModel.DataAnnotations.DisplayAttribute>().FirstOrDefault()
+            : null;
+        return display?.Name ?? type.ToString();
+    }
 
     private string FormatDuration(TimeSpan? d)
     {

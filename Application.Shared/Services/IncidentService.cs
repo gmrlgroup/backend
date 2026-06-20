@@ -8,10 +8,12 @@ namespace Application.Shared.Services;
 public class IncidentService : IIncidentService
 {
     private readonly StatusDbContext _context;
+    private readonly IIncidentNotificationService _notification;
 
-    public IncidentService(StatusDbContext context)
+    public IncidentService(StatusDbContext context, IIncidentNotificationService notification)
     {
         _context = context;
+        _notification = notification;
     }
 
     public async Task<List<Incident>> GetIncidentsAsync(string companyId)
@@ -37,6 +39,9 @@ public class IncidentService : IIncidentService
 
         if (parameters.Status.HasValue)
             query = query.Where(i => i.Status == parameters.Status.Value);
+
+        if (parameters.EntityType.HasValue)
+            query = query.Where(i => i.Entity != null && i.Entity.EntityType == parameters.EntityType.Value);
 
         if (!string.IsNullOrWhiteSpace(parameters.Search))
         {
@@ -121,6 +126,8 @@ public class IncidentService : IIncidentService
 
         _context.Incidents.Add(incident);
         await _context.SaveChangesAsync();
+
+        await _notification.NotifyIncidentOpenedAsync(incident);
 
         return incident;
     }

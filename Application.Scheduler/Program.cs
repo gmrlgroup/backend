@@ -80,6 +80,19 @@ builder.Services.AddScoped<SalesJob>();
 builder.Services.AddScoped<SalesSnapshotEmailJob>();
 builder.Services.AddScoped<AssetPingJob>();
 
+// Incident notification emails (Resend microservice) — used by AssetPingJob auto-incidents.
+builder.Services.Configure<Application.Shared.Options.IncidentEmailOptions>(
+    builder.Configuration.GetSection("IncidentNotificationEmail"));
+builder.Services.AddScoped<Application.Shared.Services.IIncidentNotificationService,
+    Application.Shared.Services.IncidentNotificationService>();
+builder.Services.AddHttpClient(Application.Shared.Services.IncidentNotificationService.HttpClientName, (sp, client) =>
+{
+    var opts = sp.GetRequiredService<IOptions<Application.Shared.Options.IncidentEmailOptions>>().Value;
+    if (string.IsNullOrWhiteSpace(opts.ApiBaseUri)) return;
+    client.BaseAddress = new Uri(opts.ApiBaseUri);
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
+
 builder.Services.Configure<SalesSnapshotEmailOptions>(builder.Configuration.GetSection("SalesSnapshotEmail"));
 
 builder.Services.AddHttpClient("SalesSnapshotEmailApi", (sp, client) =>

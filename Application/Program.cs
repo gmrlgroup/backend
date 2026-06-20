@@ -234,6 +234,20 @@ builder.Services.AddScoped<EmailHelper>();
 builder.Services.AddScoped<IIncidentService, IncidentService>();
 builder.Services.AddScoped<IMonitoredAssetService, MonitoredAssetService>();
 builder.Services.AddScoped<IAssetStatusHistoryService, AssetStatusHistoryService>();
+builder.Services.AddScoped<IStatusOverviewService, StatusOverviewService>();
+builder.Services.AddScoped<IEntityAudienceService, EntityAudienceService>();
+
+// Incident notification emails (Resend microservice)
+builder.Services.Configure<Application.Shared.Options.IncidentEmailOptions>(
+    builder.Configuration.GetSection("IncidentNotificationEmail"));
+builder.Services.AddScoped<IIncidentNotificationService, IncidentNotificationService>();
+builder.Services.AddHttpClient(IncidentNotificationService.HttpClientName, (sp, client) =>
+{
+    var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Application.Shared.Options.IncidentEmailOptions>>().Value;
+    if (string.IsNullOrWhiteSpace(opts.ApiBaseUri)) return;
+    client.BaseAddress = new Uri(opts.ApiBaseUri);
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
 
 // Server Management (credentials + remote service start/stop)
 // Keys must persist OUTSIDE the app folder so redeploys don't wipe them — losing the key ring
@@ -254,6 +268,19 @@ builder.Services.AddSingleton<ICredentialProtector, CredentialProtector>();
 builder.Services.AddScoped<IServerCredentialService, ServerCredentialService>();
 builder.Services.AddScoped<IServerManagementService, ServerManagementService>();
 builder.Services.AddScoped<IRemoteServerExecutor, SshServerExecutor>();
+
+// Power BI dataset refresh (service-principal connections + refresh history/trigger).
+// Reuses ICredentialProtector (registered above) to encrypt connection secrets at rest.
+builder.Services.AddScoped<IPowerBiConnectionService, PowerBiConnectionService>();
+builder.Services.AddScoped<IPowerBiService, PowerBiService>();
+builder.Services.AddHttpClient(PowerBiService.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
+
+// Database table discovery for Database-type entities (per-entity encrypted connection,
+// lists tables across MSSQL/PostgreSQL/MySQL/ClickHouse/DuckDB, materializes Table entities).
+builder.Services.AddScoped<IDatabaseTableService, DatabaseTableService>();
 
 // Add Chat Service for AI functionality
 builder.Services.AddScoped<IChatService, ChatService>();

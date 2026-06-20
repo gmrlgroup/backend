@@ -29,5 +29,9 @@ builder.Services.AddScoped<Application.Client.Services.MonitoredAssetClientServi
 builder.Services.AddScoped<Application.Client.Services.IncidentClientService>();
 builder.Services.AddScoped<Application.Client.Services.AssetStatusHistoryClientService>();
 builder.Services.AddScoped<Application.Client.Services.ServerManagementClientService>();
+builder.Services.AddScoped<Application.Client.Services.EntityAudienceClientService>();
+builder.Services.AddScoped<Application.Client.Services.PowerBiClientService>();
+builder.Services.AddScoped<Application.Client.Services.StatusOverviewClientService>();
+builder.Services.AddScoped<Application.Client.Services.DatabaseTableClientService>();
 
 await builder.Build().RunAsync();

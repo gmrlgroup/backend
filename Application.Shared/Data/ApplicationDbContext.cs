@@ -86,6 +86,9 @@ namespace Application.Shared.Data
         public DbSet<ApiKey> ApiKey { get; set; }
         public DbSet<ApiKeyScope> ApiKeyScope { get; set; }
 
+        // Saved SQL queries authored in the Query workbench.
+        public DbSet<SavedQuery> SavedQuery { get; set; }
+
         // METRICS
         public DbSet<Metric> Metrics { get; set; }
 

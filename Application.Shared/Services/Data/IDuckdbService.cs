@@ -28,4 +28,11 @@ public interface IDuckdbService
     // New methods for data querying
     Task<TableDataResult> QueryTableDataAsync(TableDataQuery query);
     Task<int> GetTableRowCountAsync(string datasetId, string tableName, List<FilterCondition>? filters = null);
+
+    // Ad-hoc SQL workbench. Reads open a read-only DuckDB handle; writes (allowWrite) open a
+    // read-write handle. SQL errors are returned via SqlQueryResult.Error, never thrown.
+    Task<SqlQueryResult> ExecuteSqlAsync(string datasetId, string sql, bool allowWrite, int maxRows, System.Threading.CancellationToken ct = default);
+
+    // Write-back: materialize a SELECT query as a new table or view in the dataset.
+    Task<SqlQueryResult> CreateObjectFromQueryAsync(string datasetId, string objectName, string sql, bool asView, System.Threading.CancellationToken ct = default);
 }

@@ -296,6 +296,9 @@ builder.Services.AddScoped<ISchemaInferenceService, SchemaInferenceService>();
 // External-access API keys (issue/scope/validate) + the data API they unlock.
 builder.Services.AddScoped<IApiKeyService, ApiKeyService>();
 
+// SQL query workbench — saved queries (ad-hoc execution lives on IDuckdbService).
+builder.Services.AddScoped<ISavedQueryService, SavedQueryService>();
+
 // Configure Azure OpenAI settings
 builder.Services.Configure<AzureOpenAIConfiguration>(builder.Configuration.GetSection("AzureOpenAI"));
 

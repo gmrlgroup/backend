@@ -1,0 +1,83 @@
+@implements IAsyncDisposable
+@inject IJSRuntime _js
+
+@if (_failed)
+{
+    <textarea style="width:100%;height:@Height;font-family:ui-monospace,Consolas,monospace;font-size:13px;padding:8px;border:1px solid #e4e4e7;border-radius:6px;box-sizing:border-box"
+              @bind="_fallbackValue" @bind:event="oninput" @bind:after="OnFallbackChanged"
+              placeholder="SELECT * FROM ..."></textarea>
+}
+else
+{
+    <div id="@_id" style="height:@Height;border:1px solid #e4e4e7;border-radius:6px;overflow:hidden"></div>
+}
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string Height { get; set; } = "240px";
+
+    private readonly string _id = "monaco-" + Guid.NewGuid().ToString("N");
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<MonacoSqlEditor>? _ref;
+    private bool _initialized;
+    private bool _failed;
+    private string? _fallbackValue;
+    private string? _lastValue;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _module = await _js.InvokeAsync<IJSObjectReference>("import", "./js/monaco-sql-editor.js");
+                _ref = DotNetObjectReference.Create(this);
+                await _module.InvokeVoidAsync("init", _id, _ref, Value ?? "");
+                _initialized = true;
+                _lastValue = Value;
+            }
+            catch
+            {
+                // Monaco unavailable (load/CSP failure) — degrade to a plain textarea.
+                _failed = true;
+                _fallbackValue = Value;
+                StateHasChanged();
+            }
+            return;
+        }
+
+        // Push externally-driven Value changes (e.g. loading a saved query) into the editor.
+        if (_initialized && _module != null && Value != _lastValue)
+        {
+            _lastValue = Value;
+            try { await _module.InvokeVoidAsync("setValue", _id, Value ?? ""); } catch { }
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnValueChanged(string value)
+    {
+        _lastValue = value;
+        Value = value;
+        if (ValueChanged.HasDelegate) await ValueChanged.InvokeAsync(value);
+    }
+
+    private async Task OnFallbackChanged()
+    {
+        Value = _fallbackValue;
+        _lastValue = _fallbackValue;
+        if (ValueChanged.HasDelegate) await ValueChanged.InvokeAsync(_fallbackValue ?? "");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_module != null && _initialized) await _module.InvokeVoidAsync("dispose", _id);
+            if (_module != null) await _module.DisposeAsync();
+        }
+        catch { /* ignore teardown races */ }
+        _ref?.Dispose();
+    }
+}

@@ -6,9 +6,13 @@ using DuckDB.NET.Data;
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Data.Common;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Application.Shared.Services.Data;
@@ -597,7 +601,7 @@ public class DuckdbService : IDuckdbService
                     var row = new Dictionary<string, object>();
                     for (int i = 0; i < reader.FieldCount; i++)
                     {
-                        var value = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                        var value = reader.IsDBNull(i) ? null : NormalizeValue(reader.GetValue(i));
                         row[reader.GetName(i)] = value ?? DBNull.Value;
                     }
                     result.Data.Add(row);
@@ -623,6 +627,215 @@ public class DuckdbService : IDuckdbService
         {
             throw new InvalidOperationException($"Failed to query table data: {ex.Message}", ex);
         }
+    }
+
+    // ----- Ad-hoc SQL workbench --------------------------------------------------------------
+
+    // Hard ceiling on rows the workbench will return, regardless of a requested MaxRows — keeps a
+    // runaway "SELECT *" from materializing an entire table into memory.
+    private const int MaxAdHocRows = 5000;
+    private const int QueryTimeoutSeconds = 60;
+
+    private enum SqlKind { Read, Write, Empty }
+
+    public async Task<SqlQueryResult> ExecuteSqlAsync(string datasetId, string sql, bool allowWrite, int maxRows, CancellationToken ct = default)
+    {
+        var result = new SqlQueryResult();
+        var stopwatch = Stopwatch.StartNew();
+
+        var kind = ClassifyStatement(sql);
+        if (kind == SqlKind.Empty)
+        {
+            result.Error = "Query is empty.";
+            return result;
+        }
+        if (kind == SqlKind.Write && !allowWrite)
+        {
+            result.Error = "This query modifies data and requires edit permission.";
+            return result;
+        }
+
+        var duckdbFilePath = $"{_option.DuckdbFilePath}/{datasetId}.duckdb";
+        if (!File.Exists(duckdbFilePath))
+        {
+            result.Error = "Dataset database not found.";
+            return result;
+        }
+
+        var cap = maxRows > 0 ? Math.Min(maxRows, MaxAdHocRows) : MaxAdHocRows;
+        result.IsSelect = kind == SqlKind.Read;
+
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(QueryTimeoutSeconds));
+
+            // Reads use a read-only handle: multiple readers can coexist (no single-writer lock) and
+            // a VIEW_DATA user physically cannot mutate, even via a crafted WITH. Writes need a
+            // read-write handle (one writer per file, like imports).
+            var connectionString = kind == SqlKind.Read
+                ? $"DataSource={duckdbFilePath};ACCESS_MODE=READ_ONLY"
+                : $"DataSource={duckdbFilePath}";
+
+            using var connection = new DuckDBConnection(connectionString);
+            await connection.OpenAsync(cts.Token);
+
+            using var command = connection.CreateCommand();
+            command.CommandText = sql;
+
+            using var reader = await command.ExecuteReaderAsync(cts.Token);
+            if (reader.FieldCount > 0)
+                ReadResultSet(reader, result, cap, cts.Token);
+            if (kind == SqlKind.Write)
+                result.RowsAffected = reader.RecordsAffected;
+
+            await connection.CloseAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            result.Error = $"The query was cancelled or exceeded the {QueryTimeoutSeconds}s time limit.";
+        }
+        catch (Exception ex)
+        {
+            // Surface the DuckDB error message inline — the workbench shows it to the author.
+            result.Error = ex.Message;
+        }
+        finally
+        {
+            stopwatch.Stop();
+            result.ElapsedMs = stopwatch.ElapsedMilliseconds;
+        }
+
+        return result;
+    }
+
+    public async Task<SqlQueryResult> CreateObjectFromQueryAsync(string datasetId, string objectName, string sql, bool asView, CancellationToken ct = default)
+    {
+        var result = new SqlQueryResult();
+        var stopwatch = Stopwatch.StartNew();
+
+        if (string.IsNullOrWhiteSpace(objectName) || !Regex.IsMatch(objectName, "^[A-Za-z_][A-Za-z0-9_]*$"))
+        {
+            result.Error = "Invalid name. Use letters, digits and underscores; it cannot start with a digit.";
+            return result;
+        }
+        if (ClassifyStatement(sql) != SqlKind.Read)
+        {
+            result.Error = "Only a single SELECT query can be saved as a table or view.";
+            return result;
+        }
+
+        var duckdbFilePath = $"{_option.DuckdbFilePath}/{datasetId}.duckdb";
+        if (!File.Exists(duckdbFilePath))
+        {
+            result.Error = "Dataset database not found.";
+            return result;
+        }
+
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(QueryTimeoutSeconds));
+
+            using var connection = new DuckDBConnection($"DataSource={duckdbFilePath}");
+            await connection.OpenAsync(cts.Token);
+
+            using var command = connection.CreateCommand();
+            var objectType = asView ? "VIEW" : "TABLE";
+            var inner = sql.TrimEnd().TrimEnd(';'); // compose inside CREATE ... AS (...)
+            command.CommandText = $"CREATE OR REPLACE {objectType} \"{objectName}\" AS {inner}";
+            result.RowsAffected = await command.ExecuteNonQueryAsync(cts.Token);
+
+            await connection.CloseAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            result.Error = $"The operation exceeded the {QueryTimeoutSeconds}s time limit.";
+        }
+        catch (Exception ex)
+        {
+            result.Error = ex.Message;
+        }
+        finally
+        {
+            stopwatch.Stop();
+            result.ElapsedMs = stopwatch.ElapsedMilliseconds;
+        }
+
+        return result;
+    }
+
+    private static void ReadResultSet(DbDataReader reader, SqlQueryResult result, int cap, CancellationToken ct)
+    {
+        var columns = new List<Column>();
+        for (int i = 0; i < reader.FieldCount; i++)
+            columns.Add(new Column { Name = reader.GetName(i), DataType = reader.GetFieldType(i).Name });
+        result.Columns = columns;
+
+        int count = 0;
+        while (reader.Read())
+        {
+            ct.ThrowIfCancellationRequested();
+            if (count >= cap)
+            {
+                // There was at least one more row than the cap — flag it and stop.
+                result.Truncated = true;
+                break;
+            }
+            var row = new Dictionary<string, object?>();
+            for (int i = 0; i < reader.FieldCount; i++)
+                row[reader.GetName(i)] = reader.IsDBNull(i) ? null : NormalizeValue(reader.GetValue(i));
+            result.Rows.Add(row);
+            count++;
+        }
+        result.RowsReturned = result.Rows.Count;
+    }
+
+    // Some DuckDB types don't serialize cleanly to JSON as a plain value. The main offender is
+    // HUGEINT (e.g. the result of SUM over an integer column), which DuckDB.NET surfaces as a
+    // System.Numerics.BigInteger — System.Text.Json has no built-in support for it and would emit
+    // {"isPowerOfTwo":...,"sign":...} instead of a number. Coerce it to a long (the common case),
+    // falling back to its string form only when the value exceeds long's range.
+    private static object? NormalizeValue(object? value)
+    {
+        if (value is null || value is DBNull) return null;
+
+        if (value is System.Numerics.BigInteger big)
+        {
+            if (big >= long.MinValue && big <= long.MaxValue) return (long)big;
+            return big.ToString();
+        }
+
+        return value;
+    }
+
+    // Routes a statement to the read or write path. Comment-stripping + first-keyword inspection is
+    // enough to *route* (choose connection mode + required role); the read-only connection is the
+    // hard guarantee that a misclassified write can't actually mutate.
+    private static SqlKind ClassifyStatement(string sql)
+    {
+        if (string.IsNullOrWhiteSpace(sql)) return SqlKind.Empty;
+
+        var cleaned = StripSqlComments(sql).Trim();
+        if (cleaned.Length == 0) return SqlKind.Empty;
+
+        // Keep the read path to a single statement; multi-statement input is treated as a write
+        // (so it needs edit permission) and the read-only handle still blocks any mutation.
+        var statements = cleaned.Split(';').Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+        if (statements.Count == 0) return SqlKind.Empty;
+        if (statements.Count > 1) return SqlKind.Write;
+
+        var firstWord = new string(statements[0].TrimStart().TakeWhile(char.IsLetter).ToArray()).ToUpperInvariant();
+        return firstWord is "SELECT" or "WITH" or "TABLE" or "FROM" or "VALUES" or "DESCRIBE" or "SHOW" or "PRAGMA" or "EXPLAIN" or "SUMMARIZE"
+            ? SqlKind.Read
+            : SqlKind.Write;
+    }
+
+    private static string StripSqlComments(string sql)
+    {
+        // Best-effort: drop /* block */ then -- line comments. Only used for routing, never executed.
+        var noBlock = Regex.Replace(sql, @"/\*.*?\*/", " ", RegexOptions.Singleline);
+        return Regex.Replace(noBlock, @"--[^\n]*", " ");
     }
 
     // Builds the " WHERE ..." fragment (leading space included) from filters, or "" when there are none.

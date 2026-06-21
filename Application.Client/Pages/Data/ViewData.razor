@@ -50,6 +50,10 @@ else
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
                 Refresh
             </button>
+            <button class="btn btn-outline" @onclick="GoToQuery" title="Open in the SQL query workbench" disabled="@IsLoading">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
+                Query
+            </button>
             <button class="btn btn-outline" @onclick="@(() => ShowApiDocs = true)" title="How to fetch this data via the API">
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
                 API
@@ -340,6 +344,7 @@ else
     }
 
     private void GoBack() => NavigationManager.NavigateTo($"/data/tables?c={c}&d={DatasetId}");
+    private void GoToQuery() => NavigationManager.NavigateTo($"/data/query?c={c}&DatasetId={DatasetId}&TableName={TableName}");
     private void OnCommentAdded(DataTableComment comment) { CommentsCount++; StateHasChanged(); }
     private void OnCommentDeleted(string commentId) { CommentsCount = Math.Max(0, CommentsCount - 1); StateHasChanged(); }
 }

@@ -107,7 +107,8 @@ else
             return;
         }
         var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
-        canEdit = authState.User.IsInRole($"{companyId}_EDIT_DATA");
+        // {companyId}_ADMIN is implicitly allowed by HasCompanyRole.
+        canEdit = authState.User.HasCompanyRole(companyId, "EDIT_DATA");
         if (!canEdit) return;
     }
 

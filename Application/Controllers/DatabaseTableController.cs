@@ -94,4 +94,43 @@ public class DatabaseTableController : ControllerBase
             return BadRequest(new DatabaseConnectionTestResult { Ok = false, Error = ex.Message });
         }
     }
+
+    // ---- Table freshness check (Table entities) ----
+
+    [HttpGet("entities/{entityId}/table/check")]
+    public async Task<ActionResult<TableCheckDto>> GetTableCheck(
+        [FromHeader(Name = "X-Company-Id")] string companyId, string entityId, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        var check = await _service.GetTableCheckAsync(entityId, companyId, ct);
+        return check == null ? NoContent() : Ok(check);
+    }
+
+    [HttpPut("entities/{entityId}/table/check")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
+    public async Task<ActionResult<TableCheckDto>> SaveTableCheck(
+        [FromHeader(Name = "X-Company-Id")] string companyId, string entityId,
+        TableCheckRequest request, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        return Ok(await _service.SaveTableCheckAsync(entityId, companyId, request, User?.Identity?.Name ?? "System", ct));
+    }
+
+    [HttpDelete("entities/{entityId}/table/check")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
+    public async Task<IActionResult> DeleteTableCheck(
+        [FromHeader(Name = "X-Company-Id")] string companyId, string entityId, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        return await _service.DeleteTableCheckAsync(entityId, companyId, ct) ? NoContent() : NotFound();
+    }
+
+    [HttpPost("entities/{entityId}/table/check/run")]
+    [Authorize(Policy = PolicyNames.StatusWrite)]
+    public async Task<ActionResult<TableFreshnessResult>> RunTableCheck(
+        [FromHeader(Name = "X-Company-Id")] string companyId, string entityId, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(companyId)) return BadRequest("X-Company-Id header is required");
+        return Ok(await _service.RunFreshnessCheckAsync(entityId, companyId, ct));
+    }
 }

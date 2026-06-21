@@ -166,7 +166,7 @@ else
         if (string.IsNullOrEmpty(datasetId)) { _toastService.ShowWarning("Dataset ID is required"); GoBack(); return; }
 
         var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
-        canEdit = authState.User.IsInRole($"{companyId}_EDIT_DATA");
+        canEdit = authState.User.HasCompanyRole(companyId, "EDIT_DATA");
         if (!canEdit) return;
 
         Dataset = await _httpClient.GetFromJsonAsync<Dataset>($"api/datasets/{datasetId}");

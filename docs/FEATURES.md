@@ -39,16 +39,35 @@ status-severity logic from `StatusOverviewService`. No schema change.
 
 ---
 
-## 2. ⬜ Extend monitoring depth
+## 2. 🚧 Extend monitoring depth
 
-- **Probe Database entities directly.** `AssetPingJob` only ICMP-pings Servers and HTTP-checks the
-  rest. With the stored read-only `DatabaseConnection`, run `SELECT 1` and record real response
-  time / up-down for Database entities.
-- **Data freshness & SLA for Tables.** For Table entities, read `MAX(updated_at)` / `COUNT(*)`
-  (read-only) and alert when a table is stale. Reuses the database connection — strong
-  data-observability differentiator.
-- **Richer endpoint checks.** Assert on response body/JSON and latency thresholds; monitor
+- ✅ **Probe Database entities directly.** `AssetPingJob` now builds a per-entity probe plan: for a
+  Database entity with a stored read-only `DatabaseConnection` it opens the connection and runs
+  `SELECT 1` (ClickHouse over HTTP `readonly=1`), recording real up/down + response time; otherwise
+  it falls back to the previous URL check. Implemented via pure (no-DbContext) probe methods on
+  `DatabaseTableService` so they run in the existing parallel probe phase. The scheduler now shares
+  the web app's Data Protection key ring (`CredentialProtector` moved to `Application.Shared`) so it
+  can decrypt the stored secrets.
+- ✅ **Data freshness & SLA for Tables.** New per-Table `entity_table_check` config (freshness
+  column + max-age minutes + enabled). On each run, an enabled Table entity is checked by reading
+  `MAX([column])` + row count (read-only) through its **parent Database** connection (resolved via
+  the Table→Database dependency); the entity goes **Degraded** when the newest row is older than the
+  threshold, **Error** on query failure, else **Online**. Configurable on the Table entity detail
+  page (`TableFreshness.razor`) with a "Run check now" button. Reuses the existing
+  incident-on-status-change flow.
+- ⬜ **Richer endpoint checks.** Assert on response body/JSON and latency thresholds; monitor
   **SSL certificate / domain expiry** for URL-based entities.
+
+> **Actions required (user):**
+> 1. Publish the new `entity_table_check` table (DACPAC project `Application.Database.Status`) to the
+>    `statusapp` database.
+> 2. **Share the Data Protection key ring with the scheduler.** Connection secrets are encrypted by the
+>    web app's key ring (DPAPI-protected, `SetApplicationName("FlowByte.Application")`). The scheduler
+>    must read the *same* keys or it cannot decrypt them (DB probes would all report offline). Set
+>    `DataProtection:KeysPath` in `Application.Scheduler/appsettings.json` to the web app's existing key
+>    directory (by default `Application/App_Data/keys`, or the deployment's `DataProtection:KeysPath`,
+>    e.g. `C:\ProgramData\FlowByte\keys`). Do **not** change the web app's own path — that would orphan
+>    all already-encrypted secrets. Both processes must run on the same machine (local-machine DPAPI).
 
 ## 3. ⬜ Alerting & communication
 

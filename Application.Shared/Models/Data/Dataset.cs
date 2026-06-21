@@ -28,11 +28,11 @@ public class Dataset
     public string? Name { get; set; }
 
 
-    [Required(ErrorMessage = "Dataset type is required")]
-    [StringLength(500, ErrorMessage = "Dataset type cannot exceed 50 characters")]
+    [Required(ErrorMessage = "Dataset description is required")]
+    [StringLength(500, ErrorMessage = "Dataset description cannot exceed 500 characters")]
     [MaxLength(500)]
-    [MinLength(3, ErrorMessage = "Dataset type must be at least 3 characters long")]
-    [RegularExpression(@"^[a-zA-Z0-9\s]+$", ErrorMessage = "Dataset type can only contain letters, numbers, and spaces")]
+    [MinLength(3, ErrorMessage = "Dataset description must be at least 3 characters long")]
+    [Display(Name = "Description")]
     public string? Description { get; set; }
 
     // User who created the dataset

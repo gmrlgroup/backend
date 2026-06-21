@@ -150,7 +150,7 @@ else
                         authState.User.Claims.FirstOrDefault(c => c.Type.EndsWith("id"))?.Value ?? string.Empty;
 
         var companyId = c ?? "";
-        canView = !string.IsNullOrEmpty(companyId) && authState.User.IsInRole($"{companyId}_VIEW_DATA");
+        canView = authState.User.HasCompanyRole(companyId, "VIEW_DATA");
         if (!canView) return;
     }
 

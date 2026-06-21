@@ -191,6 +191,11 @@
                     {
                         <DatabaseTables EntityId="@entity.Id" />
                     }
+
+                    @if (entity.EntityType == AssetType.Table)
+                    {
+                        <TableFreshness EntityId="@entity.Id" />
+                    }
                 </div>
 
                 <!-- Right Column - Sidebar -->

@@ -24,6 +24,19 @@
                 <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
             </div>
         }
+        else if (!loaded)
+        {
+            <div class="text-center py-6">
+                <button @onclick="LoadAsync"
+                        class="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                    <svg class="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Load dependencies &amp; impact
+                </button>
+                <p class="text-xs text-gray-400 mt-2">Computing the full dependency tree can take a moment, so it's loaded on demand.</p>
+            </div>
+        }
         else if (tree == null)
         {
             <p class="text-center py-4 text-sm text-gray-500">Couldn't load dependency information.</p>
@@ -113,7 +126,9 @@
     [Parameter] public string EntityId { get; set; } = string.Empty;
 
     private AssetDependencyTree? tree;
-    private bool isLoading = true;
+    private bool isLoading = false;
+    private bool loaded = false;
+    private string? lastEntityId;
 
     // Flattened, de-duplicated transitive sets.
     private List<AssetDependencyTreeNode> upstreamAll = new();
@@ -124,7 +139,24 @@
 
     private string QueryParam => StateContainer.Company is null ? "" : $"?c={StateContainer.Company.Id}";
 
-    protected override async Task OnParametersSetAsync()
+    protected override void OnParametersSet()
+    {
+        // Reset to the "Load" prompt when the component is reused for a different entity.
+        if (lastEntityId != EntityId)
+        {
+            lastEntityId = EntityId;
+            loaded = false;
+            isLoading = false;
+            tree = null;
+            upstreamAll = new();
+            downstreamAll = new();
+            rootCauses = new();
+            criticalCount = 0;
+            downImpactedCount = 0;
+        }
+    }
+
+    private async Task LoadAsync()
     {
         if (string.IsNullOrEmpty(EntityId)) return;
         isLoading = true;
@@ -136,6 +168,7 @@
         criticalCount = downstreamAll.Count(n => n.IsCritical);
         downImpactedCount = downstreamAll.Count(n => IsUnhealthy(n.CurrentStatus));
 
+        loaded = true;
         isLoading = false;
     }
 

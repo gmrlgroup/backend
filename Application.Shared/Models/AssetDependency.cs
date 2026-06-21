@@ -24,6 +24,9 @@ public class AssetDependency : BaseModel
 
     public bool IsCritical { get; set; } = false;
 
+    /// <summary>Maps the NOT-NULL is_deleted column; soft-delete flag like the other status models.</summary>
+    public bool IsDeleted { get; set; } = false;
+
     public AssetType? DependencyType { get; set; }
 
     public int Order { get; set; } = 0;

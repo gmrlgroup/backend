@@ -1,4 +1,6 @@
 using System.Data.Common;
+using System.Diagnostics;
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -256,7 +258,180 @@ public class DatabaseTableService : IDatabaseTableService
         return result;
     }
 
+    // ---- Table freshness checks ----
+
+    public async Task<TableCheckDto?> GetTableCheckAsync(string entityId, string companyId, CancellationToken ct = default)
+    {
+        var check = await _context.TableChecks.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.EntityId == entityId && c.CompanyId == companyId, ct);
+        var hasConn = await HasParentConnectionAsync(entityId, companyId, ct);
+
+        // Always return a DTO (defaults when unconfigured) so the UI can show the form and the
+        // "needs a database connection" hint before anything is saved.
+        return new TableCheckDto
+        {
+            EntityId = entityId,
+            FreshnessColumn = check?.FreshnessColumn,
+            MaxAgeMinutes = check?.MaxAgeMinutes ?? 1440,
+            IsEnabled = check?.IsEnabled ?? false,
+            HasDatabaseConnection = hasConn
+        };
+    }
+
+    public async Task<TableCheckDto> SaveTableCheckAsync(string entityId, string companyId, TableCheckRequest request, string? modifiedBy, CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow;
+        var check = await _context.TableChecks
+            .FirstOrDefaultAsync(c => c.EntityId == entityId && c.CompanyId == companyId, ct);
+
+        if (check == null)
+        {
+            check = new TableCheck
+            {
+                Id = Guid.NewGuid().ToString(),
+                EntityId = entityId,
+                CompanyId = companyId,
+                CreatedBy = modifiedBy,
+                CreatedOn = now
+            };
+            _context.TableChecks.Add(check);
+        }
+
+        check.FreshnessColumn = request.FreshnessColumn?.Trim();
+        check.MaxAgeMinutes = request.MaxAgeMinutes > 0 ? request.MaxAgeMinutes : 1440;
+        check.IsEnabled = request.IsEnabled;
+        check.ModifiedBy = modifiedBy;
+        check.ModifiedOn = now;
+
+        await _context.SaveChangesAsync(ct);
+
+        return new TableCheckDto
+        {
+            EntityId = entityId,
+            FreshnessColumn = check.FreshnessColumn,
+            MaxAgeMinutes = check.MaxAgeMinutes,
+            IsEnabled = check.IsEnabled,
+            HasDatabaseConnection = await HasParentConnectionAsync(entityId, companyId, ct)
+        };
+    }
+
+    public async Task<bool> DeleteTableCheckAsync(string entityId, string companyId, CancellationToken ct = default)
+    {
+        var check = await _context.TableChecks
+            .FirstOrDefaultAsync(c => c.EntityId == entityId && c.CompanyId == companyId, ct);
+        if (check == null) return false;
+
+        _context.TableChecks.Remove(check);
+        await _context.SaveChangesAsync(ct);
+        return true;
+    }
+
+    public async Task<TableFreshnessResult> RunFreshnessCheckAsync(string entityId, string companyId, CancellationToken ct = default)
+    {
+        var check = await _context.TableChecks.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.EntityId == entityId && c.CompanyId == companyId, ct);
+        if (check == null || string.IsNullOrWhiteSpace(check.FreshnessColumn))
+            return new TableFreshnessResult { Ok = false, Error = "Configure a freshness column and save it first." };
+
+        var table = await _context.MonitoredAssets.AsNoTracking()
+            .FirstOrDefaultAsync(e => e.Id == entityId && e.CompanyId == companyId, ct);
+        if (table == null)
+            return new TableFreshnessResult { Ok = false, Error = "Table entity not found." };
+
+        var connection = await GetDecryptedParentConnectionAsync(entityId, companyId, ct);
+        if (connection == null)
+            return new TableFreshnessResult { Ok = false, Error = "No database connection found on the parent database entity. Configure it there first." };
+
+        return await CheckFreshnessAsync(connection, table.Name, check.FreshnessColumn!, check.MaxAgeMinutes, ct);
+    }
+
+    // ---- Pure probes (no DbContext; safe to call concurrently from the ping job) ----
+
+    public async Task<DatabaseProbeResult> ProbeConnectionAsync(DatabaseConnection c, CancellationToken ct = default)
+    {
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            if (c.DatabaseType == DataSourceType.ClickHouse)
+                await QueryClickHouseAsync(c, "SELECT 1", ct);
+            else
+                await ExecuteScalarAsync(CreateAdoConnection(c), "SELECT 1", ReadOnlySetupFor(c.DatabaseType), ct);
+
+            sw.Stop();
+            return new DatabaseProbeResult { Ok = true, ResponseMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2) };
+        }
+        catch (Exception ex)
+        {
+            return new DatabaseProbeResult { Ok = false, Error = Truncate(ex.Message) };
+        }
+    }
+
+    public async Task<TableFreshnessResult> CheckFreshnessAsync(DatabaseConnection c, string tableFullName, string freshnessColumn, int maxAgeMinutes, CancellationToken ct = default)
+    {
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            object? maxVal;
+            long rowCount;
+
+            if (c.DatabaseType == DataSourceType.ClickHouse)
+                (maxVal, rowCount) = await QueryClickHouseFreshnessAsync(c, tableFullName, freshnessColumn, ct);
+            else
+                (maxVal, rowCount) = await QueryFreshnessAdoAsync(
+                    CreateAdoConnection(c),
+                    BuildFreshnessSql(c.DatabaseType, tableFullName, freshnessColumn),
+                    ReadOnlySetupFor(c.DatabaseType), ct);
+
+            sw.Stop();
+
+            var result = new TableFreshnessResult
+            {
+                Ok = true,
+                ResponseMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2),
+                RowCount = rowCount,
+                LastUpdatedUtc = CoerceToUtc(maxVal)
+            };
+
+            if (result.LastUpdatedUtc.HasValue)
+            {
+                var age = (DateTime.UtcNow - result.LastUpdatedUtc.Value).TotalMinutes;
+                result.AgeMinutes = Math.Round(age, 2);
+                result.IsStale = age > maxAgeMinutes;
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            return new TableFreshnessResult { Ok = false, Error = Truncate(ex.Message) };
+        }
+    }
+
+    public Task<DatabaseConnection?> GetDecryptedConnectionAsync(string entityId, string companyId, CancellationToken ct = default)
+        => LoadDecryptedAsync(entityId, companyId, ct);
+
+    public async Task<DatabaseConnection?> GetDecryptedParentConnectionAsync(string tableEntityId, string companyId, CancellationToken ct = default)
+    {
+        var parentId = await GetParentDatabaseEntityIdAsync(tableEntityId, companyId, ct);
+        return parentId == null ? null : await LoadDecryptedAsync(parentId, companyId, ct);
+    }
+
     // ---- Internals ----
+
+    /// <summary>The id of the Database entity a Table entity depends on (the "Table in database" edge).</summary>
+    private async Task<string?> GetParentDatabaseEntityIdAsync(string tableEntityId, string companyId, CancellationToken ct) =>
+        await _context.AssetDependencies
+            .Where(d => d.EntityId == tableEntityId && d.CompanyId == companyId
+                        && d.DependencyType == AssetType.Database && d.IsActive)
+            .Select(d => d.DependsOnEntityId)
+            .FirstOrDefaultAsync(ct);
+
+    private async Task<bool> HasParentConnectionAsync(string tableEntityId, string companyId, CancellationToken ct)
+    {
+        var parentId = await GetParentDatabaseEntityIdAsync(tableEntityId, companyId, ct);
+        return parentId != null &&
+               await _context.DatabaseConnections.AnyAsync(c => c.EntityId == parentId && c.CompanyId == companyId, ct);
+    }
 
     private async Task<DatabaseConnection?> LoadDecryptedAsync(string entityId, string companyId, CancellationToken ct)
     {
@@ -278,22 +453,38 @@ public class DatabaseTableService : IDatabaseTableService
     {
         // Every path is strictly read-only: only SELECT against metadata, and the session/connection
         // is opened read-only where the engine supports it (readOnlySetup runs before the listing query).
-        return c.DatabaseType switch
+        if (c.DatabaseType == DataSourceType.ClickHouse)
+            return await QueryClickHouseTablesAsync(c, ct);
+
+        var sql = c.DatabaseType switch
         {
-            DataSourceType.SQLServer => await QueryTablesAsync(new SqlConnection(BuildSqlServerConnectionString(c)),
-                "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'", ct),
-            DataSourceType.PostgreSQL => await QueryTablesAsync(new NpgsqlConnection(BuildPostgresConnectionString(c)),
-                "SELECT table_schema, table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('pg_catalog', 'information_schema')", ct,
-                readOnlySetup: "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY"),
-            DataSourceType.MySQL => await QueryTablesAsync(new MySqlConnection(BuildMySqlConnectionString(c)),
-                $"SELECT table_schema, table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema = '{EscapeLiteral(c.DatabaseName)}'", ct,
-                readOnlySetup: "SET SESSION TRANSACTION READ ONLY"),
-            DataSourceType.DuckDB => await QueryTablesAsync(new DuckDBConnection(BuildDuckDbConnectionString(c)),
-                "SELECT table_schema, table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE'", ct),
-            DataSourceType.ClickHouse => await QueryClickHouseTablesAsync(c, ct),
+            DataSourceType.SQLServer => "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'",
+            DataSourceType.PostgreSQL => "SELECT table_schema, table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('pg_catalog', 'information_schema')",
+            DataSourceType.MySQL => $"SELECT table_schema, table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema = '{EscapeLiteral(c.DatabaseName)}'",
+            DataSourceType.DuckDB => "SELECT table_schema, table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE'",
             _ => throw new NotSupportedException($"Unsupported database type: {c.DatabaseType}.")
         };
+
+        return await QueryTablesAsync(CreateAdoConnection(c), sql, ct, ReadOnlySetupFor(c.DatabaseType));
     }
+
+    /// <summary>Builds an unopened ADO.NET connection for an engine. ClickHouse is HTTP-only (no ADO).</summary>
+    private static DbConnection CreateAdoConnection(DatabaseConnection c) => c.DatabaseType switch
+    {
+        DataSourceType.SQLServer => new SqlConnection(BuildSqlServerConnectionString(c)),
+        DataSourceType.PostgreSQL => new NpgsqlConnection(BuildPostgresConnectionString(c)),
+        DataSourceType.MySQL => new MySqlConnection(BuildMySqlConnectionString(c)),
+        DataSourceType.DuckDB => new DuckDBConnection(BuildDuckDbConnectionString(c)),
+        _ => throw new NotSupportedException($"No ADO.NET driver for database type: {c.DatabaseType}.")
+    };
+
+    /// <summary>Command to put the session into read-only mode before querying, where the engine supports it.</summary>
+    private static string? ReadOnlySetupFor(DataSourceType type) => type switch
+    {
+        DataSourceType.PostgreSQL => "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY",
+        DataSourceType.MySQL => "SET SESSION TRANSACTION READ ONLY",
+        _ => null
+    };
 
     /// <summary>Opens an ADO.NET connection, runs a two-column (schema, name) query, and returns the rows.
     /// <paramref name="readOnlySetup"/>, when set, runs first to put the session into read-only mode.</summary>
@@ -325,10 +516,11 @@ public class DatabaseTableService : IDatabaseTableService
         return tables;
     }
 
-    private async Task<List<(string Schema, string Name)>> QueryClickHouseTablesAsync(DatabaseConnection c, CancellationToken ct)
+    /// <summary>Runs a read-only ClickHouse query over HTTP (readonly=1) and returns the raw response body.</summary>
+    private async Task<string> QueryClickHouseAsync(DatabaseConnection c, string query, CancellationToken ct)
     {
         var protocol = c.UseSsl ? "https" : "http";
-        // readonly=1 makes the ClickHouse session reject any write/DDL — listing tables only needs reads.
+        // readonly=1 makes the ClickHouse session reject any write/DDL — these queries only need reads.
         var url = $"{protocol}://{c.Host}:{c.Port}/?readonly=1";
 
         var client = _httpClientFactory.CreateClient();
@@ -339,13 +531,19 @@ public class DatabaseTableService : IDatabaseTableService
             request.Headers.Authorization = new AuthenticationHeaderValue("Basic", auth);
         }
 
-        const string query = "SELECT database, name FROM system.tables WHERE database NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema') FORMAT JSONEachRow";
         request.Content = new StringContent(query, Encoding.UTF8, "text/plain");
 
         var response = await client.SendAsync(request, ct);
         var body = await response.Content.ReadAsStringAsync(ct);
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException($"ClickHouse query failed ({(int)response.StatusCode}): {body}");
+        return body;
+    }
+
+    private async Task<List<(string Schema, string Name)>> QueryClickHouseTablesAsync(DatabaseConnection c, CancellationToken ct)
+    {
+        const string query = "SELECT database, name FROM system.tables WHERE database NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema') FORMAT JSONEachRow";
+        var body = await QueryClickHouseAsync(c, query, ct);
 
         var tables = new List<(string, string)>();
         foreach (var line in body.Split('\n', StringSplitOptions.RemoveEmptyEntries))
@@ -366,6 +564,130 @@ public class DatabaseTableService : IDatabaseTableService
         }
         return tables;
     }
+
+    /// <summary>Opens a connection read-only and runs a scalar query (e.g. SELECT 1), discarding the result.</summary>
+    private static async Task ExecuteScalarAsync(DbConnection connection, string sql, string? readOnlySetup, CancellationToken ct)
+    {
+        await using (connection)
+        {
+            await connection.OpenAsync(ct);
+
+            if (!string.IsNullOrEmpty(readOnlySetup))
+            {
+                await using var setup = connection.CreateCommand();
+                setup.CommandText = readOnlySetup;
+                await setup.ExecuteNonQueryAsync(ct);
+            }
+
+            await using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            await command.ExecuteScalarAsync(ct);
+        }
+    }
+
+    /// <summary>Runs the two-column freshness query and returns (MAX value, row count) from the first row.</summary>
+    private static async Task<(object? MaxValue, long RowCount)> QueryFreshnessAdoAsync(DbConnection connection, string sql, string? readOnlySetup, CancellationToken ct)
+    {
+        await using (connection)
+        {
+            await connection.OpenAsync(ct);
+
+            if (!string.IsNullOrEmpty(readOnlySetup))
+            {
+                await using var setup = connection.CreateCommand();
+                setup.CommandText = readOnlySetup;
+                await setup.ExecuteNonQueryAsync(ct);
+            }
+
+            await using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            if (await reader.ReadAsync(ct))
+            {
+                var maxVal = reader.IsDBNull(0) ? null : reader.GetValue(0);
+                var rowCount = reader.IsDBNull(1) ? 0L : Convert.ToInt64(reader.GetValue(1));
+                return (maxVal, rowCount);
+            }
+            return (null, 0L);
+        }
+    }
+
+    private async Task<(object? MaxValue, long RowCount)> QueryClickHouseFreshnessAsync(DatabaseConnection c, string tableFullName, string column, CancellationToken ct)
+    {
+        var table = QuoteQualified(DataSourceType.ClickHouse, tableFullName);
+        var col = QuoteIdentifier(DataSourceType.ClickHouse, column);
+        // toString() so JSONEachRow yields plain strings we can parse uniformly across column types.
+        var query = $"SELECT toString(max({col})) AS last_updated, toString(count()) AS row_count FROM {table} FORMAT JSONEachRow";
+
+        var body = await QueryClickHouseAsync(c, query, ct);
+        var line = body.Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        if (line == null) return (null, 0L);
+
+        var row = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(line);
+        object? maxVal = null;
+        var rowCount = 0L;
+        if (row != null)
+        {
+            if (row.TryGetValue("last_updated", out var m))
+            {
+                var s = m.GetString();
+                maxVal = string.IsNullOrEmpty(s) ? null : s;
+            }
+            if (row.TryGetValue("row_count", out var rc) && long.TryParse(rc.GetString(), out var parsed))
+                rowCount = parsed;
+        }
+        return (maxVal, rowCount);
+    }
+
+    private static string BuildFreshnessSql(DataSourceType type, string tableFullName, string column)
+    {
+        var table = QuoteQualified(type, tableFullName);
+        var col = QuoteIdentifier(type, column);
+        // SQL Server's COUNT(*) is int and overflows past ~2.1B rows; COUNT_BIG(*) is bigint.
+        var countExpr = type == DataSourceType.SQLServer ? "COUNT_BIG(*)" : "COUNT(*)";
+        return $"SELECT MAX({col}) AS last_updated, {countExpr} AS row_count FROM {table}";
+    }
+
+    /// <summary>Quotes a possibly-qualified "{schema}.{table}" name, splitting on the first dot.</summary>
+    private static string QuoteQualified(DataSourceType type, string fullName)
+    {
+        var idx = fullName.IndexOf('.');
+        if (idx <= 0 || idx == fullName.Length - 1)
+            return QuoteIdentifier(type, fullName);
+        return $"{QuoteIdentifier(type, fullName[..idx])}.{QuoteIdentifier(type, fullName[(idx + 1)..])}";
+    }
+
+    /// <summary>Quotes a single identifier for the engine, escaping the quote char (neutralizes injection).</summary>
+    private static string QuoteIdentifier(DataSourceType type, string id) => type switch
+    {
+        DataSourceType.SQLServer => $"[{id.Replace("]", "]]")}]",
+        DataSourceType.PostgreSQL => $"\"{id.Replace("\"", "\"\"")}\"",
+        DataSourceType.DuckDB => $"\"{id.Replace("\"", "\"\"")}\"",
+        DataSourceType.MySQL => $"`{id.Replace("`", "``")}`",
+        DataSourceType.ClickHouse => $"`{id.Replace("`", "``")}`",
+        _ => id
+    };
+
+    /// <summary>Best-effort coercion of a MAX(timestamp) value to UTC. Timestamps are assumed to be UTC.</summary>
+    private static DateTime? CoerceToUtc(object? value)
+    {
+        switch (value)
+        {
+            case null or DBNull:
+                return null;
+            case DateTime dt:
+                return dt.Kind == DateTimeKind.Utc ? dt : DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+            case DateTimeOffset dto:
+                return dto.UtcDateTime;
+            default:
+                return DateTime.TryParse(value.ToString(), CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed)
+                    ? DateTime.SpecifyKind(parsed, DateTimeKind.Utc)
+                    : null;
+        }
+    }
+
+    private static string Truncate(string s) => string.IsNullOrEmpty(s) || s.Length <= 300 ? s : s[..300];
 
     private static string BuildSqlServerConnectionString(DatabaseConnection c)
     {

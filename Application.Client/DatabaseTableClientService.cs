@@ -96,4 +96,55 @@ public class DatabaseTableClientService
         var error = await response.Content.ReadFromJsonAsync<DatabaseConnectionTestResult>();
         throw new InvalidOperationException(error?.Error ?? $"Commit failed ({(int)response.StatusCode}).");
     }
+
+    // ---- Table freshness check ----
+
+    public async Task<TableCheckDto?> GetTableCheckAsync(string companyId, string entityId)
+    {
+        try
+        {
+            SetCompanyHeader(companyId);
+            var response = await _httpClient.GetAsync($"api/status/entities/{entityId}/table/check");
+            if (response.StatusCode == HttpStatusCode.NoContent) return null;
+            if (response.IsSuccessStatusCode)
+                return await response.Content.ReadFromJsonAsync<TableCheckDto>();
+            return null;
+        }
+        catch (Exception ex) { Console.WriteLine($"Error fetching table check: {ex.Message}"); return null; }
+    }
+
+    /// <summary>Saves the freshness check, or throws with the server's message on failure.</summary>
+    public async Task<TableCheckDto?> SaveTableCheckAsync(string companyId, string entityId, TableCheckRequest request)
+    {
+        SetCompanyHeader(companyId);
+        var response = await _httpClient.PutAsJsonAsync($"api/status/entities/{entityId}/table/check", request);
+        if (response.IsSuccessStatusCode)
+            return await response.Content.ReadFromJsonAsync<TableCheckDto>();
+
+        var message = await response.Content.ReadAsStringAsync();
+        throw new InvalidOperationException(string.IsNullOrWhiteSpace(message) ? $"Save failed ({(int)response.StatusCode})." : message);
+    }
+
+    public async Task<bool> DeleteTableCheckAsync(string companyId, string entityId)
+    {
+        try
+        {
+            SetCompanyHeader(companyId);
+            var response = await _httpClient.DeleteAsync($"api/status/entities/{entityId}/table/check");
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex) { Console.WriteLine($"Error deleting table check: {ex.Message}"); return false; }
+    }
+
+    public async Task<TableFreshnessResult> RunTableCheckAsync(string companyId, string entityId)
+    {
+        try
+        {
+            SetCompanyHeader(companyId);
+            var response = await _httpClient.PostAsync($"api/status/entities/{entityId}/table/check/run", null);
+            var result = await response.Content.ReadFromJsonAsync<TableFreshnessResult>();
+            return result ?? new TableFreshnessResult { Ok = false, Error = $"Run failed ({(int)response.StatusCode})." };
+        }
+        catch (Exception ex) { return new TableFreshnessResult { Ok = false, Error = ex.Message }; }
+    }
 }

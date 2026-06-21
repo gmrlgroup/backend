@@ -49,6 +49,13 @@ public class StatusDbContext(DbContextOptions<StatusDbContext> options) : DbCont
             .HasForeignKey(c => c.EntityId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        // A table-freshness check belongs to a single Table entity.
+        modelBuilder.Entity<TableCheck>()
+            .HasOne(c => c.Entity)
+            .WithMany()
+            .HasForeignKey(c => c.EntityId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         foreach (var relationship in modelBuilder.Model.GetEntityTypes().SelectMany(e => e.GetForeignKeys()))
         {
             relationship.DeleteBehavior = DeleteBehavior.Restrict;
@@ -91,6 +98,9 @@ public class StatusDbContext(DbContextOptions<StatusDbContext> options) : DbCont
 
     // DATABASE TABLE DISCOVERY
     public DbSet<DatabaseConnection> DatabaseConnections { get; set; }
+
+    // TABLE FRESHNESS CHECKS
+    public DbSet<TableCheck> TableChecks { get; set; }
 
     private static string ToSnakeCase(string? input)
     {

@@ -1,3 +1,4 @@
+using Application.Shared.Authorization;
 using Application.Shared.Models.Data;
 using Application.Shared.Services.Data;
 using Microsoft.AspNetCore.Mvc;
@@ -31,7 +32,7 @@ public class DataViewsController : ControllerBase
         try
         {
             var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
-            if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+            if (!User.HasCompanyRole(companyId, "VIEW_DATA"))
                 return Forbid();
 
             var comments = await _commentService.GetCommentsAsync(datasetId, tableName);
@@ -52,7 +53,7 @@ public class DataViewsController : ControllerBase
             return BadRequest("User ID is required in headers");
 
         var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
-        if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+        if (!User.HasCompanyRole(companyId, "EDIT_DATA"))
             return Forbid();
 
         try
@@ -77,7 +78,7 @@ public class DataViewsController : ControllerBase
             return BadRequest("User ID is required in headers");
 
         var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
-        if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+        if (!User.HasCompanyRole(companyId, "EDIT_DATA"))
             return Forbid();
 
         try
@@ -103,7 +104,7 @@ public class DataViewsController : ControllerBase
             return BadRequest("User ID is required in headers");
 
         var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
-        if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+        if (!User.HasCompanyRole(companyId, "EDIT_DATA"))
             return Forbid();
 
         try
@@ -129,7 +130,7 @@ public class DataViewsController : ControllerBase
             return BadRequest("User ID is required in headers");
 
         var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
-        if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+        if (!User.HasCompanyRole(companyId, "VIEW_DATA"))
             return Forbid();
 
         try
@@ -152,7 +153,7 @@ public class DataViewsController : ControllerBase
             return BadRequest("User ID is required in headers");
 
         var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
-        if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+        if (!User.HasCompanyRole(companyId, "EDIT_DATA"))
             return Forbid();
 
         try
@@ -175,7 +176,7 @@ public class DataViewsController : ControllerBase
         if (string.IsNullOrWhiteSpace(companyId))
             return BadRequest("Company ID is required in headers");
 
-        if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+        if (!User.HasCompanyRole(companyId, "VIEW_DATA"))
             return Forbid();
 
         if (string.IsNullOrWhiteSpace(searchTerm))

@@ -1,11 +1,13 @@
-using Application.Shared.Services;
 using Microsoft.AspNetCore.DataProtection;
 
-namespace Application.Services;
+namespace Application.Shared.Services;
 
 /// <summary>
-/// Encrypts server credential secrets at rest using ASP.NET Core Data Protection.
-/// Keys are persisted (see Program.cs) so ciphertext survives app restarts.
+/// Encrypts server/database credential secrets at rest using ASP.NET Core Data Protection.
+/// Keys are persisted and DPAPI-protected by each host (see the web app and scheduler
+/// Program.cs) so ciphertext written by one process can be read by the other on the same
+/// machine. The protector purpose ("Application.ServerCredentials.v1") and the host's
+/// SetApplicationName must match across processes for decryption to succeed.
 /// </summary>
 public class CredentialProtector : ICredentialProtector
 {

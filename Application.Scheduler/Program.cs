@@ -5,6 +5,7 @@ using Application.Scheduler.Repositories;
 using Application.Scheduler.Services;
 using Application.Shared.Data;
 using Application.Shared.Models.Data;
+using Microsoft.AspNetCore.DataProtection;
 using Hangfire;
 using Hangfire.Console;
 using Hangfire.SqlServer;
@@ -60,6 +61,24 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 var statusConnectionString = builder.Configuration.GetConnectionString("StatusDbContext") ?? appConnectionString;
 builder.Services.AddDbContext<StatusDbContext>(options =>
     options.UseSqlServer(statusConnectionString, b => b.MigrationsAssembly("Application")));
+
+// Data Protection — MUST mirror the web app (same application name + key ring + DPAPI scope)
+// so the scheduler can decrypt connection secrets the web app encrypted. AssetPingJob uses this
+// to read stored DatabaseConnection passwords for read-only SELECT 1 / freshness probes.
+var keysPath = builder.Configuration["DataProtection:KeysPath"]
+    ?? Path.Combine(builder.Environment.ContentRootPath, "App_Data", "keys");
+Directory.CreateDirectory(keysPath);
+var dataProtection = builder.Services.AddDataProtection()
+    .SetApplicationName("FlowByte.Application")
+    .PersistKeysToFileSystem(new DirectoryInfo(keysPath));
+if (OperatingSystem.IsWindows())
+    dataProtection.ProtectKeysWithDpapi(protectToLocalMachine: true);
+
+builder.Services.AddSingleton<Application.Shared.Services.ICredentialProtector,
+    Application.Shared.Services.CredentialProtector>();
+builder.Services.AddScoped<Application.Shared.Services.IDatabaseTableService,
+    Application.Shared.Services.DatabaseTableService>();
+builder.Services.AddHttpClient();
 
 
 builder.Services.AddHangfire(cfg => cfg

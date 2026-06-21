@@ -1,7 +1,9 @@
 @using Application.Shared.Models.Data
 @using Application.Shared.Models
 @using Microsoft.AspNetCore.Components.Forms
+@using System.Net.Http.Json
 @inject IToastService _toastService
+@inject HttpClient _httpClient
 
 <div class="ds-form-card">
     <p class="ds-section-title">Configure Schema</p>
@@ -29,10 +31,24 @@
                 <p class="ds-section-title" style="margin:0">
                     Columns <span style="font-size:0.8125rem;font-weight:400;color:#71717a;margin-left:0.375rem">(@TableModel.Columns.Count)</span>
                 </p>
-                <button type="button" class="btn btn-outline" @onclick="AddColumn">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-                    Add Column
-                </button>
+                <div style="display:flex;gap:0.5rem">
+                    <button type="button" class="btn btn-outline" @onclick="InferTypesWithAI" disabled="@(isInferring || !TableModel.Columns.Any())" title="Use AI to detect column data types from the sample data">
+                        @if (isInferring)
+                        {
+                            <span class="ds-spinner" style="width:14px;height:14px;border-width:1.5px"></span>
+                            <span>Configuring...</span>
+                        }
+                        else
+                        {
+                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2"/><path d="M12 19v2"/><path d="m5 5 1.5 1.5"/><path d="M17.5 17.5 19 19"/><path d="M3 12h2"/><path d="M19 12h2"/><circle cx="12" cy="12" r="4"/></svg>
+                            <span>Configure with AI</span>
+                        }
+                    </button>
+                    <button type="button" class="btn btn-outline" @onclick="AddColumn">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                        Add Column
+                    </button>
+                </div>
             </div>
 
             @if (TableModel.Columns.Any())
@@ -101,12 +117,15 @@
     [Parameter] public Dataset? Dataset { get; set; }
     [Parameter] public string FileName { get; set; } = string.Empty;
     [Parameter] public List<string> CsvHeaders { get; set; } = new();
+    [Parameter] public List<List<string>> SampleRows { get; set; } = new();
+    [Parameter] public string? CompanyId { get; set; }
     [Parameter] public EventCallback<Table> OnSchemaConfirmed { get; set; }
     [Parameter] public EventCallback OnBack { get; set; }
     [Parameter] public Table TableModel { get; set; } = new();
     [Parameter] public EventCallback<Table> TableModelChanged { get; set; }
 
     private bool isSubmitting = false;
+    private bool isInferring = false;
 
     protected override Task OnInitializedAsync()
     {
@@ -173,6 +192,73 @@
         if (n.Contains("description") || n.Contains("note") || n.Contains("comment")) return "TEXT";
         if (n.Contains("active") || n.Contains("enabled") || n.StartsWith("is_")) return "BOOLEAN";
         return "VARCHAR";
+    }
+
+    private async Task InferTypesWithAI()
+    {
+        if (!TableModel.Columns.Any()) { _toastService.ShowWarning("There are no columns to configure"); return; }
+
+        try
+        {
+            isInferring = true;
+            StateHasChanged();
+
+            if (!string.IsNullOrEmpty(CompanyId))
+            {
+                _httpClient.DefaultRequestHeaders.Remove("X-Company-Id");
+                _httpClient.DefaultRequestHeaders.Add("X-Company-Id", CompanyId);
+            }
+
+            // Align the sample-row cells to the current column order (columns may have been added/removed).
+            var request = new SchemaInferenceRequest
+            {
+                Columns = TableModel.Columns.Select(c => c.Name).ToList(),
+                CurrentTypes = TableModel.Columns.Select(c => c.DataType).ToList(),
+                SampleRows = SampleRows.Select(r => r.Select(v => (string?)v).ToList()).ToList()
+            };
+
+            var response = await _httpClient.PostAsJsonAsync("api/Datasets/infer-schema", request);
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                _toastService.ShowError($"AI configuration failed ({(int)response.StatusCode}): {error}");
+                return;
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<SchemaInferenceResult>();
+            if (result == null || !string.IsNullOrEmpty(result.Error))
+            {
+                _toastService.ShowError($"AI configuration failed: {result?.Error ?? "unknown error"}");
+                return;
+            }
+
+            var applied = 0;
+            foreach (var suggestion in result.Columns)
+            {
+                var col = TableModel.Columns.FirstOrDefault(c => string.Equals(c.Name, suggestion.Name, StringComparison.OrdinalIgnoreCase));
+                if (col != null && Column.CommonDataTypes.Contains(suggestion.DataType) && col.DataType != suggestion.DataType)
+                {
+                    col.DataType = suggestion.DataType;
+                    applied++;
+                }
+            }
+
+            await TableModelChanged.InvokeAsync(TableModel);
+
+            if (applied > 0)
+                _toastService.ShowSuccess($"AI updated {applied} column type{(applied == 1 ? "" : "s")} from the sample data");
+            else
+                _toastService.ShowInfo("AI reviewed the sample data — the current column types look correct");
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error configuring schema with AI: {ex.Message}");
+        }
+        finally
+        {
+            isInferring = false;
+            StateHasChanged();
+        }
     }
 
     private void AddColumn() { TableModel.Columns.Add(new Column()); StateHasChanged(); }

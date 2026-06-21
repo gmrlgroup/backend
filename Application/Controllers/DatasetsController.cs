@@ -23,11 +23,13 @@ public class DatasetsController : ControllerBase
 {
     private readonly IDatasetService _datasetService;
     private readonly IDuckdbService _duckdbService;
+    private readonly ISchemaInferenceService _schemaInferenceService;
 
-    public DatasetsController(IDatasetService datasetService, IDuckdbService duckdbService)
+    public DatasetsController(IDatasetService datasetService, IDuckdbService duckdbService, ISchemaInferenceService schemaInferenceService)
     {
         _datasetService = datasetService;
         _duckdbService = duckdbService;
+        _schemaInferenceService = schemaInferenceService;
     }
 
     // GET: api/Datasets/{companyId}
@@ -177,6 +179,22 @@ public class DatasetsController : ControllerBase
 
 
         return CreatedAtAction(nameof(GetTable), new { datasetId = table.DatasetId, tableName = table.TableName }, table);
+    }
+
+    // POST: api/Datasets/infer-schema
+    // AI-assisted column data type inference for the import "Configure Schema" step.
+    [HttpPost("infer-schema")]
+    public async Task<ActionResult<SchemaInferenceResult>> InferSchema([FromBody] SchemaInferenceRequest request)
+    {
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.HasCompanyRole(companyId, "EDIT_DATA"))
+            return Forbid();
+
+        if (request?.Columns == null || request.Columns.Count == 0)
+            return BadRequest("At least one column is required");
+
+        var result = await _schemaInferenceService.InferColumnTypesAsync(request, HttpContext.RequestAborted);
+        return Ok(result);
     }
 
     // GET: api/Datasets/{datasetId}/tables

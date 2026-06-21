@@ -79,8 +79,12 @@ namespace Application.Shared.Data
         public DbSet<DatasetUser> DatasetUser { get; set; }
         
         public DbSet<DataTableComment> DataTableComment { get; set; }
-        
+
         public DbSet<SalesData> SalesData { get; set; }
+
+        // External-access API keys and their per-dataset/table grants.
+        public DbSet<ApiKey> ApiKey { get; set; }
+        public DbSet<ApiKeyScope> ApiKeyScope { get; set; }
 
         // METRICS
         public DbSet<Metric> Metrics { get; set; }

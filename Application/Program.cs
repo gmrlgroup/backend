@@ -90,6 +90,10 @@ builder.Services.AddAuthentication(options =>
     .AddCookie("Identity.External")
     //.AddCookie(CookieAuthenticationDefaults.AuthenticationScheme)
 
+    // API-key scheme for external, non-interactive data access (used only by ExternalDataController).
+    .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, Application.Authorization.ApiKeyAuthenticationHandler>(
+        Application.Authorization.ApiKeyAuthenticationDefaults.Scheme, _ => { })
+
     .AddOpenIdConnect(MS_OIDC_SCHEME, displayName: "Continue with Microsoft" , options =>
     {
 
@@ -285,6 +289,12 @@ builder.Services.AddScoped<IDatabaseTableService, DatabaseTableService>();
 // Add Chat Service for AI functionality
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IChatMessageRepository, InMemoryChatMessageRepository>();
+
+// AI-assisted schema (column data type) inference for data import
+builder.Services.AddScoped<ISchemaInferenceService, SchemaInferenceService>();
+
+// External-access API keys (issue/scope/validate) + the data API they unlock.
+builder.Services.AddScoped<IApiKeyService, ApiKeyService>();
 
 // Configure Azure OpenAI settings
 builder.Services.Configure<AzureOpenAIConfiguration>(builder.Configuration.GetSection("AzureOpenAI"));

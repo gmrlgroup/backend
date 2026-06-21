@@ -74,6 +74,8 @@ else
         <SchemaConfigurationStep Dataset="@selectedDataset"
                                  FileName="@fileName"
                                  CsvHeaders="@csvHeaders"
+                                 SampleRows="@sampleRows"
+                                 CompanyId="@companyId"
                                  OnSchemaConfirmed="HandleSchemaConfirmed"
                                  OnBack="GoToPreviousStep"
                                  TableModel="@tableModel" />
@@ -84,9 +86,12 @@ else
 @code {
     private int currentStep = 1;
     private Dataset? selectedDataset;
-    private IBrowserFile? uploadedFile;
+    private byte[]? uploadedFileBytes;
+    private string uploadedFileName = string.Empty;
+    private string uploadedContentType = "text/csv";
     private string fileName = string.Empty;
     private List<string> csvHeaders = new();
+    private List<List<string>> sampleRows = new();
     private Table tableModel = new();
     private bool isProcessing = false;
     private bool canEdit;
@@ -120,11 +125,14 @@ else
         return Task.CompletedTask;
     }
 
-    private Task HandleFileUploaded((IBrowserFile file, string name, List<string> headers) data)
+    private Task HandleFileUploaded((byte[] fileBytes, string fileName, string contentType, List<string> headers, List<List<string>> sampleRows) data)
     {
-        uploadedFile = data.file;
-        fileName = data.name;
+        uploadedFileBytes = data.fileBytes;
+        uploadedFileName = data.fileName;
+        uploadedContentType = data.contentType;
+        fileName = Path.GetFileNameWithoutExtension(data.fileName);
         csvHeaders = data.headers;
+        sampleRows = data.sampleRows;
         currentStep = 3;
         StateHasChanged();
         return Task.CompletedTask;
@@ -158,10 +166,17 @@ else
                 return;
             }
 
+            if (uploadedFileBytes == null)
+            {
+                _toastService.ShowError("The uploaded file is no longer available. Please re-upload and try again.");
+                return;
+            }
+
             using var content = new MultipartFormDataContent();
-            var fileContent = new StreamContent(uploadedFile!.OpenReadStream(maxAllowedSize: 1073741824));
-            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/csv");
-            content.Add(fileContent, "file", uploadedFile.Name);
+            var fileContent = new ByteArrayContent(uploadedFileBytes);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+                string.IsNullOrEmpty(uploadedContentType) ? "text/csv" : uploadedContentType);
+            content.Add(fileContent, "file", uploadedFileName);
             content.Add(new StringContent(table.TableName), "tableName");
             content.Add(new StringContent(selectedDataset!.Id!), "datasetId");
 

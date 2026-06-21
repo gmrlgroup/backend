@@ -550,26 +550,11 @@ public class DuckdbService : IDuckdbService
             }
             
             sqlBuilder.Append($" FROM \"{query.TableName}\"");
-            
-            // WHERE clause for filters
-            if (query.Filters?.Any() == true)
-            {
-                var filterClauses = new List<string>();
-                foreach (var filter in query.Filters)
-                {
-                    var filterClause = BuildFilterClause(filter);
-                    if (!string.IsNullOrEmpty(filterClause))
-                    {
-                        filterClauses.Add(filterClause);
-                    }
-                }
-                
-                if (filterClauses.Any())
-                {
-                    sqlBuilder.Append($" WHERE {string.Join(" AND ", filterClauses)}");
-                }
-            }
-            
+
+            // WHERE clause for filters (reused for the COUNT below so the total matches the filtered view)
+            var whereClause = BuildWhereClause(query.Filters);
+            sqlBuilder.Append(whereClause);
+
             // ORDER BY clause
             if (query.SortColumns?.Any() == true)
             {
@@ -581,9 +566,6 @@ public class DuckdbService : IDuckdbService
             var offset = (query.Page - 1) * query.PageSize;
             sqlBuilder.Append($" LIMIT {query.PageSize} OFFSET {offset}");
 
-            using var command = connection.CreateCommand();
-            command.CommandText = sqlBuilder.ToString();
-            
             var result = new TableDataResult
             {
                 Data = new List<Dictionary<string, object>>(),
@@ -591,43 +573,73 @@ public class DuckdbService : IDuckdbService
                 PageSize = query.PageSize
             };
 
-            using var reader = await command.ExecuteReaderAsync();
-            
-            // Get column information
-            var columns = new List<Column>();
-            for (int i = 0; i < reader.FieldCount; i++)
+            using (var command = connection.CreateCommand())
             {
-                columns.Add(new Column
-                {
-                    Name = reader.GetName(i),
-                    DataType = reader.GetFieldType(i).Name
-                });
-            }
-            result.Columns = columns;
-            
-            // Read data rows
-            while (await reader.ReadAsync())
-            {
-                var row = new Dictionary<string, object>();
+                command.CommandText = sqlBuilder.ToString();
+
+                using var reader = await command.ExecuteReaderAsync();
+
+                // Get column information
+                var columns = new List<Column>();
                 for (int i = 0; i < reader.FieldCount; i++)
                 {
-                    var value = reader.IsDBNull(i) ? null : reader.GetValue(i);
-                    row[reader.GetName(i)] = value ?? DBNull.Value;
+                    columns.Add(new Column
+                    {
+                        Name = reader.GetName(i),
+                        DataType = reader.GetFieldType(i).Name
+                    });
                 }
-                result.Data.Add(row);
+                result.Columns = columns;
+
+                // Read data rows
+                while (await reader.ReadAsync())
+                {
+                    var row = new Dictionary<string, object>();
+                    for (int i = 0; i < reader.FieldCount; i++)
+                    {
+                        var value = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                        row[reader.GetName(i)] = value ?? DBNull.Value;
+                    }
+                    result.Data.Add(row);
+                }
             }
-            
+
+            // Total count for pagination — must reflect the full (filtered) result set, NOT just the
+            // page returned, or the grid pager can't move past the first page. Run it on the SAME open
+            // connection: opening a second connection to the same .duckdb file throws
+            // "File is already open" (DuckDB allows one read-write handle per file per process).
+            using (var countCommand = connection.CreateCommand())
+            {
+                countCommand.CommandText = $"SELECT COUNT(*) FROM \"{query.TableName}\"{whereClause}";
+                var countScalar = await countCommand.ExecuteScalarAsync();
+                result.TotalRows = Convert.ToInt32(countScalar);
+            }
+
             await connection.CloseAsync();
-            
-            // Get total count for pagination
-            // result.TotalRows = await GetTableRowCountAsync(query.DatasetId, query.TableName, query.Filters);
-            
+
             return result;
         }
         catch (Exception ex)
         {
             throw new InvalidOperationException($"Failed to query table data: {ex.Message}", ex);
         }
+    }
+
+    // Builds the " WHERE ..." fragment (leading space included) from filters, or "" when there are none.
+    private string BuildWhereClause(List<FilterCondition>? filters)
+    {
+        if (filters?.Any() != true)
+            return string.Empty;
+
+        var filterClauses = new List<string>();
+        foreach (var filter in filters)
+        {
+            var filterClause = BuildFilterClause(filter);
+            if (!string.IsNullOrEmpty(filterClause))
+                filterClauses.Add(filterClause);
+        }
+
+        return filterClauses.Any() ? $" WHERE {string.Join(" AND ", filterClauses)}" : string.Empty;
     }
 
     public async Task<int> GetTableRowCountAsync(string datasetId, string tableName, List<FilterCondition>? filters = null)

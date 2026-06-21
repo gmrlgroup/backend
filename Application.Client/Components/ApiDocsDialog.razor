@@ -1,0 +1,278 @@
+@using System.Net.Http.Json
+@inject NavigationManager _navigationManager
+@inject IJSRuntime _js
+@inject IToastService _toastService
+
+@if (IsVisible)
+{
+    <div class="apidocs-overlay" @onclick="Close">
+        <div class="apidocs-panel" @onclick:stopPropagation="true">
+            <!-- Header -->
+            <div class="apidocs-header">
+                <div>
+                    <h2 class="apidocs-title">API access</h2>
+                    <p class="apidocs-sub">
+                        @if (!string.IsNullOrEmpty(TableName))
+                        {
+                            <span><strong>@(DatasetName ?? DatasetId)</strong> · @TableName</span>
+                        }
+                        else
+                        {
+                            <span>Fetch this data from an external system</span>
+                        }
+                    </p>
+                </div>
+                <button class="btn-icon" title="Close" @onclick="Close">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+            </div>
+
+            <!-- Body -->
+            <div class="apidocs-body">
+                <!-- Step 1: key -->
+                <section class="apidocs-section">
+                    <h3 class="apidocs-h3"><span class="apidocs-step">1</span> Get an API key</h3>
+                    <p class="apidocs-p">
+                        Calls authenticate with an API key — not your login. A company admin can create one,
+                        scoped to the datasets and tables it may read or import into.
+                    </p>
+                    <a class="btn btn-outline" href="@ApiKeysUrl">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+                        Manage API keys
+                    </a>
+                </section>
+
+                <!-- Step 2: auth header -->
+                <section class="apidocs-section">
+                    <h3 class="apidocs-h3"><span class="apidocs-step">2</span> Authenticate every request</h3>
+                    <p class="apidocs-p">Send your key in the <code>X-Api-Key</code> header. The key already knows its company — no other headers are required.</p>
+                    @CodeBlock("X-Api-Key: YOUR_API_KEY")
+                </section>
+
+                <!-- Step 3: fetch rows -->
+                <section class="apidocs-section">
+                    <h3 class="apidocs-h3"><span class="apidocs-step">3</span> Fetch rows</h3>
+                    <p class="apidocs-p">
+                        <code>POST</code> to the data endpoint with an optional paging/filter body. Returns JSON
+                        with <code>data</code>, <code>columns</code>, and <code>totalRows</code>.
+                    </p>
+
+                    <div class="apidocs-tabs">
+                        @foreach (var lang in Languages)
+                        {
+                            <button class="apidocs-tab @(activeLang == lang ? "apidocs-tab-active" : "")" @onclick="() => activeLang = lang">@lang</button>
+                        }
+                    </div>
+                    @CodeBlock(FetchExample(activeLang))
+
+                    <p class="apidocs-p" style="margin-top:0.75rem">Request body fields (all optional):</p>
+                    @CodeBlock(BodyExample())
+                </section>
+
+                <!-- Endpoint reference -->
+                <section class="apidocs-section">
+                    <h3 class="apidocs-h3"><span class="apidocs-step">4</span> All endpoints for this table</h3>
+                    <div class="apidocs-endpoints">
+                        @foreach (var ep in Endpoints())
+                        {
+                            <div class="apidocs-ep">
+                                <span class="apidocs-verb apidocs-verb-@ep.Verb.ToLower()">@ep.Verb</span>
+                                <code class="apidocs-ep-path">@ep.Path</code>
+                                <span class="apidocs-ep-desc">@ep.Description</span>
+                            </div>
+                        }
+                    </div>
+                    <p class="apidocs-note">
+                        Each endpoint requires the matching grant on your key: <strong>read</strong> for list/columns/data/download,
+                        <strong>import</strong> for upload. Requests outside your key's scope return <code>403</code>.
+                    </p>
+                </section>
+
+                <!-- Examples -->
+                <section class="apidocs-section">
+                    <h3 class="apidocs-h3"><span class="apidocs-step">5</span> Download &amp; import (curl)</h3>
+                    <p class="apidocs-p">Download the whole table as CSV:</p>
+                    @CodeBlock(DownloadCurl())
+                    <p class="apidocs-p" style="margin-top:0.75rem">Append rows from a CSV file (requires import grant):</p>
+                    @CodeBlock(ImportCurl())
+                </section>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
+    [Parameter] public string? CompanyId { get; set; }
+    [Parameter] public string? DatasetId { get; set; }
+    [Parameter] public string? TableName { get; set; }
+    [Parameter] public string? DatasetName { get; set; }
+
+    private static readonly string[] Languages = { "curl", "JavaScript", "Python" };
+    private string activeLang = "curl";
+
+    private record Endpoint(string Verb, string Path, string Description);
+
+    private string BaseUrl => _navigationManager.BaseUri.TrimEnd('/');
+    private string ApiKeysUrl => $"/data/api-keys?c={CompanyId}";
+
+    private string TablesPath => $"{BaseUrl}/api/external/datasets/{DatasetId}/tables";
+    private string ColumnsPath => $"{TablesPath}/{TableName}/columns";
+    private string DataPath => $"{TablesPath}/{TableName}/data";
+    private string DownloadPath => $"{TablesPath}/{TableName}/download";
+    private string ImportPath => $"{TablesPath}/{TableName}/import";
+
+    private async Task Close()
+    {
+        IsVisible = false;
+        if (IsVisibleChanged.HasDelegate) await IsVisibleChanged.InvokeAsync(false);
+    }
+
+    private List<Endpoint> Endpoints() => new()
+    {
+        new("GET",  $"/api/external/datasets/{DatasetId}/tables", "List tables you can read"),
+        new("GET",  $"/api/external/datasets/{DatasetId}/tables/{TableName}/columns", "Column names and types"),
+        new("POST", $"/api/external/datasets/{DatasetId}/tables/{TableName}/data", "Query rows (paged, filtered)"),
+        new("GET",  $"/api/external/datasets/{DatasetId}/tables/{TableName}/download", "Download full table as CSV"),
+        new("POST", $"/api/external/datasets/{DatasetId}/tables/{TableName}/import", "Append rows from a CSV file"),
+    };
+
+    private string BodyExample() =>
+@"{
+  ""page"": 1,
+  ""pageSize"": 100,
+  ""selectedColumns"": [],
+  ""filters"": [
+    { ""columnName"": ""status"", ""operator"": ""="", ""value"": ""active"", ""logicalOperator"": ""AND"" }
+  ],
+  ""sortColumns"": [
+    { ""columnName"": ""created_at"", ""isDescending"": true }
+  ]
+}";
+
+    private string FetchExample(string lang) => lang switch
+    {
+        "JavaScript" =>
+$@"const res = await fetch(""{DataPath}"", {{
+  method: ""POST"",
+  headers: {{
+    ""X-Api-Key"": ""YOUR_API_KEY"",
+    ""Content-Type"": ""application/json"",
+  }},
+  body: JSON.stringify({{ page: 1, pageSize: 100 }}),
+}});
+const result = await res.json();
+console.log(result.totalRows, result.data);",
+
+        "Python" =>
+$@"import requests
+
+res = requests.post(
+    ""{DataPath}"",
+    headers={{""X-Api-Key"": ""YOUR_API_KEY""}},
+    json={{""page"": 1, ""pageSize"": 100}},
+)
+result = res.json()
+print(result[""totalRows""], result[""data""])",
+
+        _ =>
+$@"curl -X POST ""{DataPath}"" \
+  -H ""X-Api-Key: YOUR_API_KEY"" \
+  -H ""Content-Type: application/json"" \
+  -d '{{""page"": 1, ""pageSize"": 100}}'",
+    };
+
+    private string DownloadCurl() =>
+$@"curl -L ""{DownloadPath}"" \
+  -H ""X-Api-Key: YOUR_API_KEY"" \
+  -o ""{TableName}.csv""";
+
+    private string ImportCurl() =>
+$@"curl -X POST ""{ImportPath}"" \
+  -H ""X-Api-Key: YOUR_API_KEY"" \
+  -F ""file=@data.csv;type=text/csv""";
+
+    // Renders a code block with a copy button.
+    private RenderFragment CodeBlock(string snippet) => __builder =>
+    {
+        <div class="apidocs-code">
+            <button class="apidocs-copy" title="Copy" @onclick="() => CopyText(snippet)">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+            </button>
+            <pre><code>@snippet</code></pre>
+        </div>
+    };
+
+    private async Task CopyText(string text)
+    {
+        try
+        {
+            await _js.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            _toastService.ShowSuccess("Copied to clipboard");
+        }
+        catch
+        {
+            _toastService.ShowInfo("Copy unavailable — select the text and press Ctrl+C.");
+        }
+    }
+}
+
+<style>
+    .apidocs-overlay {
+        position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+        display: flex; align-items: center; justify-content: center;
+        z-index: 1000; padding: 1rem;
+    }
+    .apidocs-panel {
+        background: #fff; border-radius: 0.75rem; width: 100%; max-width: 780px;
+        max-height: 88vh; display: flex; flex-direction: column; overflow: hidden;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    .apidocs-header {
+        display: flex; align-items: flex-start; justify-content: space-between;
+        padding: 1rem 1.25rem; border-bottom: 1px solid #e4e4e7; flex-shrink: 0;
+    }
+    .apidocs-title { margin: 0; font-size: 1.0625rem; font-weight: 600; color: #18181b; }
+    .apidocs-sub { margin: 0.125rem 0 0; font-size: 0.8125rem; color: #71717a; }
+    .apidocs-body { padding: 1.25rem; overflow-y: auto; }
+    .apidocs-section { margin-bottom: 1.5rem; }
+    .apidocs-section:last-child { margin-bottom: 0; }
+    .apidocs-h3 { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.5rem; font-size: 0.9375rem; font-weight: 600; color: #18181b; }
+    .apidocs-step {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 1.25rem; height: 1.25rem; border-radius: 9999px; background: #2563eb; color: #fff;
+        font-size: 0.75rem; font-weight: 700; flex-shrink: 0;
+    }
+    .apidocs-p { margin: 0 0 0.5rem; font-size: 0.8125rem; color: #3f3f46; line-height: 1.5; }
+    .apidocs-p code, .apidocs-note code { background: #f4f4f5; padding: 0.0625rem 0.3125rem; border-radius: 4px; font-size: 0.8125rem; }
+    .apidocs-code { position: relative; margin: 0.25rem 0; }
+    .apidocs-code pre {
+        margin: 0; background: #18181b; color: #e4e4e7; border-radius: 0.5rem;
+        padding: 0.75rem 2.25rem 0.75rem 0.875rem; overflow-x: auto;
+        font-size: 0.78125rem; line-height: 1.5;
+    }
+    .apidocs-code code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; }
+    .apidocs-copy {
+        position: absolute; top: 0.5rem; right: 0.5rem; background: #3f3f46; color: #e4e4e7;
+        border: none; border-radius: 0.375rem; padding: 0.25rem; cursor: pointer; line-height: 0;
+    }
+    .apidocs-copy:hover { background: #52525b; }
+    .apidocs-tabs { display: flex; gap: 0.25rem; margin-bottom: 0.5rem; }
+    .apidocs-tab {
+        background: #f4f4f5; border: 1px solid #e4e4e7; border-radius: 0.375rem;
+        padding: 0.25rem 0.625rem; font-size: 0.78125rem; cursor: pointer; color: #52525b;
+    }
+    .apidocs-tab-active { background: #2563eb; color: #fff; border-color: #2563eb; }
+    .apidocs-endpoints { display: flex; flex-direction: column; gap: 0.375rem; }
+    .apidocs-ep { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .apidocs-verb {
+        font-size: 0.6875rem; font-weight: 700; padding: 0.125rem 0.375rem; border-radius: 4px;
+        flex-shrink: 0; min-width: 2.75rem; text-align: center;
+    }
+    .apidocs-verb-get { background: #dcfce7; color: #15803d; }
+    .apidocs-verb-post { background: #dbeafe; color: #1d4ed8; }
+    .apidocs-ep-path { font-size: 0.75rem; color: #18181b; word-break: break-all; }
+    .apidocs-ep-desc { font-size: 0.75rem; color: #71717a; }
+    .apidocs-note { font-size: 0.75rem; color: #71717a; margin: 0.625rem 0 0; line-height: 1.5; }
+</style>

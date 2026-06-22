@@ -277,13 +277,14 @@
                         <AuthorizeView Roles="@writeRoles" Context="audienceCtx">
                             <Authorized>
                                 <div class="flex flex-col gap-2 mb-4">
-                                    <FluentSelect @bind-Value="selectedUserId" TOption="string" Class="w-full">
-                                        <FluentOption Value="" TOption="string">Select a user...</FluentOption>
-                                        @foreach (var u in assignableUsers)
-                                        {
-                                            <FluentOption Value="@u.Id" TOption="string">@(string.IsNullOrWhiteSpace(u.UserName) ? u.Email : u.UserName) (@u.Email)</FluentOption>
-                                        }
-                                    </FluentSelect>
+                                    <FluentCombobox TOption="EntityAudienceClientService.AssignableUser"
+                                                    Items="@assignableUsers"
+                                                    OptionText="@(u => string.IsNullOrWhiteSpace(u.UserName) ? u.Email : $"{u.UserName} ({u.Email})")"
+                                                    OptionValue="@(u => u.Id)"
+                                                    @bind-SelectedOption="selectedAudienceUser"
+                                                    Autocomplete="ComboboxAutocomplete.Both"
+                                                    Placeholder="Search users by name or email…"
+                                                    Class="w-full" />
                                     <div class="flex gap-2">
                                         <FluentSelect @bind-Value="selectedAudienceTypeString" TOption="string" Class="flex-1">
                                             <FluentOption Value="Owner" TOption="string">Owner</FluentOption>
@@ -291,7 +292,7 @@
                                             <FluentOption Value="Stakeholder" TOption="string">Stakeholder</FluentOption>
                                         </FluentSelect>
                                         <FluentButton Appearance="Appearance.Accent" @onclick="AddAudienceMember"
-                                                      Disabled="@(string.IsNullOrWhiteSpace(selectedUserId) || isSavingAudience)">
+                                                      Disabled="@(selectedAudienceUser is null || isSavingAudience)">
                                             @(isSavingAudience ? "Adding..." : "Add")
                                         </FluentButton>
                                     </div>
@@ -448,7 +449,7 @@
     // Audience
     private List<EntityAudience> audience = new();
     private List<EntityAudienceClientService.AssignableUser> assignableUsers = new();
-    private string selectedUserId = string.Empty;
+    private EntityAudienceClientService.AssignableUser? selectedAudienceUser;
     private string selectedAudienceTypeString = nameof(EntityAudienceType.Stakeholder);
     private bool isSavingAudience = false;
 
@@ -567,18 +568,18 @@
 
     private async Task AddAudienceMember()
     {
-        if (string.IsNullOrWhiteSpace(selectedUserId)) return;
+        if (selectedAudienceUser is null) return;
 
         isSavingAudience = true;
         try
         {
             var companyId = StateContainer.Company?.Id ?? "";
             var type = Enum.Parse<EntityAudienceType>(selectedAudienceTypeString);
-            var created = await AudienceService.AddAsync(companyId, AssetId, selectedUserId, type);
+            var created = await AudienceService.AddAsync(companyId, AssetId, selectedAudienceUser.Id, type);
             if (created != null)
             {
                 audience = await AudienceService.GetAudienceAsync(companyId, AssetId);
-                selectedUserId = string.Empty;
+                selectedAudienceUser = null;
             }
             else
             {

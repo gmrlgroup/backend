@@ -124,7 +124,7 @@
                                 <select @bind="selectedDependencyEntityId"
                                         class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
                                     <option value="">Choose an entity…</option>
-                                    @foreach (var availableEntity in availableEntities.Where(e => e.Id != formModel.Id))
+                                    @foreach (var availableEntity in FilteredDependencyEntities)
                                     {
                                         <option value="@availableEntity.Id">@availableEntity.Name</option>
                                     }
@@ -132,7 +132,7 @@
                             </div>
                             <div class="sm:col-span-3">
                                 <label class="block text-xs font-medium text-gray-500 mb-1">Type</label>
-                                <select @bind="dependencyType"
+                                <select @bind="dependencyType" @bind:after="OnDependencyTypeChanged"
                                         class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
                                     @foreach (var assetType in Enum.GetValues<AssetType>())
                                     {
@@ -342,6 +342,17 @@
         }
     }
 
+    // Entities selectable as a dependency target, narrowed to the chosen dependency type.
+    private IEnumerable<MonitoredAsset> FilteredDependencyEntities =>
+        availableEntities.Where(e => e.Id != formModel.Id && e.EntityType == dependencyType);
+
+    private void OnDependencyTypeChanged()
+    {
+        // Clear the selection if the previously chosen entity is no longer in the filtered list.
+        if (!FilteredDependencyEntities.Any(e => e.Id == selectedDependencyEntityId))
+            selectedDependencyEntityId = string.Empty;
+    }
+
     private async Task AddDependency()
     {
         if (string.IsNullOrEmpty(selectedDependencyEntityId))
@@ -396,10 +407,11 @@
         }
     }
 
-    private async Task SaveDependencies()
+    private async Task<bool> SaveDependencies()
     {
-        if (string.IsNullOrEmpty(formModel.Id)) return;
+        if (string.IsNullOrEmpty(formModel.Id)) return true;
 
+        var companyId = StateContainer.Company?.Id;
         try
         {
             var currentDependencies = await EntityService.GetEntityDependenciesAsync(formModel.Id);
@@ -409,15 +421,21 @@
                 await EntityService.RemoveDependencyAsync(currentDependency.Id);
             }
 
+            var failures = 0;
             foreach (var dependency in selectedDependencies)
             {
                 dependency.EntityId = formModel.Id;
-                await EntityService.AddDependencyAsync(formModel.Id, dependency);
+                dependency.CompanyId = companyId;
+                var created = await EntityService.AddDependencyAsync(formModel.Id, dependency);
+                if (created == null) failures++;
             }
+
+            return failures == 0;
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error saving dependencies: {ex.Message}");
+            return false;
         }
     }
 
@@ -438,21 +456,26 @@
                     await JSRuntime.InvokeVoidAsync("alert", "Failed to update entity. Please try again.");
                     return;
                 }
-                await SaveDependencies();
-                await JSRuntime.InvokeVoidAsync("alert", "Entity updated successfully!");
+                var depsOk = await SaveDependencies();
+                await JSRuntime.InvokeVoidAsync("alert", depsOk
+                    ? "Entity updated successfully!"
+                    : "Entity updated, but some dependencies could not be saved. Please review them.");
                 Navigation.NavigateTo($"/status/entities/{formModel.Id}{queryParam}");
             }
             else
             {
                 formModel.CompanyId = companyId;
                 var createdEntity = await EntityService.CreateEntityAsync(companyId, formModel);
+                var depsOk = true;
                 if (createdEntity != null)
                 {
                     formModel.Id = createdEntity.Id;
-                    await SaveDependencies();
+                    depsOk = await SaveDependencies();
                 }
 
-                await JSRuntime.InvokeVoidAsync("alert", "Entity created successfully!");
+                await JSRuntime.InvokeVoidAsync("alert", depsOk
+                    ? "Entity created successfully!"
+                    : "Entity created, but some dependencies could not be saved. Please review them.");
                 Navigation.NavigateTo($"/status/entities{queryParam}");
             }
         }

@@ -14,9 +14,8 @@ cd Application.Scheduler && dotnet run
 # Build the whole solution
 dotnet build Application.sln
 
-# EF Core migrations (run from the project that owns the MigrationsAssembly)
-cd Application && dotnet ef database update
-cd Application && dotnet ef migrations add <MigrationName>
+# Applicat.Database.{Database name}
+Create all the tables in the application.database project DACPAC
 
 # Email template preview server (React Email / Next.js)
 cd Application.Email && npm install && npm run dev

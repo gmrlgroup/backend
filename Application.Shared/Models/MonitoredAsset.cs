@@ -50,6 +50,8 @@ public class MonitoredAsset : BaseModel
     public virtual ICollection<AssetDependency>? Dependencies { get; set; } = new List<AssetDependency>();
     public virtual ICollection<AssetDependency>? DependentOn { get; set; } = new List<AssetDependency>();
 
+    public virtual ICollection<EntityAudience>? Audiences { get; set; } = new List<EntityAudience>();
+
     public virtual ICollection<MonitoringJob> Jobs { get; set; } = new List<MonitoringJob>();
 
     public virtual ICollection<AssetStatusHistory> StatusHistory { get; set; } = new List<AssetStatusHistory>();

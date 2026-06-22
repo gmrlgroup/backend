@@ -1,0 +1,754 @@
+@using System.Text.RegularExpressions
+@using Application.Shared.Models
+@using Application.Client.Services
+@using Microsoft.FluentUI.AspNetCore.Components
+@inject PowerBiClientService PowerBiService
+@inject StateContainer StateContainer
+@inject IJSRuntime JSRuntime
+
+<!-- Power BI Connection / Mapping -->
+<div class="bg-white overflow-hidden shadow rounded-lg">
+    <div class="px-6 py-5 sm:p-6">
+        <div class="flex items-center justify-between mb-4">
+            <div>
+                <h3 class="text-lg leading-6 font-medium text-gray-900">Power BI Connection</h3>
+                <p class="text-xs text-gray-500 mt-0.5">Link this dataset to a service-principal connection so refreshes can be read and triggered.</p>
+            </div>
+            <AuthorizeView Roles="@writeRoles" Context="cfgCtx">
+                <Authorized>
+                    <button @onclick="OpenLinkDialog"
+                            class="inline-flex items-center px-3 py-1 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                        @(link == null ? "Configure" : "Edit Mapping")
+                    </button>
+                </Authorized>
+            </AuthorizeView>
+        </div>
+
+        @if (link != null)
+        {
+            <dl class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                <div>
+                    <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Connection</dt>
+                    <dd class="mt-1 text-gray-900">@(link.ConnectionName ?? "(unknown)")</dd>
+                </div>
+                <div>
+                    <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Workspace Id</dt>
+                    <dd class="mt-1 text-gray-700 font-mono text-xs break-all">@link.WorkspaceId</dd>
+                </div>
+                <div>
+                    <dt class="text-xs font-medium uppercase tracking-wide text-gray-400">Dataset Id</dt>
+                    <dd class="mt-1 text-gray-700 font-mono text-xs break-all">@link.DatasetId</dd>
+                </div>
+            </dl>
+        }
+        else
+        {
+            <p class="text-center py-4 text-sm text-gray-500">Not linked yet. Configure a connection to enable refreshes.</p>
+        }
+    </div>
+</div>
+
+<!-- Data Sources & Lineage -->
+@if (link != null)
+{
+    <div class="bg-white overflow-hidden shadow rounded-lg">
+        <div class="px-6 py-5 sm:p-6">
+            <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+                <div>
+                    <h3 class="text-lg leading-6 font-medium text-gray-900">Data Sources &amp; Lineage</h3>
+                    <p class="text-xs text-gray-500 mt-0.5">Discover the database and tables this dataset uses, then add them as dependencies (Dataset → Database, Dataset → Tables, Table → Database).</p>
+                </div>
+                <button @onclick="Discover" disabled="@isDiscovering"
+                        class="inline-flex items-center px-3 py-1 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50">
+                    @(isDiscovering ? "Discovering..." : "Discover")
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(discoverError))
+            {
+                <div class="bg-red-50 border border-red-200 rounded-md p-3 text-sm text-red-700">@discoverError</div>
+            }
+
+            @if (!string.IsNullOrEmpty(commitMessage))
+            {
+                <div class="mb-4 bg-green-50 border border-green-200 rounded-md p-3 text-sm text-green-800">@commitMessage</div>
+            }
+
+            @if (discovery != null)
+            {
+                var databases = discovery.DataSources.Where(d => !string.IsNullOrWhiteSpace(d.Database)).ToList();
+
+                <!-- Databases -->
+                <div class="mb-5">
+                    <h4 class="text-xs font-medium uppercase tracking-wide text-gray-400 mb-2">Database</h4>
+                    @if (databases.Any())
+                    {
+                        <div class="space-y-1">
+                            @foreach (var db in databases)
+                            {
+                                <label class="flex items-center gap-2 text-sm cursor-pointer">
+                                    <input type="checkbox" checked="@selectedDatabases.Contains(db.Database!)" @onchange="() => ToggleDatabase(db.Database!)" />
+                                    <span class="font-medium text-gray-900">@db.Database</span>
+                                    @if (!string.IsNullOrWhiteSpace(db.Server))
+                                    {
+                                        <span class="text-xs text-gray-400 font-mono">@db.Server</span>
+                                    }
+                                    @if (db.ExistingEntityId != null)
+                                    {
+                                        <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">Exists · will update</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-xs px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">New</span>
+                                    }
+                                </label>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="text-sm text-gray-500">No database data source found for this dataset.</p>
+                    }
+                </div>
+
+                <!-- Tables -->
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-xs font-medium uppercase tracking-wide text-gray-400">Tables</h4>
+                        @if (discovery.Tables.Any())
+                        {
+                            <div class="text-xs">
+                                <button @onclick="SelectAllTables" class="text-indigo-600 hover:text-indigo-900 mr-2" style="border:none;background:none;">Select all</button>
+                                <button @onclick="ClearTables" class="text-gray-500 hover:text-gray-700" style="border:none;background:none;">None</button>
+                            </div>
+                        }
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(discovery.TablesError))
+                    {
+                        <div class="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm text-amber-800">
+                            Couldn't read tables: @discovery.TablesError
+                        </div>
+                    }
+                    else if (discovery.Tables.Any())
+                    {
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 max-h-72 overflow-y-auto">
+                            @foreach (var t in discovery.Tables)
+                            {
+                                <label class="flex items-center gap-2 text-sm cursor-pointer">
+                                    <input type="checkbox" checked="@selectedTables.Contains(t.Name)" @onchange="() => ToggleTable(t.Name)" />
+                                    <span class="text-gray-900 truncate">@t.Name</span>
+                                    @if (t.ExistingEntityId != null)
+                                    {
+                                        <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">Exists</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-xs px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">New</span>
+                                    }
+                                </label>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="text-sm text-gray-500">No tables found.</p>
+                    }
+                </div>
+
+                <AuthorizeView Roles="@writeRoles" Context="lineageCtx">
+                    <Authorized>
+                        <div class="mt-5 pt-4 border-t border-gray-100 flex items-center justify-end">
+                            <button @onclick="CommitLineage" disabled="@(isCommitting || (!selectedDatabases.Any() && !selectedTables.Any()))"
+                                    class="inline-flex items-center px-4 py-1.5 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+                                @(isCommitting ? "Adding..." : $"Add selected ({selectedDatabases.Count + selectedTables.Count})")
+                            </button>
+                        </div>
+                    </Authorized>
+                </AuthorizeView>
+            }
+        </div>
+    </div>
+}
+
+<!-- Refresh History -->
+<div class="bg-white overflow-hidden shadow rounded-lg">
+    <div class="px-6 py-5 sm:p-6">
+        <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+            <h3 class="text-lg leading-6 font-medium text-gray-900">Refresh History</h3>
+            <div class="flex items-center gap-2">
+                <button @onclick="LoadHistory" disabled="@(isLoadingHistory || link == null)"
+                        class="inline-flex items-center px-3 py-1 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50">
+                    @(isLoadingHistory ? "Loading..." : "Reload")
+                </button>
+                <AuthorizeView Roles="@writeRoles" Context="refreshCtx">
+                    <Authorized>
+                        <button @onclick="TriggerRefresh" disabled="@(isRefreshing || link == null)"
+                                class="inline-flex items-center px-3 py-1 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+                            @(isRefreshing ? "Starting..." : "Refresh Now")
+                        </button>
+                    </Authorized>
+                </AuthorizeView>
+            </div>
+        </div>
+
+        @if (link != null && schedule != null)
+        {
+            <div class="mb-4 rounded-md border px-3 py-2 text-sm @(schedule.Enabled ? "border-indigo-100 bg-indigo-50" : "border-gray-200 bg-gray-50")">
+                @if (schedule.Enabled && schedule.NextRefresh != null)
+                {
+                    <span class="font-medium text-indigo-900">Next refresh: @schedule.NextRefresh.Value.ToLocalTime().ToString("MMM dd, yyyy HH:mm")</span>
+                    <span class="text-indigo-700"> · @ScheduleSummary(schedule)</span>
+                }
+                else if (schedule.Enabled)
+                {
+                    <span class="text-indigo-700">Scheduled: @ScheduleSummary(schedule)</span>
+                }
+                else
+                {
+                    <span class="text-gray-600">Scheduled refresh is turned off in Power BI.</span>
+                }
+            </div>
+        }
+
+        @if (link == null)
+        {
+            <p class="text-center py-4 text-sm text-gray-500">Link a connection above to view refresh history.</p>
+        }
+        else if (!string.IsNullOrEmpty(historyError))
+        {
+            <div class="bg-red-50 border border-red-200 rounded-md p-3 text-sm text-red-700">@historyError</div>
+        }
+        else if (history.Any())
+        {
+            <div class="max-h-96 overflow-y-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50 sticky top-0">
+                        <tr>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Started</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        @foreach (var r in history)
+                        {
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-3 py-2">
+                                    <span class="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded @StatusClass(r.Status)">
+                                        @r.Status
+                                    </span>
+                                    @if (!string.IsNullOrEmpty(r.ErrorMessage))
+                                    {
+                                        <div class="text-xs text-red-600 mt-1 max-w-md break-words">@r.ErrorMessage</div>
+                                    }
+                                </td>
+                                <td class="px-3 py-2 text-sm text-gray-700">@(r.RefreshType ?? "-")</td>
+                                <td class="px-3 py-2 text-sm text-gray-700">@(r.StartTime?.ToLocalTime().ToString("MMM dd, HH:mm") ?? "-")</td>
+                                <td class="px-3 py-2 text-sm text-gray-500">@FormatDuration(r.StartTime, r.EndTime)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else if (hasLoadedHistory)
+        {
+            <p class="text-center py-4 text-sm text-gray-500">No refresh history returned.</p>
+        }
+        else
+        {
+            <p class="text-center py-4 text-sm text-gray-500">Click "Reload" to load this dataset's refresh history.</p>
+        }
+    </div>
+</div>
+
+<!-- Link / Mapping Dialog (hidden while the connection sub-dialog is open so the two modals
+     don't fight over focus — a stacked FluentDialog traps focus in the first one). -->
+@if (showLinkDialog && !showConnectionDialog)
+{
+    <FluentDialog>
+        <div class="bg-white rounded-lg shadow-xl max-w-lg w-full">
+            <div class="flex items-center justify-between p-6 border-b border-gray-200 bg-gray-50 rounded-t-lg">
+                <h3 class="text-lg font-semibold text-gray-900">Configure Power BI Mapping</h3>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-sm font-medium text-gray-700">Connection <span class="text-red-500">*</span></label>
+                        <button @onclick="() => OpenConnectionDialog(null)" class="text-indigo-600 hover:text-indigo-900 text-xs" style="border:none;background:none;">+ New connection</button>
+                    </div>
+                    <select @bind="linkForm.PowerBiConnectionId" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2">
+                        <option value="">Select a connection...</option>
+                        @foreach (var c in connections)
+                        {
+                            <option value="@c.Id">@c.Name</option>
+                        }
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Workspace (Group) Id <span class="text-red-500">*</span></label>
+                    <input @bind="linkForm.WorkspaceId" placeholder="00000000-0000-0000-0000-000000000000"
+                           class="w-full border border-gray-300 rounded-md text-sm px-3 py-2 font-mono" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Dataset Id <span class="text-red-500">*</span></label>
+                    <input @bind="linkForm.DatasetId" placeholder="00000000-0000-0000-0000-000000000000"
+                           class="w-full border border-gray-300 rounded-md text-sm px-3 py-2 font-mono" />
+                </div>
+                @if (!string.IsNullOrEmpty(linkError))
+                {
+                    <div class="bg-red-50 border border-red-200 rounded-md p-2 text-sm text-red-700">@linkError</div>
+                }
+
+                <!-- Manage connections list -->
+                @if (connections.Any())
+                {
+                    <div class="pt-2 border-t border-gray-100">
+                        <p class="text-xs font-medium text-gray-500 uppercase mb-2">Company connections</p>
+                        <div class="space-y-1">
+                            @foreach (var c in connections)
+                            {
+                                <div class="flex items-center justify-between text-sm">
+                                    <span class="text-gray-700">@c.Name <span class="text-gray-400 text-xs">(@c.ClientId)</span></span>
+                                    <span>
+                                        <button @onclick="() => OpenConnectionDialog(c)" class="text-indigo-600 hover:text-indigo-900 text-xs mr-3" style="border:none;background:none;">Edit</button>
+                                        <button @onclick="() => DeleteConnection(c)" class="text-red-600 hover:text-red-900 text-xs" style="border:none;background:none;">Delete</button>
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+            <div class="flex justify-between p-6 border-t border-gray-200">
+                <div>
+                    @if (link != null)
+                    {
+                        <FluentButton Appearance="Appearance.Neutral" @onclick="UnlinkDataset">Unlink</FluentButton>
+                    }
+                </div>
+                <div class="flex space-x-3">
+                    <FluentButton Appearance="Appearance.Neutral" @onclick="CloseLinkDialog">Cancel</FluentButton>
+                    <FluentButton Appearance="Appearance.Accent" @onclick="SaveLink" Disabled="@isSavingLink">
+                        @(isSavingLink ? "Saving..." : "Save")
+                    </FluentButton>
+                </div>
+            </div>
+        </div>
+    </FluentDialog>
+}
+
+<!-- Connection Dialog -->
+@if (showConnectionDialog)
+{
+    <FluentDialog>
+        <div class="bg-white rounded-lg shadow-xl max-w-lg w-full">
+            <div class="flex items-center justify-between p-6 border-b border-gray-200 bg-gray-50 rounded-t-lg">
+                <h3 class="text-lg font-semibold text-gray-900">@(editingConnectionId == null ? "Add Connection" : "Edit Connection")</h3>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Name <span class="text-red-500">*</span></label>
+                    <input @bind="connectionForm.Name" class="w-full border border-gray-300 rounded-md text-sm px-3 py-2" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Tenant Id <span class="text-red-500">*</span></label>
+                    <input @bind="connectionForm.TenantId" placeholder="Azure AD directory (tenant) id"
+                           class="w-full border border-gray-300 rounded-md text-sm px-3 py-2 font-mono" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Client Id <span class="text-red-500">*</span></label>
+                    <input @bind="connectionForm.ClientId" placeholder="Service principal application id"
+                           class="w-full border border-gray-300 rounded-md text-sm px-3 py-2 font-mono" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        Client Secret @if (editingConnectionId == null) { <span class="text-red-500">*</span> }
+                    </label>
+                    <input type="password" @bind="connectionForm.ClientSecret"
+                           placeholder="@(editingConnectionId == null ? "Enter client secret" : "Leave blank to keep existing")"
+                           class="w-full border border-gray-300 rounded-md text-sm px-3 py-2" />
+                </div>
+                @if (!string.IsNullOrEmpty(connectionError))
+                {
+                    <div class="bg-red-50 border border-red-200 rounded-md p-2 text-sm text-red-700">@connectionError</div>
+                }
+            </div>
+            <div class="flex justify-end space-x-3 p-6 border-t border-gray-200">
+                <FluentButton Appearance="Appearance.Neutral" @onclick="CloseConnectionDialog">Cancel</FluentButton>
+                <FluentButton Appearance="Appearance.Accent" @onclick="SaveConnection" Disabled="@isSavingConnection">
+                    @(isSavingConnection ? "Saving..." : "Save")
+                </FluentButton>
+            </div>
+        </div>
+    </FluentDialog>
+}
+
+@code {
+    [Parameter] public string EntityId { get; set; } = string.Empty;
+    [Parameter] public string? EntityUrl { get; set; }
+
+    private string CompanyId => StateContainer.Company?.Id ?? string.Empty;
+    private string writeRoles => $"{CompanyId}_INCIDENTS,{CompanyId}_ADMIN";
+
+    private PowerBiDatasetLinkDto? link;
+    private List<PowerBiConnectionDto> connections = new();
+
+    private PowerBiRefreshScheduleDto? schedule;
+
+    // Refresh history
+    private List<PowerBiRefreshDto> history = new();
+    private bool isLoadingHistory;
+    private bool hasLoadedHistory;
+    private bool isRefreshing;
+    private string? historyError;
+
+    // Discovery / lineage
+    private PowerBiDiscoveryDto? discovery;
+    private bool isDiscovering;
+    private bool isCommitting;
+    private string? discoverError;
+    private string? commitMessage;
+    private readonly HashSet<string> selectedDatabases = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> selectedTables = new(StringComparer.OrdinalIgnoreCase);
+
+    // Link dialog
+    private bool showLinkDialog;
+    private bool isSavingLink;
+    private string? linkError;
+    private PowerBiDatasetLinkRequest linkForm = new();
+
+    // Connection dialog
+    private bool showConnectionDialog;
+    private bool isSavingConnection;
+    private string? editingConnectionId;
+    private string? connectionError;
+    private PowerBiConnectionRequest connectionForm = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.IsNullOrEmpty(CompanyId)) return;
+        link = await PowerBiService.GetLinkAsync(CompanyId, EntityId);
+        connections = await PowerBiService.GetConnectionsAsync(CompanyId);
+        await LoadSchedule();
+    }
+
+    /// <summary>Loads the next-refresh schedule. Non-fatal — if it fails the banner simply doesn't show.</summary>
+    private async Task LoadSchedule()
+    {
+        if (link == null) { schedule = null; return; }
+        schedule = await PowerBiService.GetRefreshScheduleAsync(CompanyId, EntityId);
+    }
+
+    // ---- Link / mapping ----
+
+    private void OpenLinkDialog()
+    {
+        linkError = null;
+        var (ws, ds) = ParseIdsFromUrl(EntityUrl);
+        linkForm = new PowerBiDatasetLinkRequest
+        {
+            PowerBiConnectionId = link?.PowerBiConnectionId ?? string.Empty,
+            WorkspaceId = link?.WorkspaceId ?? ws ?? string.Empty,
+            DatasetId = link?.DatasetId ?? ds ?? string.Empty
+        };
+        showLinkDialog = true;
+    }
+
+    private void CloseLinkDialog()
+    {
+        showLinkDialog = false;
+        linkForm = new();
+    }
+
+    private async Task SaveLink()
+    {
+        linkError = null;
+        if (string.IsNullOrWhiteSpace(linkForm.PowerBiConnectionId)) { linkError = "Select a connection."; return; }
+        if (string.IsNullOrWhiteSpace(linkForm.WorkspaceId)) { linkError = "Workspace Id is required."; return; }
+        if (string.IsNullOrWhiteSpace(linkForm.DatasetId)) { linkError = "Dataset Id is required."; return; }
+
+        isSavingLink = true;
+        try
+        {
+            link = await PowerBiService.SaveLinkAsync(CompanyId, EntityId, linkForm);
+            CloseLinkDialog();
+            history.Clear();
+            hasLoadedHistory = false;
+            historyError = null;
+            await LoadSchedule();
+        }
+        catch (Exception ex)
+        {
+            linkError = ex.Message;
+        }
+        finally
+        {
+            isSavingLink = false;
+        }
+    }
+
+    private async Task UnlinkDataset()
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "Remove the Power BI mapping for this dataset?")) return;
+        if (await PowerBiService.DeleteLinkAsync(CompanyId, EntityId))
+        {
+            link = null;
+            schedule = null;
+            history.Clear();
+            hasLoadedHistory = false;
+            CloseLinkDialog();
+        }
+    }
+
+    // ---- Connections ----
+
+    private void OpenConnectionDialog(PowerBiConnectionDto? conn)
+    {
+        connectionError = null;
+        if (conn == null)
+        {
+            editingConnectionId = null;
+            connectionForm = new PowerBiConnectionRequest { IsActive = true };
+        }
+        else
+        {
+            editingConnectionId = conn.Id;
+            connectionForm = new PowerBiConnectionRequest
+            {
+                Name = conn.Name,
+                TenantId = conn.TenantId,
+                ClientId = conn.ClientId,
+                IsActive = conn.IsActive,
+                ClientSecret = null
+            };
+        }
+        showConnectionDialog = true;
+    }
+
+    private void CloseConnectionDialog()
+    {
+        showConnectionDialog = false;
+        connectionForm = new();
+        editingConnectionId = null;
+    }
+
+    private async Task SaveConnection()
+    {
+        connectionError = null;
+        if (string.IsNullOrWhiteSpace(connectionForm.Name)) { connectionError = "Name is required."; return; }
+        if (string.IsNullOrWhiteSpace(connectionForm.TenantId)) { connectionError = "Tenant Id is required."; return; }
+        if (string.IsNullOrWhiteSpace(connectionForm.ClientId)) { connectionError = "Client Id is required."; return; }
+        if (editingConnectionId == null && string.IsNullOrWhiteSpace(connectionForm.ClientSecret))
+        {
+            connectionError = "A client secret is required for a new connection.";
+            return;
+        }
+
+        isSavingConnection = true;
+        try
+        {
+            bool ok;
+            string? newId = null;
+            if (editingConnectionId == null)
+            {
+                var created = await PowerBiService.CreateConnectionAsync(CompanyId, connectionForm);
+                ok = created != null;
+                newId = created?.Id;
+            }
+            else
+            {
+                ok = await PowerBiService.UpdateConnectionAsync(CompanyId, editingConnectionId, connectionForm);
+            }
+
+            if (!ok) { connectionError = "Failed to save connection."; return; }
+
+            connections = await PowerBiService.GetConnectionsAsync(CompanyId);
+            if (newId != null) linkForm.PowerBiConnectionId = newId; // preselect the new connection
+            CloseConnectionDialog();
+        }
+        finally
+        {
+            isSavingConnection = false;
+        }
+    }
+
+    private async Task DeleteConnection(PowerBiConnectionDto conn)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Delete connection '{conn.Name}'?")) return;
+        var error = await PowerBiService.DeleteConnectionAsync(CompanyId, conn.Id);
+        if (error == null)
+            connections = await PowerBiService.GetConnectionsAsync(CompanyId);
+        else
+            await JSRuntime.InvokeVoidAsync("alert", error);
+    }
+
+    // ---- Refresh history + trigger ----
+
+    private async Task LoadHistory()
+    {
+        if (link == null) return;
+        isLoadingHistory = true;
+        historyError = null;
+        try
+        {
+            history = await PowerBiService.GetRefreshHistoryAsync(CompanyId, EntityId);
+            hasLoadedHistory = true;
+            await LoadSchedule();
+        }
+        catch (Exception ex)
+        {
+            history = new();
+            historyError = ex.Message;
+        }
+        finally
+        {
+            isLoadingHistory = false;
+        }
+    }
+
+    private async Task TriggerRefresh()
+    {
+        if (link == null) return;
+        isRefreshing = true;
+        try
+        {
+            var result = await PowerBiService.TriggerRefreshAsync(CompanyId, EntityId);
+            if (!result.Success)
+                await JSRuntime.InvokeVoidAsync("alert", result.Message);
+            await LoadHistory();
+        }
+        finally
+        {
+            isRefreshing = false;
+        }
+    }
+
+    // ---- Discovery / lineage ----
+
+    private async Task Discover()
+    {
+        if (link == null) return;
+        isDiscovering = true;
+        discoverError = null;
+        commitMessage = null;
+        try
+        {
+            discovery = await PowerBiService.GetDiscoveryAsync(CompanyId, EntityId);
+            // Pre-select every discovered database and table by default.
+            selectedDatabases.Clear();
+            selectedTables.Clear();
+            foreach (var db in discovery.DataSources.Where(d => !string.IsNullOrWhiteSpace(d.Database)))
+                selectedDatabases.Add(db.Database!);
+            foreach (var t in discovery.Tables)
+                selectedTables.Add(t.Name);
+        }
+        catch (Exception ex)
+        {
+            discovery = null;
+            discoverError = ex.Message;
+        }
+        finally
+        {
+            isDiscovering = false;
+        }
+    }
+
+    private void ToggleDatabase(string name)
+    {
+        if (!selectedDatabases.Remove(name)) selectedDatabases.Add(name);
+    }
+
+    private void ToggleTable(string name)
+    {
+        if (!selectedTables.Remove(name)) selectedTables.Add(name);
+    }
+
+    private void SelectAllTables()
+    {
+        if (discovery == null) return;
+        foreach (var t in discovery.Tables) selectedTables.Add(t.Name);
+    }
+
+    private void ClearTables() => selectedTables.Clear();
+
+    private async Task CommitLineage()
+    {
+        if (discovery == null) return;
+        isCommitting = true;
+        commitMessage = null;
+        discoverError = null;
+        try
+        {
+            var request = new PowerBiLineageCommitRequest
+            {
+                Databases = discovery.DataSources
+                    .Where(d => !string.IsNullOrWhiteSpace(d.Database) && selectedDatabases.Contains(d.Database!))
+                    .Select(d => new PowerBiDbSelection { Database = d.Database!, Server = d.Server })
+                    .ToList(),
+                Tables = discovery.Tables
+                    .Where(t => selectedTables.Contains(t.Name))
+                    .Select(t => t.Name)
+                    .ToList()
+            };
+
+            var result = await PowerBiService.CommitLineageAsync(CompanyId, EntityId, request);
+            // Re-discover so the "New"/"Exists" badges reflect the entities we just created.
+            await Discover();
+            commitMessage = result.Message; // set after Discover(), which clears it
+        }
+        catch (Exception ex)
+        {
+            discoverError = ex.Message;
+        }
+        finally
+        {
+            isCommitting = false;
+        }
+    }
+
+    // ---- Helpers ----
+
+    /// <summary>Best-effort extraction of workspace + dataset GUIDs from an app.powerbi.com URL.</summary>
+    private static (string? workspaceId, string? datasetId) ParseIdsFromUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return (null, null);
+        string? ws = Match(url, @"groups/([0-9a-fA-F-]{36})");
+        string? ds = Match(url, @"datasets/([0-9a-fA-F-]{36})");
+        return (ws, ds);
+    }
+
+    private static string? Match(string input, string pattern)
+    {
+        var m = Regex.Match(input, pattern);
+        return m.Success ? m.Groups[1].Value : null;
+    }
+
+    private static string ScheduleSummary(PowerBiRefreshScheduleDto s)
+    {
+        var days = s.Days.Count == 7 ? "Daily" : s.Days.Count > 0 ? string.Join(", ", s.Days) : "(no days)";
+        var times = s.Times.Count > 0 ? string.Join(", ", s.Times) : "(no times)";
+        var tz = string.IsNullOrEmpty(s.LocalTimeZoneId) ? "" : $" ({s.LocalTimeZoneId})";
+        return $"{days} at {times}{tz}";
+    }
+
+    private static string StatusClass(string status) => status?.ToLowerInvariant() switch
+    {
+        "completed" => "bg-green-100 text-green-800",
+        "failed" => "bg-red-100 text-red-800",
+        "disabled" => "bg-gray-100 text-gray-700",
+        "unknown" => "bg-yellow-100 text-yellow-800", // in progress
+        _ => "bg-gray-100 text-gray-700"
+    };
+
+    private static string FormatDuration(DateTime? start, DateTime? end)
+    {
+        if (start == null || end == null) return "-";
+        var span = end.Value - start.Value;
+        if (span.TotalSeconds < 0) return "-";
+        if (span.TotalMinutes < 1) return $"{span.Seconds}s";
+        return $"{(int)span.TotalMinutes}m {span.Seconds}s";
+    }
+}

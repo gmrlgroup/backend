@@ -283,7 +283,8 @@ else
     {
         var companyId = StateContainer.Company?.Id ?? "";
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        canView = !string.IsNullOrEmpty(companyId) && authState.User.IsInRole($"{companyId}_VIEW_DATA");
+        // {companyId}_ADMIN is implicitly allowed by HasCompanyRole.
+        canView = authState.User.HasCompanyRole(companyId, "VIEW_DATA");
         if (!canView) { isLoadingTables = false; return; }
 
         await LoadTablesAsync();

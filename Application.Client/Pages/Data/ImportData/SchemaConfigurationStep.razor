@@ -1,7 +1,9 @@
 @using Application.Shared.Models.Data
 @using Application.Shared.Models
 @using Microsoft.AspNetCore.Components.Forms
+@using System.Net.Http.Json
 @inject IToastService _toastService
+@inject HttpClient _httpClient
 
 <div class="ds-form-card">
     <p class="ds-section-title">Configure Schema</p>
@@ -29,10 +31,24 @@
                 <p class="ds-section-title" style="margin:0">
                     Columns <span style="font-size:0.8125rem;font-weight:400;color:#71717a;margin-left:0.375rem">(@TableModel.Columns.Count)</span>
                 </p>
-                <button type="button" class="btn btn-outline" @onclick="AddColumn">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-                    Add Column
-                </button>
+                <div style="display:flex;gap:0.5rem">
+                    <button type="button" class="btn btn-outline" @onclick="InferTypesWithAI" disabled="@(isInferring || !TableModel.Columns.Any())" title="Use AI to detect column data types from the sample data">
+                        @if (isInferring)
+                        {
+                            <span class="ds-spinner" style="width:14px;height:14px;border-width:1.5px"></span>
+                            <span>Configuring...</span>
+                        }
+                        else
+                        {
+                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2"/><path d="M12 19v2"/><path d="m5 5 1.5 1.5"/><path d="M17.5 17.5 19 19"/><path d="M3 12h2"/><path d="M19 12h2"/><circle cx="12" cy="12" r="4"/></svg>
+                            <span>Configure with AI</span>
+                        }
+                    </button>
+                    <button type="button" class="btn btn-outline" @onclick="AddColumn">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                        Add Column
+                    </button>
+                </div>
             </div>
 
             @if (TableModel.Columns.Any())
@@ -76,6 +92,128 @@
             }
         </div>
 
+        <!-- Import options -->
+        <div style="border-top:1px solid #f4f4f5;padding-top:1.25rem;margin-top:1.25rem">
+            <p class="ds-section-title" style="margin:0 0 1rem 0">Import Options</p>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+                <div class="ds-field" style="margin-bottom:0">
+                    <label class="ds-label">Mode</label>
+                    <select class="ds-select" @bind="importMode">
+                        <option value="@ImportMode.Append">Append — add rows to the table</option>
+                        <option value="@ImportMode.Replace">Replace — empty the table, then load</option>
+                        <option value="@ImportMode.Upsert">Upsert — replace rows matching key column(s)</option>
+                    </select>
+                </div>
+                <div class="ds-field" style="margin-bottom:0;display:flex;align-items:center;gap:0.5rem;padding-top:1.5rem">
+                    <input type="checkbox" class="ds-checkbox" id="skipInvalid" @bind="skipInvalidRows" />
+                    <label for="skipInvalid" style="font-size:0.875rem;color:#3f3f46;margin:0;cursor:pointer">
+                        Skip rows that fail type conversion (otherwise the import is rejected)
+                    </label>
+                </div>
+            </div>
+
+            @if (importMode == ImportMode.Upsert)
+            {
+                <div class="ds-field" style="margin-top:1rem;margin-bottom:0">
+                    <label class="ds-label">Key column(s) — rows are matched on these</label>
+                    <div style="display:flex;flex-wrap:wrap;gap:0.5rem">
+                        @foreach (var col in TableModel.Columns.Where(c => !string.IsNullOrWhiteSpace(c.Name)))
+                        {
+                            var name = col.Name;
+                            <label class="ds-tag" style="cursor:pointer;display:flex;align-items:center;gap:0.375rem">
+                                <input type="checkbox" class="ds-checkbox"
+                                       checked="@selectedKeyColumns.Contains(name)"
+                                       @onchange="e => ToggleKeyColumn(name, (bool)e.Value!)" />
+                                @name
+                            </label>
+                        }
+                    </div>
+                </div>
+            }
+
+            <div style="margin-top:1rem">
+                <button type="button" class="btn btn-outline" @onclick="ValidateFile" disabled="@(isValidating || !TableModel.Columns.Any())">
+                    @if (isValidating)
+                    {
+                        <span class="ds-spinner" style="width:14px;height:14px;border-width:1.5px"></span>
+                        <span>Validating...</span>
+                    }
+                    else
+                    {
+                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+                        <span>Validate &amp; Preview</span>
+                    }
+                </button>
+            </div>
+        </div>
+
+        <!-- Validation report -->
+        @if (validation != null && string.IsNullOrEmpty(validation.Error))
+        {
+            <div class="ds-card" style="margin-top:1rem;padding:1rem">
+                <p style="font-size:0.875rem;font-weight:600;margin:0 0 0.5rem 0">
+                    Validation — @validation.TotalRows row@(validation.TotalRows == 1 ? "" : "s") in file
+                </p>
+
+                @if (validation.MissingColumns.Any())
+                {
+                    <p style="font-size:0.8125rem;color:#b45309;margin:0.25rem 0">
+                        ⚠ Missing from file (will be left null/default): @string.Join(", ", validation.MissingColumns)
+                    </p>
+                }
+                @if (validation.ExtraColumns.Any())
+                {
+                    <p style="font-size:0.8125rem;color:#71717a;margin:0.25rem 0">
+                        ℹ Ignored file columns (not in schema): @string.Join(", ", validation.ExtraColumns)
+                    </p>
+                }
+
+                @if (validation.ColumnValidations.Any())
+                {
+                    <div style="margin-top:0.5rem">
+                        <p style="font-size:0.8125rem;font-weight:600;color:#b91c1c;margin:0 0 0.25rem 0">Columns with values that don't fit their type:</p>
+                        <table style="width:100%;font-size:0.8125rem;border-collapse:collapse">
+                            <thead>
+                                <tr style="text-align:left;color:#71717a">
+                                    <th style="padding:0.25rem 0.5rem">Column</th>
+                                    <th style="padding:0.25rem 0.5rem">Type</th>
+                                    <th style="padding:0.25rem 0.5rem">Bad rows</th>
+                                    <th style="padding:0.25rem 0.5rem">Sample values</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var cv in validation.ColumnValidations)
+                                {
+                                    <tr style="border-top:1px solid #f4f4f5">
+                                        <td style="padding:0.25rem 0.5rem;font-weight:500">@cv.Column</td>
+                                        <td style="padding:0.25rem 0.5rem">@cv.TargetType</td>
+                                        <td style="padding:0.25rem 0.5rem;color:#b91c1c">@cv.InvalidCount</td>
+                                        <td style="padding:0.25rem 0.5rem;color:#71717a">@string.Join(", ", cv.SampleInvalidValues)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        <p style="font-size:0.8125rem;color:#71717a;margin:0.5rem 0 0 0">
+                            @(skipInvalidRows ? "These rows will be skipped on import." : "Enable \"Skip rows that fail type conversion\" to quarantine these, or fix the column types.")
+                        </p>
+                    </div>
+                }
+                else
+                {
+                    <p style="font-size:0.8125rem;color:#15803d;margin:0.25rem 0">✓ All values fit their target types.</p>
+                }
+
+                @if (validation.PreviewRows.Any())
+                {
+                    <div style="margin-top:0.75rem">
+                        <p style="font-size:0.8125rem;font-weight:600;color:#71717a;margin:0 0 0.5rem 0;text-transform:uppercase;letter-spacing:0.05em">Preview</p>
+                        <DataResultsTable Data="@validation.PreviewRows" ShowExport="false" ShowPagination="false" ShowColumnFilters="false" ShowGlobalFilter="false" />
+                    </div>
+                }
+            </div>
+        }
+
         <div class="ds-step-nav">
             <button type="button" class="btn btn-outline" @onclick="@OnBack">
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
@@ -101,12 +239,29 @@
     [Parameter] public Dataset? Dataset { get; set; }
     [Parameter] public string FileName { get; set; } = string.Empty;
     [Parameter] public List<string> CsvHeaders { get; set; } = new();
-    [Parameter] public EventCallback<Table> OnSchemaConfirmed { get; set; }
+    [Parameter] public List<List<string>> SampleRows { get; set; } = new();
+    [Parameter] public string? CompanyId { get; set; }
+    [Parameter] public EventCallback<(Table table, ImportMode mode, List<string> keyColumns, bool skipInvalidRows, ImportFileFormat format)> OnSchemaConfirmed { get; set; }
     [Parameter] public EventCallback OnBack { get; set; }
     [Parameter] public Table TableModel { get; set; } = new();
     [Parameter] public EventCallback<Table> TableModelChanged { get; set; }
+    [Parameter] public ImportFileFormat Format { get; set; } = ImportFileFormat.Csv;
+    // Columns DuckDB inferred server-side (for non-text formats); when set, drives the schema editor.
+    [Parameter] public List<Column>? ServerColumns { get; set; }
+    // The buffered file, re-sent for validation against the schema being defined.
+    [Parameter] public byte[]? FileBytes { get; set; }
 
     private bool isSubmitting = false;
+    private bool isInferring = false;
+
+    // Import options
+    private ImportMode importMode = ImportMode.Append;
+    private bool skipInvalidRows = false;
+    private readonly HashSet<string> selectedKeyColumns = new(StringComparer.OrdinalIgnoreCase);
+
+    // Validation
+    private bool isValidating = false;
+    private ImportValidationResult? validation;
 
     protected override Task OnInitializedAsync()
     {
@@ -136,6 +291,24 @@
     private void InitializeColumnsFromCsvHeaders()
     {
         TableModel.Columns.Clear();
+
+        // For formats DuckDB peeked server-side, use its column names + inferred types directly.
+        if (ServerColumns is { Count: > 0 })
+        {
+            foreach (var col in ServerColumns)
+            {
+                TableModel.Columns.Add(new Column
+                {
+                    Name = SanitizeColumnName(col.Name),
+                    DataType = Column.CommonDataTypes.Contains(col.DataType) ? col.DataType : "VARCHAR",
+                    IsNullable = true,
+                    DefaultValue = null
+                });
+            }
+            StateHasChanged();
+            return;
+        }
+
         foreach (var header in CsvHeaders)
         {
             TableModel.Columns.Add(new Column
@@ -175,6 +348,73 @@
         return "VARCHAR";
     }
 
+    private async Task InferTypesWithAI()
+    {
+        if (!TableModel.Columns.Any()) { _toastService.ShowWarning("There are no columns to configure"); return; }
+
+        try
+        {
+            isInferring = true;
+            StateHasChanged();
+
+            if (!string.IsNullOrEmpty(CompanyId))
+            {
+                _httpClient.DefaultRequestHeaders.Remove("X-Company-Id");
+                _httpClient.DefaultRequestHeaders.Add("X-Company-Id", CompanyId);
+            }
+
+            // Align the sample-row cells to the current column order (columns may have been added/removed).
+            var request = new SchemaInferenceRequest
+            {
+                Columns = TableModel.Columns.Select(c => c.Name).ToList(),
+                CurrentTypes = TableModel.Columns.Select(c => c.DataType).ToList(),
+                SampleRows = SampleRows.Select(r => r.Select(v => (string?)v).ToList()).ToList()
+            };
+
+            var response = await _httpClient.PostAsJsonAsync("api/Datasets/infer-schema", request);
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                _toastService.ShowError($"AI configuration failed ({(int)response.StatusCode}): {error}");
+                return;
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<SchemaInferenceResult>();
+            if (result == null || !string.IsNullOrEmpty(result.Error))
+            {
+                _toastService.ShowError($"AI configuration failed: {result?.Error ?? "unknown error"}");
+                return;
+            }
+
+            var applied = 0;
+            foreach (var suggestion in result.Columns)
+            {
+                var col = TableModel.Columns.FirstOrDefault(c => string.Equals(c.Name, suggestion.Name, StringComparison.OrdinalIgnoreCase));
+                if (col != null && Column.CommonDataTypes.Contains(suggestion.DataType) && col.DataType != suggestion.DataType)
+                {
+                    col.DataType = suggestion.DataType;
+                    applied++;
+                }
+            }
+
+            await TableModelChanged.InvokeAsync(TableModel);
+
+            if (applied > 0)
+                _toastService.ShowSuccess($"AI updated {applied} column type{(applied == 1 ? "" : "s")} from the sample data");
+            else
+                _toastService.ShowInfo("AI reviewed the sample data — the current column types look correct");
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error configuring schema with AI: {ex.Message}");
+        }
+        finally
+        {
+            isInferring = false;
+            StateHasChanged();
+        }
+    }
+
     private void AddColumn() { TableModel.Columns.Add(new Column()); StateHasChanged(); }
 
     private void RemoveColumn(int index)
@@ -182,18 +422,89 @@
         if (TableModel.Columns.Count > index) { TableModel.Columns.RemoveAt(index); StateHasChanged(); }
     }
 
+    // Toggles a column in/out of the upsert key set.
+    private void ToggleKeyColumn(string columnName, bool isChecked)
+    {
+        if (isChecked) selectedKeyColumns.Add(columnName);
+        else selectedKeyColumns.Remove(columnName);
+    }
+
+    private bool ValidateColumns()
+    {
+        if (!TableModel.Columns.Any()) { _toastService.ShowWarning("Please configure at least one column"); return false; }
+        if (TableModel.Columns.Any(c => string.IsNullOrWhiteSpace(c.Name))) { _toastService.ShowWarning("All columns must have a name"); return false; }
+        var duplicates = TableModel.Columns.GroupBy(c => c.Name.ToLower()).Where(g => g.Count() > 1).Select(g => g.Key);
+        if (duplicates.Any()) { _toastService.ShowWarning($"Duplicate column names: {string.Join(", ", duplicates)}"); return false; }
+        return true;
+    }
+
+    // Validates the buffered file against the schema being defined, before committing.
+    private async Task ValidateFile()
+    {
+        if (!ValidateColumns()) return;
+        if (FileBytes == null) { _toastService.ShowError("The uploaded file is no longer available. Please re-upload."); return; }
+
+        try
+        {
+            isValidating = true;
+            validation = null;
+            StateHasChanged();
+
+            EnsureHeaders();
+
+            using var content = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(FileBytes);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+            content.Add(fileContent, "file", string.IsNullOrEmpty(FileName) ? "upload" : FileName);
+            content.Add(new StringContent(Format.ToString()), "format");
+            content.Add(new StringContent(System.Text.Json.JsonSerializer.Serialize(TableModel.Columns)), "columns");
+
+            var response = await _httpClient.PostAsync($"api/Datasets/{Dataset!.Id}/validate-schema", content);
+            if (!response.IsSuccessStatusCode)
+            {
+                var err = await response.Content.ReadAsStringAsync();
+                _toastService.ShowError($"Validation failed: {err}");
+                return;
+            }
+
+            validation = await response.Content.ReadFromJsonAsync<ImportValidationResult>();
+            if (validation != null && !string.IsNullOrEmpty(validation.Error))
+                _toastService.ShowError($"Validation error: {validation.Error}");
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error validating file: {ex.Message}");
+        }
+        finally
+        {
+            isValidating = false;
+            StateHasChanged();
+        }
+    }
+
+    private void EnsureHeaders()
+    {
+        if (!string.IsNullOrEmpty(CompanyId))
+        {
+            _httpClient.DefaultRequestHeaders.Remove("X-Company-Id");
+            _httpClient.DefaultRequestHeaders.Add("X-Company-Id", CompanyId);
+        }
+    }
+
     private async Task HandleSubmit()
     {
-        if (!TableModel.Columns.Any()) { _toastService.ShowWarning("Please configure at least one column"); return; }
-        if (TableModel.Columns.Any(c => string.IsNullOrWhiteSpace(c.Name))) { _toastService.ShowWarning("All columns must have a name"); return; }
-        var duplicates = TableModel.Columns.GroupBy(c => c.Name.ToLower()).Where(g => g.Count() > 1).Select(g => g.Key);
-        if (duplicates.Any()) { _toastService.ShowWarning($"Duplicate column names: {string.Join(", ", duplicates)}"); return; }
+        if (!ValidateColumns()) return;
+        if (importMode == ImportMode.Upsert && selectedKeyColumns.Count == 0)
+        {
+            _toastService.ShowWarning("Upsert requires at least one key column");
+            return;
+        }
 
         try
         {
             isSubmitting = true;
             StateHasChanged();
-            await OnSchemaConfirmed.InvokeAsync(TableModel);
+            await OnSchemaConfirmed.InvokeAsync((TableModel, importMode, selectedKeyColumns.ToList(), skipInvalidRows, Format));
         }
         catch (Exception ex)
         {

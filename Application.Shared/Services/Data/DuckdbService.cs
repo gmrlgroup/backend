@@ -6,9 +6,13 @@ using DuckDB.NET.Data;
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Data.Common;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Application.Shared.Services.Data;
@@ -550,26 +554,11 @@ public class DuckdbService : IDuckdbService
             }
             
             sqlBuilder.Append($" FROM \"{query.TableName}\"");
-            
-            // WHERE clause for filters
-            if (query.Filters?.Any() == true)
-            {
-                var filterClauses = new List<string>();
-                foreach (var filter in query.Filters)
-                {
-                    var filterClause = BuildFilterClause(filter);
-                    if (!string.IsNullOrEmpty(filterClause))
-                    {
-                        filterClauses.Add(filterClause);
-                    }
-                }
-                
-                if (filterClauses.Any())
-                {
-                    sqlBuilder.Append($" WHERE {string.Join(" AND ", filterClauses)}");
-                }
-            }
-            
+
+            // WHERE clause for filters (reused for the COUNT below so the total matches the filtered view)
+            var whereClause = BuildWhereClause(query.Filters);
+            sqlBuilder.Append(whereClause);
+
             // ORDER BY clause
             if (query.SortColumns?.Any() == true)
             {
@@ -581,9 +570,6 @@ public class DuckdbService : IDuckdbService
             var offset = (query.Page - 1) * query.PageSize;
             sqlBuilder.Append($" LIMIT {query.PageSize} OFFSET {offset}");
 
-            using var command = connection.CreateCommand();
-            command.CommandText = sqlBuilder.ToString();
-            
             var result = new TableDataResult
             {
                 Data = new List<Dictionary<string, object>>(),
@@ -591,43 +577,755 @@ public class DuckdbService : IDuckdbService
                 PageSize = query.PageSize
             };
 
-            using var reader = await command.ExecuteReaderAsync();
-            
-            // Get column information
-            var columns = new List<Column>();
-            for (int i = 0; i < reader.FieldCount; i++)
+            using (var command = connection.CreateCommand())
             {
-                columns.Add(new Column
-                {
-                    Name = reader.GetName(i),
-                    DataType = reader.GetFieldType(i).Name
-                });
-            }
-            result.Columns = columns;
-            
-            // Read data rows
-            while (await reader.ReadAsync())
-            {
-                var row = new Dictionary<string, object>();
+                command.CommandText = sqlBuilder.ToString();
+
+                using var reader = await command.ExecuteReaderAsync();
+
+                // Get column information
+                var columns = new List<Column>();
                 for (int i = 0; i < reader.FieldCount; i++)
                 {
-                    var value = reader.IsDBNull(i) ? null : reader.GetValue(i);
-                    row[reader.GetName(i)] = value ?? DBNull.Value;
+                    columns.Add(new Column
+                    {
+                        Name = reader.GetName(i),
+                        DataType = reader.GetFieldType(i).Name
+                    });
                 }
-                result.Data.Add(row);
+                result.Columns = columns;
+
+                // Read data rows
+                while (await reader.ReadAsync())
+                {
+                    var row = new Dictionary<string, object>();
+                    for (int i = 0; i < reader.FieldCount; i++)
+                    {
+                        var value = reader.IsDBNull(i) ? null : NormalizeValue(reader.GetValue(i));
+                        row[reader.GetName(i)] = value ?? DBNull.Value;
+                    }
+                    result.Data.Add(row);
+                }
             }
-            
+
+            // Total count for pagination — must reflect the full (filtered) result set, NOT just the
+            // page returned, or the grid pager can't move past the first page. Run it on the SAME open
+            // connection: opening a second connection to the same .duckdb file throws
+            // "File is already open" (DuckDB allows one read-write handle per file per process).
+            using (var countCommand = connection.CreateCommand())
+            {
+                countCommand.CommandText = $"SELECT COUNT(*) FROM \"{query.TableName}\"{whereClause}";
+                var countScalar = await countCommand.ExecuteScalarAsync();
+                result.TotalRows = Convert.ToInt32(countScalar);
+            }
+
             await connection.CloseAsync();
-            
-            // Get total count for pagination
-            // result.TotalRows = await GetTableRowCountAsync(query.DatasetId, query.TableName, query.Filters);
-            
+
             return result;
         }
         catch (Exception ex)
         {
             throw new InvalidOperationException($"Failed to query table data: {ex.Message}", ex);
         }
+    }
+
+    // ----- Ad-hoc SQL workbench --------------------------------------------------------------
+
+    // Hard ceiling on rows the workbench will return, regardless of a requested MaxRows — keeps a
+    // runaway "SELECT *" from materializing an entire table into memory.
+    private const int MaxAdHocRows = 5000;
+    private const int QueryTimeoutSeconds = 60;
+
+    private enum SqlKind { Read, Write, Empty }
+
+    public async Task<SqlQueryResult> ExecuteSqlAsync(string datasetId, string sql, bool allowWrite, int maxRows, CancellationToken ct = default)
+    {
+        var result = new SqlQueryResult();
+        var stopwatch = Stopwatch.StartNew();
+
+        var kind = ClassifyStatement(sql);
+        if (kind == SqlKind.Empty)
+        {
+            result.Error = "Query is empty.";
+            return result;
+        }
+        if (kind == SqlKind.Write && !allowWrite)
+        {
+            result.Error = "This query modifies data and requires edit permission.";
+            return result;
+        }
+
+        var duckdbFilePath = $"{_option.DuckdbFilePath}/{datasetId}.duckdb";
+        if (!File.Exists(duckdbFilePath))
+        {
+            result.Error = "Dataset database not found.";
+            return result;
+        }
+
+        var cap = maxRows > 0 ? Math.Min(maxRows, MaxAdHocRows) : MaxAdHocRows;
+        result.IsSelect = kind == SqlKind.Read;
+
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(QueryTimeoutSeconds));
+
+            // Reads use a read-only handle: multiple readers can coexist (no single-writer lock) and
+            // a VIEW_DATA user physically cannot mutate, even via a crafted WITH. Writes need a
+            // read-write handle (one writer per file, like imports).
+            var connectionString = kind == SqlKind.Read
+                ? $"DataSource={duckdbFilePath};ACCESS_MODE=READ_ONLY"
+                : $"DataSource={duckdbFilePath}";
+
+            using var connection = new DuckDBConnection(connectionString);
+            await connection.OpenAsync(cts.Token);
+
+            using var command = connection.CreateCommand();
+            command.CommandText = sql;
+
+            using var reader = await command.ExecuteReaderAsync(cts.Token);
+            if (reader.FieldCount > 0)
+                ReadResultSet(reader, result, cap, cts.Token);
+            if (kind == SqlKind.Write)
+                result.RowsAffected = reader.RecordsAffected;
+
+            await connection.CloseAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            result.Error = $"The query was cancelled or exceeded the {QueryTimeoutSeconds}s time limit.";
+        }
+        catch (Exception ex)
+        {
+            // Surface the DuckDB error message inline — the workbench shows it to the author.
+            result.Error = ex.Message;
+        }
+        finally
+        {
+            stopwatch.Stop();
+            result.ElapsedMs = stopwatch.ElapsedMilliseconds;
+        }
+
+        return result;
+    }
+
+    public async Task<SqlQueryResult> CreateObjectFromQueryAsync(string datasetId, string objectName, string sql, bool asView, CancellationToken ct = default)
+    {
+        var result = new SqlQueryResult();
+        var stopwatch = Stopwatch.StartNew();
+
+        if (string.IsNullOrWhiteSpace(objectName) || !Regex.IsMatch(objectName, "^[A-Za-z_][A-Za-z0-9_]*$"))
+        {
+            result.Error = "Invalid name. Use letters, digits and underscores; it cannot start with a digit.";
+            return result;
+        }
+        if (ClassifyStatement(sql) != SqlKind.Read)
+        {
+            result.Error = "Only a single SELECT query can be saved as a table or view.";
+            return result;
+        }
+
+        var duckdbFilePath = $"{_option.DuckdbFilePath}/{datasetId}.duckdb";
+        if (!File.Exists(duckdbFilePath))
+        {
+            result.Error = "Dataset database not found.";
+            return result;
+        }
+
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(QueryTimeoutSeconds));
+
+            using var connection = new DuckDBConnection($"DataSource={duckdbFilePath}");
+            await connection.OpenAsync(cts.Token);
+
+            using var command = connection.CreateCommand();
+            var objectType = asView ? "VIEW" : "TABLE";
+            var inner = sql.TrimEnd().TrimEnd(';'); // compose inside CREATE ... AS (...)
+            command.CommandText = $"CREATE OR REPLACE {objectType} \"{objectName}\" AS {inner}";
+            result.RowsAffected = await command.ExecuteNonQueryAsync(cts.Token);
+
+            await connection.CloseAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            result.Error = $"The operation exceeded the {QueryTimeoutSeconds}s time limit.";
+        }
+        catch (Exception ex)
+        {
+            result.Error = ex.Message;
+        }
+        finally
+        {
+            stopwatch.Stop();
+            result.ElapsedMs = stopwatch.ElapsedMilliseconds;
+        }
+
+        return result;
+    }
+
+    // ---- Ingestion: stage → validate → promote (shared by the manual wizard and scheduled pulls) ----
+
+    private const int PreviewRowCap = 50;
+    private const string StagingTable = "_ingest_stg";
+
+    public async Task<ImportValidationResult> ValidateImportAsync(string datasetId, string tableName, Stream fileStream, ImportFileFormat format, CancellationToken ct = default)
+        => await ValidateInternalAsync(datasetId, fileStream, format, conn => ReadTargetColumnsAsync(conn, tableName, ct), ct);
+
+    public async Task<ImportValidationResult> ValidateImportAgainstSchemaAsync(string datasetId, List<Column> targetColumns, Stream fileStream, ImportFileFormat format, CancellationToken ct = default)
+        => await ValidateInternalAsync(datasetId, fileStream, format,
+            _ => Task.FromResult(targetColumns.Select(c => (c.Name, c.DataType)).ToList()), ct);
+
+    // Shared validation: stage the file, resolve the target columns (from an existing table or a
+    // caller-supplied schema), then report missing/extra columns, per-column TRY_CAST failures and a preview.
+    private async Task<ImportValidationResult> ValidateInternalAsync(
+        string datasetId, Stream fileStream, ImportFileFormat format,
+        Func<DuckDBConnection, Task<List<(string Name, string Type)>>> resolveTargetColumns, CancellationToken ct)
+    {
+        var result = new ImportValidationResult();
+        var duckdbFilePath = $"{_option.DuckdbFilePath}/{datasetId}.duckdb";
+        if (!File.Exists(duckdbFilePath))
+        {
+            result.Error = "Dataset database not found.";
+            return result;
+        }
+
+        string? tempPath = null;
+        try
+        {
+            tempPath = await WriteTempFileAsync(fileStream, format, ct);
+
+            using var connection = new DuckDBConnection($"DataSource={duckdbFilePath}");
+            await connection.OpenAsync(ct);
+
+            await StageFileAsync(connection, tempPath, format, ct);
+
+            var stagingColumns = await ReadStagingColumnsAsync(connection, ct);
+            var targetColumns = await resolveTargetColumns(connection);
+
+            result.FileColumns = stagingColumns.Select(c => c.Name).ToList();
+            var stagingByLower = stagingColumns.ToDictionary(c => c.Name.ToLowerInvariant(), c => c.Name);
+
+            // Columns the target expects but the file doesn't supply, and vice-versa.
+            result.MissingColumns = targetColumns
+                .Where(t => !stagingByLower.ContainsKey(t.Name.ToLowerInvariant()))
+                .Select(t => t.Name).ToList();
+            var targetLower = targetColumns.Select(t => t.Name.ToLowerInvariant()).ToHashSet();
+            result.ExtraColumns = stagingColumns
+                .Where(s => !targetLower.Contains(s.Name.ToLowerInvariant()))
+                .Select(s => s.Name).ToList();
+
+            result.TotalRows = (int)await ScalarLongAsync(connection, $"SELECT COUNT(*) FROM {StagingTable}", ct);
+
+            // Per common column: how many staged values fail TRY_CAST to the target type.
+            foreach (var t in targetColumns)
+            {
+                if (!stagingByLower.TryGetValue(t.Name.ToLowerInvariant(), out var stgName))
+                    continue;
+
+                var invalidWhere = $"{Q(stgName)} IS NOT NULL AND TRY_CAST({Q(stgName)} AS {t.Type}) IS NULL";
+                var invalidCount = (int)await ScalarLongAsync(connection,
+                    $"SELECT COUNT(*) FROM {StagingTable} WHERE {invalidWhere}", ct);
+                if (invalidCount == 0)
+                    continue;
+
+                var samples = new List<string>();
+                using (var sCmd = connection.CreateCommand())
+                {
+                    sCmd.CommandText = $"SELECT DISTINCT {Q(stgName)} FROM {StagingTable} WHERE {invalidWhere} LIMIT 5";
+                    using var sReader = await sCmd.ExecuteReaderAsync(ct);
+                    while (await sReader.ReadAsync(ct))
+                        samples.Add(sReader.IsDBNull(0) ? "" : sReader.GetValue(0)?.ToString() ?? "");
+                }
+
+                result.ColumnValidations.Add(new ColumnValidation
+                {
+                    Column = t.Name,
+                    TargetType = t.Type,
+                    InvalidCount = invalidCount,
+                    SampleInvalidValues = samples
+                });
+            }
+
+            // Preview the first N staged rows.
+            using (var pCmd = connection.CreateCommand())
+            {
+                pCmd.CommandText = $"SELECT * FROM {StagingTable} LIMIT {PreviewRowCap}";
+                using var pReader = await pCmd.ExecuteReaderAsync(ct);
+                while (await pReader.ReadAsync(ct))
+                {
+                    var row = new Dictionary<string, object?>();
+                    for (int i = 0; i < pReader.FieldCount; i++)
+                        row[pReader.GetName(i)] = pReader.IsDBNull(i) ? null : NormalizeValue(pReader.GetValue(i));
+                    result.PreviewRows.Add(row);
+                }
+            }
+
+            await connection.CloseAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            result.Error = "Validation was cancelled or timed out.";
+        }
+        catch (Exception ex)
+        {
+            result.Error = ex.Message;
+        }
+        finally
+        {
+            TryDelete(tempPath);
+        }
+
+        return result;
+    }
+
+    public async Task<FilePeekResult> PeekFileAsync(string datasetId, Stream fileStream, ImportFileFormat format, CancellationToken ct = default)
+    {
+        var result = new FilePeekResult();
+        var duckdbFilePath = $"{_option.DuckdbFilePath}/{datasetId}.duckdb";
+        if (!File.Exists(duckdbFilePath))
+        {
+            result.Error = "Dataset database not found.";
+            return result;
+        }
+
+        string? tempPath = null;
+        try
+        {
+            tempPath = await WriteTempFileAsync(fileStream, format, ct);
+
+            using var connection = new DuckDBConnection($"DataSource={duckdbFilePath}");
+            await connection.OpenAsync(ct);
+
+            await StageFileAsync(connection, tempPath, format, ct);
+
+            var stagingColumns = await ReadStagingColumnsAsync(connection, ct);
+            result.Columns = stagingColumns
+                .Select(c => new Column { Name = c.Name, DataType = MapToCommonType(c.Type), IsNullable = true })
+                .ToList();
+            result.TotalRows = (int)await ScalarLongAsync(connection, $"SELECT COUNT(*) FROM {StagingTable}", ct);
+
+            using (var pCmd = connection.CreateCommand())
+            {
+                pCmd.CommandText = $"SELECT * FROM {StagingTable} LIMIT {PreviewRowCap}";
+                using var pReader = await pCmd.ExecuteReaderAsync(ct);
+                while (await pReader.ReadAsync(ct))
+                {
+                    var row = new Dictionary<string, object?>();
+                    for (int i = 0; i < pReader.FieldCount; i++)
+                        row[pReader.GetName(i)] = pReader.IsDBNull(i) ? null : NormalizeValue(pReader.GetValue(i));
+                    result.PreviewRows.Add(row);
+                }
+            }
+
+            await connection.CloseAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            result.Error = "File peek was cancelled or timed out.";
+        }
+        catch (Exception ex)
+        {
+            result.Error = ex.Message;
+        }
+        finally
+        {
+            TryDelete(tempPath);
+        }
+
+        return result;
+    }
+
+    // Maps a DuckDB column type to the closest entry in Column.CommonDataTypes (for the schema editor).
+    private static string MapToCommonType(string duckType)
+    {
+        var t = duckType.ToUpperInvariant();
+        if (t.StartsWith("DECIMAL") || t.StartsWith("NUMERIC")) return "DECIMAL";
+        if (t is "INTEGER" or "INT" or "INT4" or "SIGNED" or "SMALLINT" or "TINYINT") return "INTEGER";
+        if (t is "BIGINT" or "INT8" or "LONG" or "HUGEINT" or "UBIGINT") return "BIGINT";
+        if (t is "DOUBLE" or "FLOAT" or "FLOAT8" or "FLOAT4" or "REAL") return "DOUBLE";
+        if (t is "BOOLEAN" or "BOOL") return "BOOLEAN";
+        if (t.StartsWith("TIMESTAMP")) return "TIMESTAMP";
+        if (t == "DATE") return "DATE";
+        if (t.StartsWith("TIME")) return "TIME";
+        if (t == "UUID") return "UUID";
+        if (t == "JSON") return "JSON";
+        if (t is "BLOB" or "BYTEA") return "BLOB";
+        return "VARCHAR";
+    }
+
+    public async Task<ImportResult> ImportFileAsync(string datasetId, string tableName, Stream fileStream, ImportFileFormat format, ImportMode mode, List<string> keyColumns, bool skipInvalidRows, bool createIfMissing = false, CancellationToken ct = default)
+    {
+        var result = new ImportResult();
+        var duckdbFilePath = $"{_option.DuckdbFilePath}/{datasetId}.duckdb";
+        if (!File.Exists(duckdbFilePath))
+        {
+            result.Error = "Dataset database not found.";
+            return result;
+        }
+
+        string? tempPath = null;
+        try
+        {
+            tempPath = await WriteTempFileAsync(fileStream, format, ct);
+
+            using var connection = new DuckDBConnection($"DataSource={duckdbFilePath}");
+            await connection.OpenAsync(ct);
+
+            // If the target table doesn't exist, either create it from the file's inferred schema
+            // (create-and-load in one shot) or fail with a clear message.
+            if (!await TableExistsAsync(connection, tableName, ct))
+            {
+                if (!createIfMissing)
+                {
+                    result.Error = $"Target table \"{tableName}\" does not exist. Enable \"create target table if it doesn't exist\" to create it automatically.";
+                    return result;
+                }
+
+                if (format == ImportFileFormat.Excel)
+                    await ExecAsync(connection, "INSTALL excel; LOAD excel;", ct);
+
+                await ExecAsync(connection, $"CREATE TABLE {Q(tableName)} AS SELECT * FROM {InferringReaderExpr(format, tempPath)}", ct);
+                result.RowsInserted = (int)await ScalarLongAsync(connection, $"SELECT COUNT(*) FROM {Q(tableName)}", ct);
+                result.Success = true;
+                await connection.CloseAsync();
+                return result;
+            }
+
+            await StageFileAsync(connection, tempPath, format, ct);
+
+            var stagingColumns = await ReadStagingColumnsAsync(connection, ct);
+            var targetColumns = await ReadTargetColumnsAsync(connection, tableName, ct);
+            var stagingByLower = stagingColumns.ToDictionary(c => c.Name.ToLowerInvariant(), c => c.Name);
+
+            // Only columns present in BOTH the file and the target are written; matched case-insensitively.
+            var common = targetColumns
+                .Where(t => stagingByLower.ContainsKey(t.Name.ToLowerInvariant()))
+                .Select(t => (Target: t.Name, Type: t.Type, Staging: stagingByLower[t.Name.ToLowerInvariant()]))
+                .ToList();
+
+            if (common.Count == 0)
+            {
+                result.Error = "None of the file's columns match the target table.";
+                return result;
+            }
+
+            // skipInvalidRows → TRY_CAST + a per-column validity filter (bad rows are dropped, counted).
+            // Otherwise → strict CAST, so a bad value aborts the whole import (the file is rejected).
+            var castFn = skipInvalidRows ? "TRY_CAST" : "CAST";
+            var insertList = string.Join(", ", common.Select(c => Q(c.Target)));
+            var selectList = string.Join(", ", common.Select(c => $"{castFn}({Q(c.Staging)} AS {c.Type})"));
+
+            string validFilter = string.Empty;
+            if (skipInvalidRows)
+            {
+                var conds = common.Select(c => $"({Q(c.Staging)} IS NULL OR TRY_CAST({Q(c.Staging)} AS {c.Type}) IS NOT NULL)");
+                validFilter = " WHERE " + string.Join(" AND ", conds);
+            }
+
+            var stagedCount = (int)await ScalarLongAsync(connection, $"SELECT COUNT(*) FROM {StagingTable}", ct);
+            var validCount = skipInvalidRows
+                ? (int)await ScalarLongAsync(connection, $"SELECT COUNT(*) FROM {StagingTable}{validFilter}", ct)
+                : stagedCount;
+            result.RowsSkipped = stagedCount - validCount;
+
+            var insertSql = $"INSERT INTO {Q(tableName)} ({insertList}) SELECT {selectList} FROM {StagingTable}{validFilter}";
+
+            // Wrap the mutations in a transaction so a failed INSERT (e.g. strict CAST on a bad value)
+            // rolls back any preceding DELETE — Replace/Upsert must never leave the table half-emptied.
+            await ExecAsync(connection, "BEGIN TRANSACTION", ct);
+            try
+            {
+                if (mode == ImportMode.Replace)
+                {
+                    await ExecAsync(connection, $"DELETE FROM {Q(tableName)}", ct);
+                    await ExecAsync(connection, insertSql, ct);
+                    result.RowsInserted = validCount;
+                }
+                else if (mode == ImportMode.Upsert)
+                {
+                    var keys = ResolveKeyColumns(keyColumns, common);
+                    if (keys.Count == 0)
+                    {
+                        await ExecAsync(connection, "ROLLBACK", ct);
+                        result.Error = "Upsert requires at least one key column that exists in both the file and the table.";
+                        return result;
+                    }
+
+                    var targetTuple = string.Join(", ", keys.Select(k => Q(k.Target)));
+                    var stagingKeySelect = string.Join(", ", keys.Select(k => $"TRY_CAST({Q(k.Staging)} AS {k.Type})"));
+                    var keySubquery = $"SELECT {stagingKeySelect} FROM {StagingTable}{validFilter}";
+
+                    // Rows in the target that the file replaces (matched on the key tuple) = "updated".
+                    var updated = (int)await ScalarLongAsync(connection,
+                        $"SELECT COUNT(*) FROM {Q(tableName)} WHERE ({targetTuple}) IN ({keySubquery})", ct);
+
+                    await ExecAsync(connection, $"DELETE FROM {Q(tableName)} WHERE ({targetTuple}) IN ({keySubquery})", ct);
+                    await ExecAsync(connection, insertSql, ct);
+
+                    result.RowsUpdated = updated;
+                    result.RowsInserted = Math.Max(0, validCount - updated);
+                }
+                else // Append
+                {
+                    await ExecAsync(connection, insertSql, ct);
+                    result.RowsInserted = validCount;
+                }
+
+                await ExecAsync(connection, "COMMIT", ct);
+            }
+            catch
+            {
+                try { await ExecAsync(connection, "ROLLBACK", ct); } catch { /* best-effort */ }
+                throw;
+            }
+
+            await connection.CloseAsync();
+            result.Success = true;
+        }
+        catch (OperationCanceledException)
+        {
+            result.Error = "Import was cancelled or timed out.";
+        }
+        catch (Exception ex)
+        {
+            result.Error = ex.Message;
+        }
+        finally
+        {
+            TryDelete(tempPath);
+        }
+
+        return result;
+    }
+
+    // Resolves the requested upsert key columns (given as target names) to common columns.
+    private static List<(string Target, string Type, string Staging)> ResolveKeyColumns(
+        List<string> keyColumns, List<(string Target, string Type, string Staging)> common)
+    {
+        if (keyColumns == null) return new();
+        var byLower = common.ToDictionary(c => c.Target.ToLowerInvariant(), c => c);
+        return keyColumns
+            .Select(k => k?.Trim().ToLowerInvariant() ?? "")
+            .Where(k => k.Length > 0 && byLower.ContainsKey(k))
+            .Select(k => byLower[k])
+            .ToList();
+    }
+
+    // Writes the uploaded stream to a temp file. Text formats are re-encoded windows-1252 → UTF-8
+    // (matching the legacy CSV import); binary/structured formats are copied byte-for-byte.
+    private static async Task<string> WriteTempFileAsync(Stream source, ImportFileFormat format, CancellationToken ct)
+    {
+        var ext = format switch
+        {
+            ImportFileFormat.Tsv => ".tsv",
+            ImportFileFormat.Json => ".json",
+            ImportFileFormat.Parquet => ".parquet",
+            ImportFileFormat.Excel => ".xlsx",
+            _ => ".csv"
+        };
+        var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}{ext}");
+
+        if (format == ImportFileFormat.Csv || format == ImportFileFormat.Tsv)
+        {
+            using var reader = new StreamReader(source, Encoding.GetEncoding("windows-1252"));
+            using var writer = new StreamWriter(tempPath, false, Encoding.UTF8);
+            string? line;
+            while ((line = await reader.ReadLineAsync()) != null)
+                await writer.WriteLineAsync(line);
+        }
+        else
+        {
+            using var fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write);
+            await source.CopyToAsync(fileStream, ct);
+        }
+
+        return tempPath;
+    }
+
+    // Like ReaderExpr but lets DuckDB infer column types (no all_varchar) — used when creating a brand-new
+    // target table so it gets sensible typed columns instead of all VARCHAR.
+    private static string InferringReaderExpr(ImportFileFormat format, string tempPath)
+    {
+        var p = tempPath.Replace("\\", "\\\\").Replace("'", "''");
+        return format switch
+        {
+            ImportFileFormat.Tsv => $"read_csv('{p}', delim='\\t', header=true)",
+            ImportFileFormat.Json => $"read_json_auto('{p}')",
+            ImportFileFormat.Parquet => $"read_parquet('{p}')",
+            ImportFileFormat.Excel => $"read_xlsx('{p}', header=true)",
+            _ => $"read_csv_auto('{p}', header=true, sample_size=-1)"
+        };
+    }
+
+    private static async Task<bool> TableExistsAsync(DuckDBConnection connection, string tableName, CancellationToken ct)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = $"SELECT COUNT(*) FROM information_schema.tables WHERE table_name = '{tableName.Replace("'", "''")}'";
+        var value = await cmd.ExecuteScalarAsync(ct);
+        var normalized = NormalizeValue(value);
+        return normalized != null && Convert.ToInt64(normalized) > 0;
+    }
+
+    // The DuckDB reader expression for a given format + temp file path.
+    private static string ReaderExpr(ImportFileFormat format, string tempPath)
+    {
+        var p = tempPath.Replace("\\", "\\\\").Replace("'", "''");
+        return format switch
+        {
+            ImportFileFormat.Tsv => $"read_csv('{p}', delim='\\t', header=true, all_varchar=true)",
+            ImportFileFormat.Json => $"read_json_auto('{p}')",
+            ImportFileFormat.Parquet => $"read_parquet('{p}')",
+            ImportFileFormat.Excel => $"read_xlsx('{p}', header=true)",
+            _ => $"read_csv_auto('{p}', header=true, sample_size=-1, all_varchar=true)"
+        };
+    }
+
+    // Materializes the file into a session-scoped TEMP table (auto-dropped on connection close).
+    private static async Task StageFileAsync(DuckDBConnection connection, string tempPath, ImportFileFormat format, CancellationToken ct)
+    {
+        if (format == ImportFileFormat.Excel)
+            await ExecAsync(connection, "INSTALL excel; LOAD excel;", ct);
+
+        await ExecAsync(connection, $"CREATE OR REPLACE TEMP TABLE {StagingTable} AS SELECT * FROM {ReaderExpr(format, tempPath)}", ct);
+    }
+
+    private static async Task<List<(string Name, string Type)>> ReadStagingColumnsAsync(DuckDBConnection connection, CancellationToken ct)
+    {
+        var cols = new List<(string, string)>();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = $"DESCRIBE {StagingTable}"; // column_name, column_type, ...
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            cols.Add((reader.GetString(0), reader.GetString(1)));
+        return cols;
+    }
+
+    private static async Task<List<(string Name, string Type)>> ReadTargetColumnsAsync(DuckDBConnection connection, string tableName, CancellationToken ct)
+    {
+        var cols = new List<(string, string)>();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info('{tableName.Replace("'", "''")}')"; // cid, name, type, notnull, dflt, pk
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            cols.Add((reader.GetString(1), reader.GetString(2)));
+        return cols;
+    }
+
+    private static async Task ExecAsync(DuckDBConnection connection, string sql, CancellationToken ct)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = sql;
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task<long> ScalarLongAsync(DuckDBConnection connection, string sql, CancellationToken ct)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = sql;
+        var value = await cmd.ExecuteScalarAsync(ct);
+        var normalized = NormalizeValue(value);
+        return normalized is null ? 0 : Convert.ToInt64(normalized);
+    }
+
+    // Quotes a SQL identifier (table/column) for safe embedding.
+    private static string Q(string identifier) => "\"" + identifier.Replace("\"", "\"\"") + "\"";
+
+    private static void TryDelete(string? path)
+    {
+        try { if (path != null && File.Exists(path)) File.Delete(path); }
+        catch { /* best-effort temp cleanup */ }
+    }
+
+    private static void ReadResultSet(DbDataReader reader, SqlQueryResult result, int cap, CancellationToken ct)
+    {
+        var columns = new List<Column>();
+        for (int i = 0; i < reader.FieldCount; i++)
+            columns.Add(new Column { Name = reader.GetName(i), DataType = reader.GetFieldType(i).Name });
+        result.Columns = columns;
+
+        int count = 0;
+        while (reader.Read())
+        {
+            ct.ThrowIfCancellationRequested();
+            if (count >= cap)
+            {
+                // There was at least one more row than the cap — flag it and stop.
+                result.Truncated = true;
+                break;
+            }
+            var row = new Dictionary<string, object?>();
+            for (int i = 0; i < reader.FieldCount; i++)
+                row[reader.GetName(i)] = reader.IsDBNull(i) ? null : NormalizeValue(reader.GetValue(i));
+            result.Rows.Add(row);
+            count++;
+        }
+        result.RowsReturned = result.Rows.Count;
+    }
+
+    // Some DuckDB types don't serialize cleanly to JSON as a plain value. The main offender is
+    // HUGEINT (e.g. the result of SUM over an integer column), which DuckDB.NET surfaces as a
+    // System.Numerics.BigInteger — System.Text.Json has no built-in support for it and would emit
+    // {"isPowerOfTwo":...,"sign":...} instead of a number. Coerce it to a long (the common case),
+    // falling back to its string form only when the value exceeds long's range.
+    private static object? NormalizeValue(object? value)
+    {
+        if (value is null || value is DBNull) return null;
+
+        if (value is System.Numerics.BigInteger big)
+        {
+            if (big >= long.MinValue && big <= long.MaxValue) return (long)big;
+            return big.ToString();
+        }
+
+        return value;
+    }
+
+    // Routes a statement to the read or write path. Comment-stripping + first-keyword inspection is
+    // enough to *route* (choose connection mode + required role); the read-only connection is the
+    // hard guarantee that a misclassified write can't actually mutate.
+    private static SqlKind ClassifyStatement(string sql)
+    {
+        if (string.IsNullOrWhiteSpace(sql)) return SqlKind.Empty;
+
+        var cleaned = StripSqlComments(sql).Trim();
+        if (cleaned.Length == 0) return SqlKind.Empty;
+
+        // Keep the read path to a single statement; multi-statement input is treated as a write
+        // (so it needs edit permission) and the read-only handle still blocks any mutation.
+        var statements = cleaned.Split(';').Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+        if (statements.Count == 0) return SqlKind.Empty;
+        if (statements.Count > 1) return SqlKind.Write;
+
+        var firstWord = new string(statements[0].TrimStart().TakeWhile(char.IsLetter).ToArray()).ToUpperInvariant();
+        return firstWord is "SELECT" or "WITH" or "TABLE" or "FROM" or "VALUES" or "DESCRIBE" or "SHOW" or "PRAGMA" or "EXPLAIN" or "SUMMARIZE"
+            ? SqlKind.Read
+            : SqlKind.Write;
+    }
+
+    private static string StripSqlComments(string sql)
+    {
+        // Best-effort: drop /* block */ then -- line comments. Only used for routing, never executed.
+        var noBlock = Regex.Replace(sql, @"/\*.*?\*/", " ", RegexOptions.Singleline);
+        return Regex.Replace(noBlock, @"--[^\n]*", " ");
+    }
+
+    // Builds the " WHERE ..." fragment (leading space included) from filters, or "" when there are none.
+    private string BuildWhereClause(List<FilterCondition>? filters)
+    {
+        if (filters?.Any() != true)
+            return string.Empty;
+
+        var filterClauses = new List<string>();
+        foreach (var filter in filters)
+        {
+            var filterClause = BuildFilterClause(filter);
+            if (!string.IsNullOrEmpty(filterClause))
+                filterClauses.Add(filterClause);
+        }
+
+        return filterClauses.Any() ? $" WHERE {string.Join(" AND ", filterClauses)}" : string.Empty;
     }
 
     public async Task<int> GetTableRowCountAsync(string datasetId, string tableName, List<FilterCondition>? filters = null)

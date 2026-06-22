@@ -80,3 +80,42 @@ New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server (sshd)' `
 ├─────────────────────┼──────────────────────────┼─────────────────────────────────────┤
 │ Admin/AllUsers      │ ✅ VIEW_ADMIN            │ —                                   │
 └─────────────────────┴──────────────────────────┴─────────────────────────────────────┘
+
+
+only the users with role {COMPANYID}_DATASETS can read and WRITE data/datasets pages
+only the users with role {COMPANYID}_DATA_WAREHOUSE can read the datawarehouse page
+only the users with role {COMPANYID}_METRICS_READ can read the metrics page
+only the users with role {COMPANYID}_METRICS_WRITE can read and write the metrics page
+only the users with role {COMPANYID}_SALES can read realtime/sales-dashboard page
+only the users with role {COMPANYID}_STATUS_READ can read the status, status/entities and status/incidents pages
+only the users with role {COMPANYID}_INCEDENTS can read and write the status, status/entities and status/incidents pages
+the user with role {COMPANYID}_ADMIN can do everything
+
+
+## Power BI setup
+For the app-only (client-credentials) flow you're using, you do NOT grant Power BI API permissions on the Azure app registration. Service-principal access to Power BI is governed by two Power BI settings, not by Azure AD API permissions. The "identity None ... insufficient privileges" message almost always means one of the two below is missing.
+
+1. Enable se
+
+- Go to app.powerbi.com → Settings (gear) → Admin portal → Tenant settings → Developer settings.
+- Enable "Allow service principals to use Power BI APIs".
+- Set it to Specific security groups, create/choose an Entra security group, and add your app (service principal) as a member of that group.
+- This can take ~15 minutes to propagate.
+
+2. Give the service principal access to the workspace
+
+- Open the workspace that contains the dataset → Manage access (Access).
+- Add your app by name/client ID as Contributor or Member (Contributor is enough to trigger refreshes).
+
+3. Azure App Registration — what to actually do there
+
+- Keep the Client ID, Tenant ID, and a Client secret (under Certificates & secrets) — which you already have.
+- Under API permissions: leave the Power BI Service permissions empty. App-only tokens use the https://analysis.windows.net/powerbi/api/.default scope and get their authorization from steps 1 & 2 above, not from API-permission grants.
+  - (Those Dataset.ReadWrite.All-style permissions only apply to the delegated / signed-in-user flow, which isn't what this uses.)
+
+A couple of gotchas
+
+- The workspace must be a modern workspace (not a "classic" v1 workspace) — service principals don't work with classic ones.
+- A refresh will only succeed if the dataset's data source credentials/gateway are already configured in Power BI; the API just queues it.
+
+Once steps 1 and 2 are done, retry Refresh Now — the same identity (c9dc1e5a-…) should now be accepted. If you still get 403 after ~15 min, double-check the service principal is actually a member of the security group named in the tenant setting (that's the most common miss).

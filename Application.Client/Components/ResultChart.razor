@@ -1,0 +1,110 @@
+@implements IAsyncDisposable
+@inject IJSRuntime _js
+
+<div style="height:380px"><canvas id="@_id"></canvas></div>
+
+@code {
+    [Parameter] public List<Dictionary<string, object?>>? Rows { get; set; }
+    [Parameter] public string? ChartType { get; set; } = "bar";
+    [Parameter] public string? XColumn { get; set; }
+    [Parameter] public List<string>? YColumns { get; set; }
+
+    private readonly string _id = "chart-" + Guid.NewGuid().ToString("N");
+    private IJSObjectReference? _module;
+    private string? _lastSignature;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Redraw only when the inputs actually change (avoids re-rendering the chart every cycle).
+        var signature = $"{ChartType}|{XColumn}|{string.Join(",", YColumns ?? new())}|{Rows?.Count ?? 0}";
+        if (signature == _lastSignature) return;
+        _lastSignature = signature;
+        await Draw();
+    }
+
+    private async Task Draw()
+    {
+        try
+        {
+            _module ??= await _js.InvokeAsync<IJSObjectReference>("import", "./js/result-chart.js");
+            var config = BuildConfig();
+            if (config == null)
+            {
+                await _module.InvokeVoidAsync("destroy", _id);
+                return;
+            }
+            await _module.InvokeVoidAsync("render", _id, config);
+        }
+        catch { /* charting unavailable — leave the canvas blank */ }
+    }
+
+    private object? BuildConfig()
+    {
+        if (Rows == null || Rows.Count == 0 || string.IsNullOrEmpty(XColumn) || YColumns == null || YColumns.Count == 0)
+            return null;
+
+        var palette = new[] { "#2563eb", "#16a34a", "#d97706", "#dc2626", "#7c3aed", "#0891b2", "#db2777" };
+        var labels = Rows.Select(r => r.TryGetValue(XColumn!, out var v) ? v?.ToString() ?? "" : "").ToList();
+        var type = string.IsNullOrEmpty(ChartType) ? "bar" : ChartType;
+
+        var datasets = new List<object>();
+        for (int i = 0; i < YColumns.Count; i++)
+        {
+            var col = YColumns[i];
+            var data = Rows.Select(r => ToNumber(r.TryGetValue(col, out var v) ? v : null)).ToList();
+            var color = palette[i % palette.Length];
+            // Pie charts color each slice; bar/line use one color per series.
+            object bg = type == "pie"
+                ? Rows.Select((_, idx) => palette[idx % palette.Length]).Cast<object>().ToList()
+                : color;
+            datasets.Add(new
+            {
+                label = col,
+                data,
+                backgroundColor = bg,
+                borderColor = color,
+                borderWidth = 1,
+                fill = false,
+            });
+        }
+
+        return new
+        {
+            type,
+            data = new { labels, datasets },
+            options = new
+            {
+                responsive = true,
+                maintainAspectRatio = false,
+                plugins = new { legend = new { display = true } },
+            },
+        };
+    }
+
+    private static double? ToNumber(object? v)
+    {
+        if (v == null) return null;
+        return v switch
+        {
+            double d => d,
+            decimal m => (double)m,
+            int i => i,
+            long l => l,
+            float f => f,
+            _ => double.TryParse(v.ToString(), out var parsed) ? parsed : null,
+        };
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_module != null)
+            {
+                await _module.InvokeVoidAsync("destroy", _id);
+                await _module.DisposeAsync();
+            }
+        }
+        catch { /* ignore teardown races */ }
+    }
+}

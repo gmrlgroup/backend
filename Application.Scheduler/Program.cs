@@ -5,6 +5,7 @@ using Application.Scheduler.Repositories;
 using Application.Scheduler.Services;
 using Application.Shared.Data;
 using Application.Shared.Models.Data;
+using Microsoft.AspNetCore.DataProtection;
 using Hangfire;
 using Hangfire.Console;
 using Hangfire.SqlServer;
@@ -61,6 +62,35 @@ var statusConnectionString = builder.Configuration.GetConnectionString("StatusDb
 builder.Services.AddDbContext<StatusDbContext>(options =>
     options.UseSqlServer(statusConnectionString, b => b.MigrationsAssembly("Application")));
 
+// Data Protection — MUST mirror the web app (same application name + key ring + DPAPI scope)
+// so the scheduler can decrypt connection secrets the web app encrypted. AssetPingJob uses this
+// to read stored DatabaseConnection passwords for read-only SELECT 1 / freshness probes.
+var keysPath = builder.Configuration["DataProtection:KeysPath"]
+    ?? Path.Combine(builder.Environment.ContentRootPath, "App_Data", "keys");
+Directory.CreateDirectory(keysPath);
+var dataProtection = builder.Services.AddDataProtection()
+    .SetApplicationName("FlowByte.Application")
+    .PersistKeysToFileSystem(new DirectoryInfo(keysPath));
+if (OperatingSystem.IsWindows())
+    dataProtection.ProtectKeysWithDpapi(protectToLocalMachine: true);
+
+builder.Services.AddSingleton<Application.Shared.Services.ICredentialProtector,
+    Application.Shared.Services.CredentialProtector>();
+builder.Services.AddScoped<Application.Shared.Services.IDatabaseTableService,
+    Application.Shared.Services.DatabaseTableService>();
+builder.Services.AddHttpClient();
+
+// Scheduled ingestion: DuckDB access + the shared executor, plus the Hangfire jobs.
+var duckdbOption = new DuckdbOption();
+builder.Configuration.Bind("Duckdb", duckdbOption);
+builder.Services.AddSingleton(duckdbOption);
+builder.Services.AddScoped<Application.Shared.Services.Data.IDuckdbService,
+    Application.Shared.Services.Data.DuckdbService>();
+builder.Services.AddScoped<Application.Shared.Services.Data.IIngestionService,
+    Application.Shared.Services.Data.IngestionService>();
+builder.Services.AddScoped<ScheduledIngestionJob>();
+builder.Services.AddScoped<IngestionRegistrarJob>();
+
 
 builder.Services.AddHangfire(cfg => cfg
     .UseSimpleAssemblyNameTypeSerializer()
@@ -79,6 +109,19 @@ builder.Services.AddScoped<IDatabaseRepository, DatabaseRepository>();
 builder.Services.AddScoped<SalesJob>();
 builder.Services.AddScoped<SalesSnapshotEmailJob>();
 builder.Services.AddScoped<AssetPingJob>();
+
+// Incident notification emails (Resend microservice) — used by AssetPingJob auto-incidents.
+builder.Services.Configure<Application.Shared.Options.IncidentEmailOptions>(
+    builder.Configuration.GetSection("IncidentNotificationEmail"));
+builder.Services.AddScoped<Application.Shared.Services.IIncidentNotificationService,
+    Application.Shared.Services.IncidentNotificationService>();
+builder.Services.AddHttpClient(Application.Shared.Services.IncidentNotificationService.HttpClientName, (sp, client) =>
+{
+    var opts = sp.GetRequiredService<IOptions<Application.Shared.Options.IncidentEmailOptions>>().Value;
+    if (string.IsNullOrWhiteSpace(opts.ApiBaseUri)) return;
+    client.BaseAddress = new Uri(opts.ApiBaseUri);
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
 
 builder.Services.Configure<SalesSnapshotEmailOptions>(builder.Configuration.GetSection("SalesSnapshotEmail"));
 
@@ -192,6 +235,29 @@ RecurringJob.AddOrUpdate<AssetPingJob>(
     cronExpression: "*/15 * * * *",
     timeZone: tz
 );
+
+// Scheduled ingestion: a registrar reconciles per-source recurring jobs against the ingestion_source
+// table every 5 minutes, so UI changes take effect without a scheduler restart.
+RecurringJob.AddOrUpdate<IngestionRegistrarJob>(
+    recurringJobId: "ingestion-registrar",
+    methodCall: job => job.RunAsync(null, CancellationToken.None),
+    cronExpression: "*/5 * * * *",
+    timeZone: tz
+);
+
+// Reconcile once at startup so existing sources are scheduled immediately.
+using (var scope = app.Services.CreateScope())
+{
+    try
+    {
+        var registrar = scope.ServiceProvider.GetRequiredService<IngestionRegistrarJob>();
+        await registrar.RunAsync(null, CancellationToken.None);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Initial ingestion reconcile failed: {ex.Message}");
+    }
+}
 
 
 app.Run();

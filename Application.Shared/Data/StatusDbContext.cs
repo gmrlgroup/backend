@@ -23,6 +23,39 @@ public class StatusDbContext(DbContextOptions<StatusDbContext> options) : DbCont
             .HasForeignKey(d => d.DependsOnEntityId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        modelBuilder.Entity<EntityAudience>()
+            .HasOne(a => a.Entity)
+            .WithMany(e => e.Audiences)
+            .HasForeignKey(a => a.EntityId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // A Power BI dataset link points at both an entity and a connection.
+        modelBuilder.Entity<PowerBiDatasetLink>()
+            .HasOne(l => l.Entity)
+            .WithMany()
+            .HasForeignKey(l => l.EntityId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<PowerBiDatasetLink>()
+            .HasOne(l => l.Connection)
+            .WithMany(c => c.DatasetLinks)
+            .HasForeignKey(l => l.PowerBiConnectionId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // A database connection belongs to a single Database entity.
+        modelBuilder.Entity<DatabaseConnection>()
+            .HasOne(c => c.Entity)
+            .WithMany()
+            .HasForeignKey(c => c.EntityId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // A table-freshness check belongs to a single Table entity.
+        modelBuilder.Entity<TableCheck>()
+            .HasOne(c => c.Entity)
+            .WithMany()
+            .HasForeignKey(c => c.EntityId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         foreach (var relationship in modelBuilder.Model.GetEntityTypes().SelectMany(e => e.GetForeignKeys()))
         {
             relationship.DeleteBehavior = DeleteBehavior.Restrict;
@@ -45,6 +78,7 @@ public class StatusDbContext(DbContextOptions<StatusDbContext> options) : DbCont
     // MONITORING MODULE
     public DbSet<MonitoredAsset> MonitoredAssets { get; set; }
     public DbSet<AssetDependency> AssetDependencies { get; set; }
+    public DbSet<EntityAudience> EntityAudiences { get; set; }
     public DbSet<AssetStatusHistory> AssetStatusHistory { get; set; }
     public DbSet<Incident> Incidents { get; set; }
     public DbSet<IncidentUpdate> IncidentUpdates { get; set; }
@@ -57,6 +91,16 @@ public class StatusDbContext(DbContextOptions<StatusDbContext> options) : DbCont
 
     // SERVER MANAGEMENT
     public DbSet<ServerCredential> ServerCredentials { get; set; }
+
+    // POWER BI
+    public DbSet<PowerBiConnection> PowerBiConnections { get; set; }
+    public DbSet<PowerBiDatasetLink> PowerBiDatasetLinks { get; set; }
+
+    // DATABASE TABLE DISCOVERY
+    public DbSet<DatabaseConnection> DatabaseConnections { get; set; }
+
+    // TABLE FRESHNESS CHECKS
+    public DbSet<TableCheck> TableChecks { get; set; }
 
     private static string ToSnakeCase(string? input)
     {

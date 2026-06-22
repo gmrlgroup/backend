@@ -166,8 +166,15 @@ public class MonitoredAssetClientService
     {
         try
         {
-            var response = await _httpClient.PostAsJsonAsync($"api/status/entities/{entityId}/dependencies", dependency);
-            return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<AssetDependency>() : null;
+            // The create endpoint is POST api/status/entities/dependencies (entity id travels in the body).
+            dependency.EntityId = entityId;
+            var response = await _httpClient.PostAsJsonAsync("api/status/entities/dependencies", dependency);
+            if (response.IsSuccessStatusCode)
+                return await response.Content.ReadFromJsonAsync<AssetDependency>();
+
+            var body = await response.Content.ReadAsStringAsync();
+            Console.WriteLine($"Error adding dependency ({(int)response.StatusCode}): {body}");
+            return null;
         }
         catch (Exception ex) { Console.WriteLine($"Error adding dependency: {ex.Message}"); return null; }
     }

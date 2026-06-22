@@ -133,6 +133,20 @@
                     <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                     Import Data
                 </a>
+                <a class="nav-item @NavClass("data/query")" href="@($"data/query{queryParameter}")" onclick="document.body.classList.remove('nav-open')">
+                    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                    Query
+                </a>
+                <a class="nav-item @NavClass("data/ingestion")" href="@($"data/ingestion{queryParameter}")" onclick="document.body.classList.remove('nav-open')">
+                    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><polyline points="12 7 12 12 15 14"/><polyline points="21 3 21 8 16 8"/></svg>
+                    Ingestion
+                </a>
+                <AuthorizeView Roles="@($"{companyId}_ADMIN")" Context="adminCtx">
+                    <a class="nav-item @NavClass("data/api-keys")" href="@($"data/api-keys{queryParameter}")" onclick="document.body.classList.remove('nav-open')">
+                        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+                        API Keys
+                    </a>
+                </AuthorizeView>
             </Authorized>
         </AuthorizeView>
 
@@ -170,22 +184,30 @@
             </Authorized>
         </AuthorizeView>
 
-        <AuthorizeView Roles="@($"{companyId}_ADMIN, {companyId}_STATUS_READ, {companyId}_INCIDENTS")">
-            <Authorized>
+        <AuthorizeView>
+            <Authorized Context="statusUser">
                 <hr class="nav-divider" />
                 <div class="nav-section-label">Status</div>
-                <a class="nav-item @NavClassExact("status")" href="@($"status{queryParameter}")" onclick="document.body.classList.remove('nav-open')">
+                <a class="nav-item @NavClass("status/board")" href="@($"status/board{queryParameter}")" onclick="document.body.classList.remove('nav-open')">
                     <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-                    Overview
+                    Status Board
                 </a>
-                <a class="nav-item @NavClass("status/entities")" href="@($"status/entities{queryParameter}")" onclick="document.body.classList.remove('nav-open')">
-                    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="2" width="9" height="9"/><rect x="13" y="2" width="9" height="9"/><rect x="13" y="13" width="9" height="9"/><rect x="2" y="13" width="9" height="9"/></svg>
-                    Entities
-                </a>
-                <a class="nav-item @NavClass("status/incidents")" href="@($"status/incidents{queryParameter}")" onclick="document.body.classList.remove('nav-open')">
-                    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                    Incidents
-                </a>
+                <AuthorizeView Roles="@($"{companyId}_ADMIN, {companyId}_STATUS_READ, {companyId}_INCIDENTS")">
+                    <Authorized Context="statusAdmin">
+                        <a class="nav-item @NavClassExact("status")" href="@($"status{queryParameter}")" onclick="document.body.classList.remove('nav-open')">
+                            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                            Overview
+                        </a>
+                        <a class="nav-item @NavClass("status/entities")" href="@($"status/entities{queryParameter}")" onclick="document.body.classList.remove('nav-open')">
+                            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="2" width="9" height="9"/><rect x="13" y="2" width="9" height="9"/><rect x="13" y="13" width="9" height="9"/><rect x="2" y="13" width="9" height="9"/></svg>
+                            Entities
+                        </a>
+                        <a class="nav-item @NavClass("status/incidents")" href="@($"status/incidents{queryParameter}")" onclick="document.body.classList.remove('nav-open')">
+                            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                            Incidents
+                        </a>
+                    </Authorized>
+                </AuthorizeView>
             </Authorized>
         </AuthorizeView>
 

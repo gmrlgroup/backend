@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Application.Shared.Authorization;
 using Application.Shared.Models;
 using Application.Shared.Services;
 using Application.Attributes;
@@ -31,7 +32,7 @@ public class ChatController : ControllerBase
             var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "unknown";
             var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "unknown";
 
-            if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+            if (!User.HasCompanyRole(companyId, "VIEW_DATA"))
                 return Forbid();
 
             // Use the ChatService with Azure OpenAI integration
@@ -53,7 +54,7 @@ public class ChatController : ControllerBase
         {
             var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "unknown";
 
-            if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+            if (!User.HasCompanyRole(companyId, "VIEW_DATA"))
                 return Forbid();
             
             // Use the ChatService to get chat history
@@ -75,7 +76,7 @@ public class ChatController : ControllerBase
             var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "unknown";
             var userId = Request.Headers["UserId"].ToString();
 
-            if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+            if (!User.HasCompanyRole(companyId, "VIEW_DATA"))
                 return Forbid();
             
             // Use the ChatService to search datasets
@@ -97,7 +98,7 @@ public class ChatController : ControllerBase
             var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "unknown";
             var userId = Request.Headers["UserId"].ToString();
 
-            if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+            if (!User.HasCompanyRole(companyId, "VIEW_DATA"))
                 return Forbid();
             
             // Use the ChatService to search tables

@@ -1,12 +1,15 @@
 @using Microsoft.AspNetCore.Components.Forms
 @using System.Text
+@using System.Net.Http.Json
+@using Application.Shared.Models.Data
 @inject IToastService _toastService
+@inject HttpClient _httpClient
 
 <div class="ds-form-card">
-    <p class="ds-section-title">Upload CSV File</p>
+    <p class="ds-section-title">Upload File</p>
 
     <div class="ds-field">
-        <label class="ds-label">Select CSV file to import <span style="color:#71717a;font-weight:400">(max 1 GB)</span></label>
+        <label class="ds-label">Select a file to import <span style="color:#71717a;font-weight:400">(CSV, TSV, JSON, Parquet, Excel · max 1 GB)</span></label>
 
         <label class="ds-dropzone @(isDragOver ? "drag-over" : "") @(selectedFile != null ? "ds-dropzone-success" : "")"
                @ondragenter="() => isDragOver = true"
@@ -31,11 +34,11 @@
                 <div class="ds-dropzone-icon">
                     <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
                 </div>
-                <p class="ds-dropzone-title">Drop CSV file here or click to browse</p>
-                <p class="ds-dropzone-sub">Supports files up to 1 GB</p>
+                <p class="ds-dropzone-title">Drop a file here or click to browse</p>
+                <p class="ds-dropzone-sub">CSV · TSV · JSON · Parquet · Excel — up to 1 GB</p>
             }
 
-            <InputFile OnChange="OnFileChanged" accept=".csv" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%" />
+            <InputFile OnChange="OnFileChanged" accept=".csv,.tsv,.json,.parquet,.xlsx" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%" />
         </label>
     </div>
 
@@ -86,17 +89,38 @@
 </div>
 
 @code {
-    [Parameter] public EventCallback<(IBrowserFile file, string fileName, List<string> headers)> OnFileUploaded { get; set; }
+    [Parameter] public EventCallback<(byte[] fileBytes, string fileName, string contentType, List<string> headers, List<List<string>> sampleRows, ImportFileFormat format, List<Column>? serverColumns)> OnFileUploaded { get; set; }
     [Parameter] public EventCallback OnBack { get; set; }
     [Parameter] public IBrowserFile? UploadedFile { get; set; }
     [Parameter] public EventCallback<IBrowserFile?> UploadedFileChanged { get; set; }
     [Parameter] public string FileName { get; set; } = string.Empty;
     [Parameter] public EventCallback<string> FileNameChanged { get; set; }
+    // Needed to ask the server to peek non-text formats (JSON/Parquet/Excel) the browser can't parse.
+    [Parameter] public string? DatasetId { get; set; }
+
+    private const int SampleRowCount = 10;
+    private const long MaxFileSize = 1024L * 1024 * 1024; // 1 GB
 
     private IBrowserFile? selectedFile;
+    private byte[]? fileBytes;
+    private string contentType = "text/csv";
     private List<string> csvHeaders = new();
+    private List<List<string>> sampleRows = new();
+    private ImportFileFormat format = ImportFileFormat.Csv;
+    // Columns inferred server-side for formats the browser can't parse (null for CSV/TSV).
+    private List<Column>? serverColumns;
     private bool isProcessing = false;
     private bool isDragOver = false;
+
+    private static ImportFileFormat DetectFormat(string fileName) =>
+        System.IO.Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".tsv" => ImportFileFormat.Tsv,
+            ".json" => ImportFileFormat.Json,
+            ".parquet" => ImportFileFormat.Parquet,
+            ".xlsx" => ImportFileFormat.Excel,
+            _ => ImportFileFormat.Csv
+        };
 
     private async Task OnFileChanged(InputFileChangeEventArgs e)
     {
@@ -109,15 +133,42 @@
             StateHasChanged();
 
             selectedFile = file;
-            await UploadedFileChanged.InvokeAsync(selectedFile);
-            await FileNameChanged.InvokeAsync(Path.GetFileNameWithoutExtension(file.Name));
-            await ReadCsvHeaders(file);
+            contentType = string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType;
+            format = DetectFormat(file.Name);
+            serverColumns = null;
+
+            // Buffer the whole file NOW, while this component (and its <InputFile>) is still mounted.
+            // The IBrowserFile reference is only valid for the lifetime of the InputFile; once we advance
+            // to the schema step this component unmounts and any later OpenReadStream() throws
+            // "Cannot read properties of null (reading '_blazorFilesById')". So we read the bytes once
+            // here and carry the buffer forward for both header parsing and the final upload.
+            using (var stream = file.OpenReadStream(maxAllowedSize: MaxFileSize))
+            using (var ms = new MemoryStream())
+            {
+                await stream.CopyToAsync(ms);
+                fileBytes = ms.ToArray();
+            }
+
+            if (format is ImportFileFormat.Csv or ImportFileFormat.Tsv)
+            {
+                // Text formats: parse the header + a few sample rows in-browser (feeds the AI inference step).
+                ReadHeadersAndSamples(fileBytes, format == ImportFileFormat.Tsv ? '\t' : ',');
+            }
+            else
+            {
+                // Binary/structured formats: the browser can't parse them — ask the server to stage the file
+                // and report the columns DuckDB infers, plus a small preview.
+                await PeekServerSchema();
+            }
         }
         catch (Exception ex)
         {
             _toastService.ShowError($"Error processing file: {ex.Message}");
             selectedFile = null;
+            fileBytes = null;
             csvHeaders.Clear();
+            sampleRows.Clear();
+            serverColumns = null;
         }
         finally
         {
@@ -126,32 +177,103 @@
         }
     }
 
-    private async Task ReadCsvHeaders(IBrowserFile file)
+    private async Task PeekServerSchema()
     {
-        try
+        if (fileBytes == null || string.IsNullOrEmpty(DatasetId))
         {
-            using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 1024 * 1024);
-            using var reader = new StreamReader(stream);
-            var firstLine = await reader.ReadLineAsync();
-            if (!string.IsNullOrEmpty(firstLine))
+            _toastService.ShowError("Cannot read this file — the dataset is not available.");
+            return;
+        }
+
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(fileBytes);
+        fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+        content.Add(fileContent, "file", selectedFile!.Name);
+        content.Add(new StringContent(format.ToString()), "format");
+
+        var response = await _httpClient.PostAsync($"api/Datasets/{DatasetId}/peek-file", content);
+        if (!response.IsSuccessStatusCode)
+        {
+            var err = await response.Content.ReadAsStringAsync();
+            _toastService.ShowError($"Failed to read file: {err}");
+            return;
+        }
+
+        var peek = await response.Content.ReadFromJsonAsync<FilePeekResult>();
+        if (peek == null || !string.IsNullOrEmpty(peek.Error))
+        {
+            _toastService.ShowError($"Failed to read file: {peek?.Error ?? "unknown error"}");
+            return;
+        }
+
+        serverColumns = peek.Columns;
+        csvHeaders = peek.Columns.Select(c => c.Name).ToList();
+        // Render the preview rows as strings for display (aligned to column order).
+        sampleRows = peek.PreviewRows.Select(r => peek.Columns.Select(c =>
+            r.TryGetValue(c.Name, out var v) ? v?.ToString() ?? "" : "").ToList()).ToList();
+    }
+
+    private void ReadHeadersAndSamples(byte[] bytes, char delimiter)
+    {
+        csvHeaders = new();
+        sampleRows = new();
+
+        using var ms = new MemoryStream(bytes);
+        using var reader = new StreamReader(ms);
+
+        var firstLine = reader.ReadLine();
+        if (!string.IsNullOrEmpty(firstLine))
+        {
+            csvHeaders = ParseDelimitedLine(firstLine, delimiter)
+                .Select(h => h.Trim())
+                .Where(h => !string.IsNullOrEmpty(h))
+                .ToList();
+        }
+
+        // Capture a few data rows so the schema step can ask the AI to infer types from real values.
+        for (int i = 0; i < SampleRowCount; i++)
+        {
+            var line = reader.ReadLine();
+            if (line == null) break;
+            if (string.IsNullOrWhiteSpace(line)) { i--; continue; }
+            sampleRows.Add(ParseDelimitedLine(line, delimiter));
+        }
+    }
+
+    // Minimal RFC-4180-style parser: handles quoted fields, embedded delimiters, and "" escapes.
+    private static List<string> ParseDelimitedLine(string line, char delimiter)
+    {
+        var fields = new List<string>();
+        var sb = new StringBuilder();
+        bool inQuotes = false;
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            var ch = line[i];
+            if (inQuotes)
             {
-                csvHeaders = firstLine.Split(',')
-                    .Select(h => h.Trim().Trim('"').Trim())
-                    .Where(h => !string.IsNullOrEmpty(h))
-                    .ToList();
+                if (ch == '"')
+                {
+                    if (i + 1 < line.Length && line[i + 1] == '"') { sb.Append('"'); i++; }
+                    else inQuotes = false;
+                }
+                else sb.Append(ch);
+            }
+            else
+            {
+                if (ch == '"') inQuotes = true;
+                else if (ch == delimiter) { fields.Add(sb.ToString().Trim()); sb.Clear(); }
+                else sb.Append(ch);
             }
         }
-        catch (Exception ex)
-        {
-            _toastService.ShowError($"Error reading CSV headers: {ex.Message}");
-            csvHeaders.Clear();
-        }
+        fields.Add(sb.ToString().Trim());
+        return fields;
     }
 
     private async Task ContinueToSchema()
     {
-        if (selectedFile != null && csvHeaders.Any())
-            await OnFileUploaded.InvokeAsync((selectedFile, Path.GetFileNameWithoutExtension(selectedFile.Name), csvHeaders));
+        if (selectedFile != null && fileBytes != null && csvHeaders.Any())
+            await OnFileUploaded.InvokeAsync((fileBytes, selectedFile.Name, contentType, csvHeaders, sampleRows, format, serverColumns));
     }
 
     private string FormatFileSize(long bytes)

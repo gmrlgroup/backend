@@ -1,3 +1,4 @@
+using Application.Shared.Authorization;
 using Application.Shared.Models;
 using Application.Shared.Services.Data;
 using Microsoft.AspNetCore.Authorization;
@@ -22,7 +23,7 @@ public class SharingController : ControllerBase
     {
         try
         {
-            if (!User.IsInRole($"{companyId}_VIEW_DATA"))
+            if (!User.HasCompanyRole(companyId, "VIEW_DATA"))
                 return Forbid();
 
             var users = await _datasetSharingService.GetDatasetUsersAsync(datasetId);
@@ -42,7 +43,7 @@ public class SharingController : ControllerBase
         if (string.IsNullOrWhiteSpace(userId))
             return BadRequest("User ID is required in headers");
 
-        if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+        if (!User.HasCompanyRole(companyId, "EDIT_DATA"))
             return Forbid();
 
         if (string.IsNullOrWhiteSpace(request.Email))
@@ -72,7 +73,7 @@ public class SharingController : ControllerBase
     {
         try
         {
-            if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+            if (!User.HasCompanyRole(companyId, "EDIT_DATA"))
                 return Forbid();
 
             var success = await _datasetSharingService.UpdateDatasetUserTypeAsync(datasetId, userId, userType);
@@ -94,7 +95,7 @@ public class SharingController : ControllerBase
     {
         try
         {
-            if (!User.IsInRole($"{companyId}_EDIT_DATA"))
+            if (!User.HasCompanyRole(companyId, "EDIT_DATA"))
                 return Forbid();
 
             var success = await _datasetSharingService.RemoveDatasetUserAsync(datasetId, userId);

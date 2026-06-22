@@ -198,8 +198,9 @@ else
         }
         var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
         var user = authState.User;
-        canView = user.IsInRole($"{companyId}_VIEW_DATA");
-        canEdit = user.IsInRole($"{companyId}_EDIT_DATA");
+        // {companyId}_ADMIN is implicitly allowed by HasCompanyRole.
+        canView = user.HasCompanyRole(companyId, "VIEW_DATA");
+        canEdit = user.HasCompanyRole(companyId, "EDIT_DATA");
         if (!canView) { isLoading = false; return; }
         await LoadDatasets();
     }

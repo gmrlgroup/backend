@@ -23,6 +23,9 @@ public class IncidentQueryParameters
 
     public IncidentStatus? Status { get; set; }
 
+    /// <summary>Filter by the affected entity's type (Server, Database, Report, ...).</summary>
+    public AssetType? EntityType { get; set; }
+
     /// <summary>When true, excludes resolved incidents.</summary>
     public bool ActiveOnly { get; set; }
 

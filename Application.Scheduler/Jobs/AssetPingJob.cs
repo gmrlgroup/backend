@@ -1,6 +1,7 @@
 using Application.Shared.Data;
 using Application.Shared.Enums;
 using Application.Shared.Models;
+using Application.Shared.Services;
 using Hangfire.Server;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -13,11 +14,16 @@ namespace Application.Scheduler.Jobs;
 public class AssetPingJob
 {
     private readonly StatusDbContext _context;
+    private readonly IIncidentNotificationService _notification;
+    private readonly IDatabaseTableService _databaseService;
     private readonly ILogger<AssetPingJob> _logger;
 
-    public AssetPingJob(StatusDbContext context, ILogger<AssetPingJob> logger)
+    public AssetPingJob(StatusDbContext context, IIncidentNotificationService notification,
+        IDatabaseTableService databaseService, ILogger<AssetPingJob> logger)
     {
         _context = context;
+        _notification = notification;
+        _databaseService = databaseService;
         _logger = logger;
     }
 
@@ -29,22 +35,111 @@ public class AssetPingJob
 
         _logger.LogInformation("[AssetPingJob] Checking {Count} active entities", entities.Count);
 
-        // Phase 1: probe all entities in parallel — this is network I/O only and touches no DbContext.
-        var probeTasks = entities.Select(async entity => (
-            Entity: entity,
-            Probe: entity.EntityType == AssetType.Server
-                ? await PingHostAsync(entity.Url ?? entity.Name, ct)
-                : await CheckHttpAsync(entity.Url, ct)));
+        // Phase 0: resolve each entity's probe plan sequentially. This is the only phase that touches
+        // the DbContext (loading + decrypting connections, freshness config, parent-DB resolution),
+        // so it must not run concurrently with the parallel probe phase below.
+        var plans = new List<ProbePlan>(entities.Count);
+        foreach (var entity in entities)
+            plans.Add(await BuildPlanAsync(entity, ct));
 
+        // Phase 1: probe all entities in parallel — network/IO only. The DatabaseTableService probe
+        // methods used here are pure (no DbContext), so concurrent use is safe.
+        var probeTasks = plans.Select(async plan => (Plan: plan, Probe: await ProbeAsync(plan, ct)));
         var probes = await Task.WhenAll(probeTasks);
 
         // Phase 2: persist sequentially. DbContext is not thread-safe, so all reads/writes
         // happen one at a time on the single shared context.
-        foreach (var (entity, probe) in probes)
-            await PersistResultAsync(entity, probe, ct);
+        foreach (var (plan, probe) in probes)
+            await PersistResultAsync(plan.Entity, probe, ct);
 
         _logger.LogInformation("[AssetPingJob] Done.");
     }
+
+    private enum ProbeKind { Http, Ping, DbConnection, TableFreshness }
+
+    private sealed record ProbePlan(
+        MonitoredAsset Entity,
+        ProbeKind Kind,
+        DatabaseConnection? Connection = null,
+        string? TableFullName = null,
+        string? FreshnessColumn = null,
+        int MaxAgeMinutes = 0);
+
+    /// <summary>Decides how an entity should be probed, loading any DB connection/freshness config it needs.</summary>
+    private async Task<ProbePlan> BuildPlanAsync(MonitoredAsset entity, CancellationToken ct)
+    {
+        var companyId = entity.CompanyId ?? string.Empty;
+
+        switch (entity.EntityType)
+        {
+            case AssetType.Server:
+                return new ProbePlan(entity, ProbeKind.Ping);
+
+            case AssetType.Database:
+            {
+                // SELECT 1 over the stored read-only connection; fall back to a URL check if none configured.
+                var connection = await _databaseService.GetDecryptedConnectionAsync(entity.Id, companyId, ct);
+                return connection != null
+                    ? new ProbePlan(entity, ProbeKind.DbConnection, connection)
+                    : new ProbePlan(entity, ProbeKind.Http);
+            }
+
+            case AssetType.Table:
+            {
+                var check = await _databaseService.GetTableCheckAsync(entity.Id, companyId, ct);
+                if (check is { IsEnabled: true } && !string.IsNullOrWhiteSpace(check.FreshnessColumn))
+                {
+                    var connection = await _databaseService.GetDecryptedParentConnectionAsync(entity.Id, companyId, ct);
+                    if (connection != null)
+                        return new ProbePlan(entity, ProbeKind.TableFreshness, connection, entity.Name, check.FreshnessColumn, check.MaxAgeMinutes);
+                }
+                return new ProbePlan(entity, ProbeKind.Http);
+            }
+
+            default:
+                return new ProbePlan(entity, ProbeKind.Http);
+        }
+    }
+
+    private async Task<(AssetStatus status, string message, double? responseMs)> ProbeAsync(ProbePlan plan, CancellationToken ct)
+    {
+        switch (plan.Kind)
+        {
+            case ProbeKind.Ping:
+                return await PingHostAsync(plan.Entity.Url ?? plan.Entity.Name, ct);
+
+            case ProbeKind.DbConnection:
+                return MapDbProbe(await _databaseService.ProbeConnectionAsync(plan.Connection!, ct));
+
+            case ProbeKind.TableFreshness:
+                return MapFreshness(await _databaseService.CheckFreshnessAsync(
+                    plan.Connection!, plan.TableFullName!, plan.FreshnessColumn!, plan.MaxAgeMinutes, ct));
+
+            default:
+                return await CheckHttpAsync(plan.Entity.Url, ct);
+        }
+    }
+
+    private static (AssetStatus status, string message, double? responseMs) MapDbProbe(DatabaseProbeResult r) =>
+        r.Ok
+            ? (AssetStatus.Online, $"Connection OK — SELECT 1 in {r.ResponseMs:F0}ms", r.ResponseMs)
+            : (AssetStatus.Offline, Clip($"Connection failed: {r.Error}"), null);
+
+    private static (AssetStatus status, string message, double? responseMs) MapFreshness(TableFreshnessResult r)
+    {
+        if (!r.Ok)
+            return (AssetStatus.Error, Clip($"Freshness check failed: {r.Error}"), null);
+
+        if (!r.LastUpdatedUtc.HasValue)
+            return (AssetStatus.Degraded, Clip($"No timestamp value found ({r.RowCount:N0} rows)"), r.ResponseMs);
+
+        var detail = $"last row {r.LastUpdatedUtc:yyyy-MM-dd HH:mm}Z ({r.AgeMinutes:F0}m ago), {r.RowCount:N0} rows";
+        return r.IsStale
+            ? (AssetStatus.Degraded, Clip("Stale — " + detail), r.ResponseMs)
+            : (AssetStatus.Online, Clip("Fresh — " + detail), r.ResponseMs);
+    }
+
+    private static string Clip(string s) => string.IsNullOrEmpty(s) || s.Length <= 200 ? s : s[..200];
 
     private async Task PersistResultAsync(
         MonitoredAsset entity,
@@ -66,6 +161,8 @@ public class AssetPingJob
         };
 
         _context.AssetStatusHistory.Add(history);
+
+        Incident? createdIncident = null;
 
         // Auto-create incident when entity goes from Online → non-Online
         if (previousStatus == AssetStatus.Online && newStatus != AssetStatus.Online)
@@ -92,6 +189,7 @@ public class AssetPingJob
             };
 
             _context.Incidents.Add(incident);
+            createdIncident = incident;
             _logger.LogWarning("[AssetPingJob] Incident created for {EntityName}: {Status}", entity.Name, newStatus);
         }
         // Auto-resolve open incidents when entity comes back Online
@@ -117,6 +215,10 @@ public class AssetPingJob
         }
 
         await _context.SaveChangesAsync(ct);
+
+        // Notify the entity's (and upstream entities') audience that an incident was opened.
+        if (createdIncident != null)
+            await _notification.NotifyIncidentOpenedAsync(createdIncident, ct);
 
         _logger.LogInformation("[AssetPingJob] {EntityName}: {Status} ({ResponseTime}ms)",
             entity.Name, newStatus, responseTimeMs?.ToString("F0") ?? "N/A");

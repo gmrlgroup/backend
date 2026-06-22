@@ -627,6 +627,170 @@ public class DatasetsController : ControllerBase
         }
     }
 
+    // POST: api/Datasets/{datasetId}/peek-file
+    // Stages an uploaded file (no target table) and returns DuckDB-inferred columns + a preview, so the
+    // wizard can populate the schema editor for formats the browser can't parse (JSON/Parquet/Excel).
+    [HttpPost("{datasetId}/peek-file")]
+    [RequestSizeLimit(300_000_000)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 300_000_000)]
+    public async Task<ActionResult<FilePeekResult>> PeekFile(string datasetId)
+    {
+        var userId = Request.Headers["UserId"].ToString();
+        if (string.IsNullOrWhiteSpace(userId))
+            return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.HasCompanyRole(companyId, "EDIT_DATA"))
+            return Forbid();
+
+        if (!Request.HasFormContentType)
+            return BadRequest("Request must be multipart/form-data");
+
+        var form = await Request.ReadFormAsync();
+        if (form.Files.Count == 0 || form.Files[0].Length == 0)
+            return BadRequest("A non-empty file is required");
+
+        if (!await DatasetExists(datasetId, userId))
+            return NotFound($"Dataset with ID '{datasetId}' not found.");
+
+        var format = ParseFormat(form);
+        using var stream = form.Files[0].OpenReadStream();
+        var result = await _duckdbService.PeekFileAsync(datasetId, stream, format, HttpContext.RequestAborted);
+        return Ok(result);
+    }
+
+    // POST: api/Datasets/{datasetId}/tables/{tableName}/validate-import
+    // Stages the uploaded file and validates it against the target table schema (no commit).
+    [HttpPost("{datasetId}/tables/{tableName}/validate-import")]
+    [RequestSizeLimit(300_000_000)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 300_000_000)]
+    public async Task<ActionResult<ImportValidationResult>> ValidateImport(string datasetId, string tableName)
+    {
+        var userId = Request.Headers["UserId"].ToString();
+        if (string.IsNullOrWhiteSpace(userId))
+            return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.HasCompanyRole(companyId, "EDIT_DATA"))
+            return Forbid();
+
+        if (!Request.HasFormContentType)
+            return BadRequest("Request must be multipart/form-data");
+
+        var form = await Request.ReadFormAsync();
+        if (form.Files.Count == 0 || form.Files[0].Length == 0)
+            return BadRequest("A non-empty file is required");
+
+        if (!await DatasetExists(datasetId, userId))
+            return NotFound($"Dataset with ID '{datasetId}' not found.");
+
+        var format = ParseFormat(form);
+        using var stream = form.Files[0].OpenReadStream();
+        var result = await _duckdbService.ValidateImportAsync(datasetId, tableName, stream, format, HttpContext.RequestAborted);
+        return Ok(result);
+    }
+
+    // POST: api/Datasets/{datasetId}/validate-schema
+    // Validates an uploaded file against a caller-supplied schema (the columns being defined in the
+    // wizard), before the table exists. Form fields: file, format, columns (JSON array of {name,dataType}).
+    [HttpPost("{datasetId}/validate-schema")]
+    [RequestSizeLimit(300_000_000)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 300_000_000)]
+    public async Task<ActionResult<ImportValidationResult>> ValidateSchema(string datasetId)
+    {
+        var userId = Request.Headers["UserId"].ToString();
+        if (string.IsNullOrWhiteSpace(userId))
+            return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.HasCompanyRole(companyId, "EDIT_DATA"))
+            return Forbid();
+
+        if (!Request.HasFormContentType)
+            return BadRequest("Request must be multipart/form-data");
+
+        var form = await Request.ReadFormAsync();
+        if (form.Files.Count == 0 || form.Files[0].Length == 0)
+            return BadRequest("A non-empty file is required");
+
+        if (!await DatasetExists(datasetId, userId))
+            return NotFound($"Dataset with ID '{datasetId}' not found.");
+
+        if (!form.TryGetValue("columns", out var columnsJson) || string.IsNullOrWhiteSpace(columnsJson.FirstOrDefault()))
+            return BadRequest("Columns are required");
+
+        List<Column>? columns;
+        try
+        {
+            columns = System.Text.Json.JsonSerializer.Deserialize<List<Column>>(columnsJson.First()!,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest($"Invalid columns payload: {ex.Message}");
+        }
+        if (columns == null || columns.Count == 0)
+            return BadRequest("At least one column is required");
+
+        var format = ParseFormat(form);
+        using var stream = form.Files[0].OpenReadStream();
+        var result = await _duckdbService.ValidateImportAgainstSchemaAsync(datasetId, columns, stream, format, HttpContext.RequestAborted);
+        return Ok(result);
+    }
+
+    // POST: api/Datasets/{datasetId}/tables/{tableName}/import
+    // Commits the uploaded file into the target table using the chosen mode.
+    [HttpPost("{datasetId}/tables/{tableName}/import")]
+    [RequestSizeLimit(300_000_000)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 300_000_000)]
+    public async Task<ActionResult<ImportResult>> ImportFile(string datasetId, string tableName)
+    {
+        var userId = Request.Headers["UserId"].ToString();
+        if (string.IsNullOrWhiteSpace(userId))
+            return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.HasCompanyRole(companyId, "EDIT_DATA"))
+            return Forbid();
+
+        if (!Request.HasFormContentType)
+            return BadRequest("Request must be multipart/form-data");
+
+        var form = await Request.ReadFormAsync();
+        if (form.Files.Count == 0 || form.Files[0].Length == 0)
+            return BadRequest("A non-empty file is required");
+
+        if (!await DatasetExists(datasetId, userId))
+            return NotFound($"Dataset with ID '{datasetId}' not found.");
+
+        var format = ParseFormat(form);
+
+        var mode = ImportMode.Append;
+        if (form.TryGetValue("mode", out var modeValues))
+            Enum.TryParse(modeValues.FirstOrDefault(), ignoreCase: true, out mode);
+
+        var keyColumns = form.TryGetValue("keyColumns", out var keyValues)
+            ? (keyValues.FirstOrDefault() ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()
+            : new List<string>();
+
+        var skipInvalidRows = form.TryGetValue("skipInvalidRows", out var skipValues)
+            && bool.TryParse(skipValues.FirstOrDefault(), out var skip) && skip;
+
+        using var stream = form.Files[0].OpenReadStream();
+        // The wizard creates the table before importing, so the table already exists here.
+        var result = await _duckdbService.ImportFileAsync(datasetId, tableName, stream, format, mode, keyColumns, skipInvalidRows, createIfMissing: false, HttpContext.RequestAborted);
+        return Ok(result);
+    }
+
+    // Reads the optional "format" form field; defaults to CSV.
+    private static ImportFileFormat ParseFormat(Microsoft.AspNetCore.Http.IFormCollection form)
+    {
+        var format = ImportFileFormat.Csv;
+        if (form.TryGetValue("format", out var formatValues))
+            Enum.TryParse(formatValues.FirstOrDefault(), ignoreCase: true, out format);
+        return format;
+    }
+
     // GET: api/Datasets/{datasetId}/tables/{tableName}/data
     [HttpPost("{datasetId}/tables/{tableName}/data")]
     public async Task<ActionResult<TableDataResult>> GetTableData(string datasetId, string tableName, [FromBody] TableDataQuery query)

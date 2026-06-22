@@ -48,4 +48,9 @@ public interface IDatabaseTableService
 
     /// <summary>Loads and decrypts a Database entity's own connection (null when none).</summary>
     Task<DatabaseConnection?> GetDecryptedConnectionAsync(string entityId, string companyId, CancellationToken ct = default);
+
+    /// <summary>Runs a read-only SELECT over the (already-decrypted) connection and streams the result
+    /// to a UTF-8 CSV file (header + rows). Returns the number of data rows written. Used by scheduled
+    /// ingestion to pull an external table/query into a dataset.</summary>
+    Task<int> ReadToTempCsvAsync(DatabaseConnection decryptedConnection, string query, string destCsvPath, CancellationToken ct = default);
 }

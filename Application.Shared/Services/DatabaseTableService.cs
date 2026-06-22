@@ -345,6 +345,83 @@ public class DatabaseTableService : IDatabaseTableService
         return await CheckFreshnessAsync(connection, table.Name, check.FreshnessColumn!, check.MaxAgeMinutes, ct);
     }
 
+    // ---- Bulk read for ingestion (no DbContext) ----
+
+    public async Task<int> ReadToTempCsvAsync(DatabaseConnection c, string query, string destCsvPath, CancellationToken ct = default)
+    {
+        // ClickHouse has no ADO driver — ask it for CSV directly over the read-only HTTP endpoint.
+        if (c.DatabaseType == DataSourceType.ClickHouse)
+        {
+            var csvQuery = $"{query.TrimEnd().TrimEnd(';')} FORMAT CSVWithNames";
+            var body = await QueryClickHouseAsync(c, csvQuery, ct);
+            await File.WriteAllTextAsync(destCsvPath, body, new UTF8Encoding(false), ct);
+            // Row count = lines minus the header (best-effort).
+            var lines = body.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+            return Math.Max(0, lines - 1);
+        }
+
+        await using var connection = CreateAdoConnection(c);
+        await connection.OpenAsync(ct);
+
+        var readOnlySetup = ReadOnlySetupFor(c.DatabaseType);
+        if (!string.IsNullOrEmpty(readOnlySetup))
+        {
+            await using var setup = connection.CreateCommand();
+            setup.CommandText = readOnlySetup;
+            await setup.ExecuteNonQueryAsync(ct);
+        }
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = query;
+        await using var reader = await command.ExecuteReaderAsync(ct);
+
+        await using var writer = new StreamWriter(destCsvPath, false, new UTF8Encoding(false));
+
+        // Header
+        var fieldCount = reader.FieldCount;
+        for (int i = 0; i < fieldCount; i++)
+        {
+            if (i > 0) await writer.WriteAsync(',');
+            await writer.WriteAsync(CsvEscape(reader.GetName(i)));
+        }
+        await writer.WriteAsync('\n');
+
+        var rows = 0;
+        while (await reader.ReadAsync(ct))
+        {
+            for (int i = 0; i < fieldCount; i++)
+            {
+                if (i > 0) await writer.WriteAsync(',');
+                if (!reader.IsDBNull(i))
+                    await writer.WriteAsync(CsvEscape(FormatCsvValue(reader.GetValue(i))));
+            }
+            await writer.WriteAsync('\n');
+            rows++;
+        }
+
+        return rows;
+    }
+
+    // Formats a value for a CSV cell in a way DuckDB can TRY_CAST back to a typed column.
+    private static string FormatCsvValue(object value) => value switch
+    {
+        null or DBNull => string.Empty,
+        bool b => b ? "true" : "false",
+        DateTime dt => dt.ToString("yyyy-MM-dd HH:mm:ss.fffffff", CultureInfo.InvariantCulture),
+        DateTimeOffset dto => dto.ToString("yyyy-MM-dd HH:mm:ss.fffffffzzz", CultureInfo.InvariantCulture),
+        byte[] bytes => Convert.ToBase64String(bytes),
+        IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
+        _ => value.ToString() ?? string.Empty
+    };
+
+    // RFC-4180 quoting: wrap in quotes and double internal quotes when the value contains , " CR or LF.
+    private static string CsvEscape(string value)
+    {
+        if (value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) < 0)
+            return value;
+        return "\"" + value.Replace("\"", "\"\"") + "\"";
+    }
+
     // ---- Pure probes (no DbContext; safe to call concurrently from the ping job) ----
 
     public async Task<DatabaseProbeResult> ProbeConnectionAsync(DatabaseConnection c, CancellationToken ct = default)

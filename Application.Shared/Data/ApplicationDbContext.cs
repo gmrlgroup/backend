@@ -89,6 +89,10 @@ namespace Application.Shared.Data
         // Saved SQL queries authored in the Query workbench.
         public DbSet<SavedQuery> SavedQuery { get; set; }
 
+        // Scheduled/automated ingestion sources and their run history.
+        public DbSet<IngestionSource> IngestionSource { get; set; }
+        public DbSet<IngestionRun> IngestionRun { get; set; }
+
         // METRICS
         public DbSet<Metric> Metrics { get; set; }
 

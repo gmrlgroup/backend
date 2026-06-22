@@ -35,4 +35,22 @@ public interface IDuckdbService
 
     // Write-back: materialize a SELECT query as a new table or view in the dataset.
     Task<SqlQueryResult> CreateObjectFromQueryAsync(string datasetId, string objectName, string sql, bool asView, System.Threading.CancellationToken ct = default);
+
+    // Stage a file into a temporary table and validate it against the target table's schema
+    // (type-cast checks, missing/extra columns, preview rows) without committing anything.
+    // Errors are returned via ImportValidationResult.Error, never thrown.
+    Task<ImportValidationResult> ValidateImportAsync(string datasetId, string tableName, Stream fileStream, ImportFileFormat format, System.Threading.CancellationToken ct = default);
+
+    // Like ValidateImportAsync but validates against a caller-supplied schema (the columns being defined
+    // in the import wizard) rather than an existing table — true pre-commit validation for new tables.
+    Task<ImportValidationResult> ValidateImportAgainstSchemaAsync(string datasetId, List<Column> targetColumns, Stream fileStream, ImportFileFormat format, System.Threading.CancellationToken ct = default);
+
+    // Stage a file (no target table) and return the columns DuckDB infers plus a preview — lets the
+    // wizard build a schema editor for formats the browser can't parse (JSON/Parquet/Excel).
+    Task<FilePeekResult> PeekFileAsync(string datasetId, Stream fileStream, ImportFileFormat format, System.Threading.CancellationToken ct = default);
+
+    // Stage a file and commit it into the target table with the chosen mode
+    // (append / replace / upsert on keyColumns). Optionally skips rows that fail TRY_CAST.
+    // Errors are returned via ImportResult.Error, never thrown.
+    Task<ImportResult> ImportFileAsync(string datasetId, string tableName, Stream fileStream, ImportFileFormat format, ImportMode mode, List<string> keyColumns, bool skipInvalidRows, bool createIfMissing = false, System.Threading.CancellationToken ct = default);
 }

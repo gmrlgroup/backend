@@ -1,0 +1,587 @@
+@page "/data/ingestion"
+@using System.Net.Http.Json
+@using Application.Shared.Models
+@using Application.Shared.Models.Data
+@inject HttpClient _httpClient
+@inject IToastService _toastService
+@inject AuthenticationStateProvider _authenticationStateProvider
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@attribute [Authorize(Policy = PolicyNames.DatasetsAccess)]
+
+<PageTitle>Scheduled Ingestion</PageTitle>
+
+@if (!canView && !isLoading)
+{
+    <div class="flex flex-col items-center justify-center h-64 text-gray-500 gap-2">
+        <svg class="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <p class="text-sm font-semibold text-gray-700">Access Denied</p>
+        <p class="text-xs text-gray-400">You don't have permission to view ingestion sources.</p>
+    </div>
+}
+else
+{
+<div class="ds-page">
+    <div class="ds-header">
+        <div>
+            <h1 class="ds-title">Scheduled Ingestion</h1>
+            <p class="ds-subtitle">Automatically pull data from databases, REST APIs, Blob storage or SFTP into your tables.</p>
+        </div>
+        @if (canEdit && !string.IsNullOrEmpty(selectedDatasetId) && !showForm)
+        {
+            <button class="btn btn-default" @onclick="StartCreate">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                New Source
+            </button>
+        }
+    </div>
+
+    <div class="ds-field" style="max-width:420px">
+        <label class="ds-label">Dataset</label>
+        <select class="ds-select" value="@selectedDatasetId" @onchange="OnDatasetChanged">
+            <option value="">— Choose a dataset —</option>
+            @foreach (var ds in datasets)
+            {
+                <option value="@ds.Id">@ds.Name</option>
+            }
+        </select>
+    </div>
+
+    @if (showForm)
+    {
+        <div class="ds-form-card" style="margin:1rem 0">
+            <p class="ds-section-title">@(editingId == null ? "New Ingestion Source" : "Edit Ingestion Source")</p>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+                <div class="ds-field" style="margin-bottom:0">
+                    <label class="ds-label">Name</label>
+                    <input class="ds-input" @bind="form.Name" placeholder="e.g. Nightly orders sync" />
+                </div>
+                <div class="ds-field" style="margin-bottom:0">
+                    <label class="ds-label">Target table</label>
+                    <input class="ds-input" list="ingest-tables" @bind="form.TargetTable" placeholder="table name" />
+                    <datalist id="ingest-tables">
+                        @foreach (var t in datasetTables) { <option value="@t" /> }
+                    </datalist>
+                </div>
+            </div>
+
+            <div class="ds-field" style="margin-top:0.75rem">
+                <label class="ds-label">Description <span style="color:#71717a;font-weight:400">(optional)</span></label>
+                <input class="ds-input" @bind="form.Description" />
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:0.75rem">
+                <div class="ds-field" style="margin-bottom:0">
+                    <label class="ds-label">Source type</label>
+                    <select class="ds-select" @bind="form.SourceKind">
+                        <option value="ExternalDatabase">External database</option>
+                        <option value="Rest">REST API</option>
+                        <option value="Blob">Azure Blob</option>
+                        <option value="Sftp">SFTP</option>
+                    </select>
+                </div>
+                <div class="ds-field" style="margin-bottom:0">
+                    <label class="ds-label">Schedule (cron)</label>
+                    <input class="ds-input" @bind="form.CronExpression" placeholder="0 * * * *" />
+                </div>
+            </div>
+
+            <!-- Kind-specific configuration -->
+            <div style="border-top:1px solid #f4f4f5;margin-top:1rem;padding-top:1rem">
+                @if (form.SourceKind == "ExternalDatabase")
+                {
+                    <div class="ds-field">
+                        <label class="ds-label">Source database entity ID</label>
+                        <input class="ds-input" @bind="form.SourceEntityId" placeholder="entity id of a configured database (from Status → Entities)" />
+                    </div>
+                    <div class="ds-field" style="margin-bottom:0">
+                        <label class="ds-label">SQL query <span style="color:#71717a;font-weight:400">(or set schema + table below)</span></label>
+                        <textarea class="ds-input" rows="3" @bind="config.Query" placeholder="SELECT * FROM dbo.orders"></textarea>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:0.5rem">
+                        <input class="ds-input" @bind="config.Schema" placeholder="schema (optional)" />
+                        <input class="ds-input" @bind="config.Table" placeholder="table (used if no query)" />
+                    </div>
+                }
+                else if (form.SourceKind == "Rest")
+                {
+                    <div style="display:grid;grid-template-columns:3fr 1fr;gap:1rem">
+                        <div class="ds-field" style="margin-bottom:0"><label class="ds-label">URL</label><input class="ds-input" @bind="config.Url" placeholder="https://api.example.com/orders" /></div>
+                        <div class="ds-field" style="margin-bottom:0"><label class="ds-label">Method</label>
+                            <select class="ds-select" @bind="config.Method"><option value="GET">GET</option><option value="POST">POST</option></select>
+                        </div>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:0.5rem">
+                        <div class="ds-field" style="margin-bottom:0"><label class="ds-label">Auth</label>
+                            <select class="ds-select" @bind="config.AuthType"><option value="none">None</option><option value="bearer">Bearer token</option><option value="basic">Basic</option></select>
+                        </div>
+                        <div class="ds-field" style="margin-bottom:0"><label class="ds-label">Rows JSON path <span style="color:#71717a;font-weight:400">(optional)</span></label><input class="ds-input" @bind="config.JsonPath" placeholder="data.items" /></div>
+                    </div>
+                    @if (config.AuthType == "basic")
+                    {
+                        <div class="ds-field" style="margin-top:0.5rem;margin-bottom:0"><label class="ds-label">Username</label><input class="ds-input" @bind="config.Username" /></div>
+                    }
+                    <div class="ds-field" style="margin-top:0.5rem;margin-bottom:0">
+                        <label class="ds-label">Headers <span style="color:#71717a;font-weight:400">(one per line, "Key: Value")</span></label>
+                        <textarea class="ds-input" rows="2" @bind="headersText" placeholder="X-Api-Version: 2"></textarea>
+                    </div>
+                }
+                else if (form.SourceKind == "Blob")
+                {
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+                        <div class="ds-field" style="margin-bottom:0"><label class="ds-label">Container</label><input class="ds-input" @bind="config.Container" /></div>
+                        <div class="ds-field" style="margin-bottom:0"><label class="ds-label">Blob path</label><input class="ds-input" @bind="config.BlobPath" placeholder="exports/orders.parquet" /></div>
+                    </div>
+                    <div class="ds-field" style="margin-top:0.5rem;margin-bottom:0"><label class="ds-label">File format</label>@FileFormatSelect()</div>
+                }
+                else if (form.SourceKind == "Sftp")
+                {
+                    <div style="display:grid;grid-template-columns:3fr 1fr;gap:1rem">
+                        <div class="ds-field" style="margin-bottom:0"><label class="ds-label">Host</label><input class="ds-input" @bind="config.Host" /></div>
+                        <div class="ds-field" style="margin-bottom:0"><label class="ds-label">Port</label><input class="ds-input" type="number" @bind="config.Port" placeholder="22" /></div>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 2fr;gap:1rem;margin-top:0.5rem">
+                        <div class="ds-field" style="margin-bottom:0"><label class="ds-label">Username</label><input class="ds-input" @bind="config.SftpUsername" /></div>
+                        <div class="ds-field" style="margin-bottom:0"><label class="ds-label">Remote path</label><input class="ds-input" @bind="config.RemotePath" placeholder="/out/orders.csv" /></div>
+                    </div>
+                    <div class="ds-field" style="margin-top:0.5rem;margin-bottom:0"><label class="ds-label">File format</label>@FileFormatSelect()</div>
+                }
+
+                @if (form.SourceKind != "ExternalDatabase")
+                {
+                    <div class="ds-field" style="margin-top:0.5rem;margin-bottom:0">
+                        <label class="ds-label">
+                            Secret
+                            @if (editingId != null && editingHasSecret) { <span style="color:#71717a;font-weight:400">(stored — leave blank to keep)</span> }
+                            else { <span style="color:#71717a;font-weight:400">(@SecretHint())</span> }
+                        </label>
+                        <input class="ds-input" type="password" @bind="form.Secret" autocomplete="new-password" />
+                    </div>
+                }
+            </div>
+
+            <!-- Load options -->
+            <div style="border-top:1px solid #f4f4f5;margin-top:1rem;padding-top:1rem">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+                    <div class="ds-field" style="margin-bottom:0">
+                        <label class="ds-label">Mode</label>
+                        <select class="ds-select" @bind="form.ImportMode">
+                            <option value="Append">Append</option>
+                            <option value="Replace">Replace</option>
+                            <option value="Upsert">Upsert</option>
+                        </select>
+                    </div>
+                    <div class="ds-field" style="margin-bottom:0">
+                        <label class="ds-label">Incremental column <span style="color:#71717a;font-weight:400">(optional)</span></label>
+                        <input class="ds-input" @bind="form.IncrementalColumn" placeholder="updated_at" />
+                    </div>
+                </div>
+                @if (form.ImportMode == "Upsert")
+                {
+                    <div class="ds-field" style="margin-top:0.5rem;margin-bottom:0">
+                        <label class="ds-label">Key column(s) <span style="color:#71717a;font-weight:400">(comma-separated)</span></label>
+                        <input class="ds-input" @bind="keyColumnsText" placeholder="id" />
+                    </div>
+                }
+                <label style="display:flex;align-items:center;gap:0.5rem;margin-top:0.75rem;font-size:0.875rem;cursor:pointer">
+                    <input type="checkbox" class="ds-checkbox" @bind="form.CreateIfNotExists" /> Create the target table if it doesn't exist (from the source's schema)
+                </label>
+                <label style="display:flex;align-items:center;gap:0.5rem;margin-top:0.5rem;font-size:0.875rem;cursor:pointer">
+                    <input type="checkbox" class="ds-checkbox" @bind="form.IsEnabled" /> Enabled (run on schedule)
+                </label>
+            </div>
+
+            <div class="ds-step-nav">
+                <button class="btn btn-outline" @onclick="CancelForm" disabled="@isSaving">Cancel</button>
+                <button class="btn btn-default" @onclick="SaveForm" disabled="@isSaving">
+                    @if (isSaving) { <span>Saving…</span> } else { <span>@(editingId == null ? "Create source" : "Save changes")</span> }
+                </button>
+            </div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(selectedDatasetId))
+    {
+        <div class="ds-card" style="margin-top:1rem">
+            @if (isLoadingSources)
+            {
+                <div class="ds-loading"><div class="ds-spinner"></div><span>Loading sources…</span></div>
+            }
+            else if (sources?.Any() == true)
+            {
+                <div class="ds-table-wrap">
+                    <table class="ds-table">
+                        <thead>
+                            <tr>
+                                <th class="ds-th">Name</th>
+                                <th class="ds-th">Type</th>
+                                <th class="ds-th">Target</th>
+                                <th class="ds-th">Mode</th>
+                                <th class="ds-th">Schedule</th>
+                                <th class="ds-th">Last run</th>
+                                <th class="ds-th ds-th-actions">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var s in sources)
+                            {
+                                <tr class="ds-tr">
+                                    <td class="ds-td ds-td-name">
+                                        <span class="ds-dataset-name">@s.Name</span>
+                                        @if (!s.IsEnabled) { <span style="margin-left:0.4rem;font-size:0.7rem;color:#b45309">(disabled)</span> }
+                                    </td>
+                                    <td class="ds-td">@KindLabel(s.SourceKind)</td>
+                                    <td class="ds-td"><code style="font-size:0.75rem">@s.TargetTable</code></td>
+                                    <td class="ds-td">@s.ImportMode</td>
+                                    <td class="ds-td"><code style="font-size:0.75rem">@s.CronExpression</code></td>
+                                    <td class="ds-td">@RunBadge(s)</td>
+                                    <td class="ds-td ds-td-actions-cell">
+                                        <div class="ds-actions">
+                                            @if (canEdit)
+                                            {
+                                                <button class="btn-icon" title="Run now" @onclick="() => RunNow(s)" disabled="@(runningId == s.Id)">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                                </button>
+                                                <button class="btn-icon" title="Edit" @onclick="() => StartEdit(s)">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg>
+                                                </button>
+                                            }
+                                            <button class="btn-icon" title="Run history" @onclick="() => ToggleRuns(s)">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
+                                            </button>
+                                            @if (canEdit)
+                                            {
+                                                <button class="btn-icon btn-icon-delete" title="Delete" @onclick="() => DeleteSource(s)">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                                                </button>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                                @if (expandedRunsId == s.Id)
+                                {
+                                    <tr class="ds-tr">
+                                        <td class="ds-td" colspan="7">
+                                            @if (runs == null)
+                                            {
+                                                <span class="ds-dataset-desc">Loading run history…</span>
+                                            }
+                                            else if (runs.Any())
+                                            {
+                                                <table style="width:100%;font-size:0.8125rem;border-collapse:collapse">
+                                                    <thead><tr style="text-align:left;color:#71717a"><th style="padding:0.25rem 0.5rem">Started</th><th style="padding:0.25rem 0.5rem">Status</th><th style="padding:0.25rem 0.5rem">Rows</th><th style="padding:0.25rem 0.5rem">Message</th></tr></thead>
+                                                    <tbody>
+                                                        @foreach (var r in runs)
+                                                        {
+                                                            <tr style="border-top:1px solid #f4f4f5">
+                                                                <td style="padding:0.25rem 0.5rem">@r.StartedAt.ToLocalTime().ToString("MMM dd HH:mm:ss")</td>
+                                                                <td style="padding:0.25rem 0.5rem;color:@(r.Status == "Success" ? "#15803d" : r.Status == "Failed" ? "#b91c1c" : "#71717a")">@r.Status</td>
+                                                                <td style="padding:0.25rem 0.5rem">@(r.RowsIngested?.ToString() ?? "—")</td>
+                                                                <td style="padding:0.25rem 0.5rem;color:#71717a">@(r.ErrorMessage ?? "")</td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            }
+                                            else
+                                            {
+                                                <span class="ds-dataset-desc">No runs yet.</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div class="ds-empty">
+                    <div class="ds-empty-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><polyline points="12 7 12 12 15 14"/></svg>
+                    </div>
+                    <h3 class="ds-empty-title">No ingestion sources</h3>
+                    <p class="ds-empty-sub">Create a source to pull data on a schedule into this dataset.</p>
+                </div>
+            }
+        </div>
+    }
+</div>
+}
+
+@code {
+    private List<Dataset> datasets = new();
+    private List<string> datasetTables = new();
+    private List<IngestionSourceDto>? sources;
+    private List<IngestionRunDto>? runs;
+
+    private bool isLoading = true;
+    private bool isLoadingSources = false;
+    private bool isSaving = false;
+    private bool canView;
+    private bool canEdit;
+    private string? companyId;
+    private string selectedDatasetId = string.Empty;
+
+    private bool showForm = false;
+    private string? editingId;
+    private bool editingHasSecret;
+    private SaveIngestionSourceRequest form = new();
+    private IngestionSourceConfig config = new();
+    private string keyColumnsText = string.Empty;
+    private string headersText = string.Empty;
+
+    private string? expandedRunsId;
+    private string? runningId;
+
+    [SupplyParameterFromQuery(Name = "c")]
+    public string? c { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        companyId = c;
+        if (string.IsNullOrEmpty(companyId))
+        {
+            _toastService.ShowWarning("Company ID is required");
+            isLoading = false;
+            return;
+        }
+
+        var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+        canView = authState.User.HasCompanyRole(companyId, "VIEW_DATA");
+        canEdit = authState.User.HasCompanyRole(companyId, "EDIT_DATA");
+        if (!canView) { isLoading = false; return; }
+
+        _httpClient.DefaultRequestHeaders.Remove("X-Company-Id");
+        _httpClient.DefaultRequestHeaders.Add("X-Company-Id", companyId);
+        var userId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (!string.IsNullOrEmpty(userId))
+        {
+            _httpClient.DefaultRequestHeaders.Remove("UserId");
+            _httpClient.DefaultRequestHeaders.Add("UserId", userId);
+        }
+
+        try { datasets = await _httpClient.GetFromJsonAsync<List<Dataset>>("api/datasets") ?? new(); }
+        catch { datasets = new(); }
+        isLoading = false;
+    }
+
+    private async Task OnDatasetChanged(ChangeEventArgs e)
+    {
+        selectedDatasetId = e.Value?.ToString() ?? string.Empty;
+        showForm = false;
+        expandedRunsId = null;
+        sources = null;
+        datasetTables = new();
+        if (string.IsNullOrEmpty(selectedDatasetId)) return;
+
+        await LoadSources();
+        try { datasetTables = await _httpClient.GetFromJsonAsync<List<string>>($"api/datasets/{selectedDatasetId}/tables") ?? new(); }
+        catch { datasetTables = new(); }
+    }
+
+    private async Task LoadSources()
+    {
+        try
+        {
+            isLoadingSources = true;
+            sources = await _httpClient.GetFromJsonAsync<List<IngestionSourceDto>>($"api/datasets/{selectedDatasetId}/ingestion") ?? new();
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Failed to load sources: {ex.Message}");
+            sources = new();
+        }
+        finally { isLoadingSources = false; }
+    }
+
+    private void StartCreate()
+    {
+        editingId = null;
+        editingHasSecret = false;
+        form = new SaveIngestionSourceRequest { CronExpression = "0 * * * *", IsEnabled = true, SourceKind = "ExternalDatabase", ImportMode = "Append" };
+        config = new IngestionSourceConfig { Method = "GET", AuthType = "none" };
+        keyColumnsText = string.Empty;
+        headersText = string.Empty;
+        showForm = true;
+    }
+
+    private void StartEdit(IngestionSourceDto s)
+    {
+        editingId = s.Id;
+        editingHasSecret = s.HasSecret;
+        form = new SaveIngestionSourceRequest
+        {
+            TargetTable = s.TargetTable,
+            Name = s.Name,
+            Description = s.Description,
+            SourceKind = s.SourceKind,
+            SourceEntityId = s.SourceEntityId,
+            ImportMode = s.ImportMode,
+            CreateIfNotExists = s.CreateIfNotExists,
+            IncrementalColumn = s.IncrementalColumn,
+            CronExpression = s.CronExpression,
+            TimeZone = s.TimeZone,
+            IsEnabled = s.IsEnabled,
+            Secret = null
+        };
+        config = s.Config ?? new IngestionSourceConfig();
+        keyColumnsText = string.Join(", ", s.KeyColumns ?? new());
+        headersText = config.Headers == null ? "" : string.Join("\n", config.Headers.Select(h => $"{h.Key}: {h.Value}"));
+        showForm = true;
+    }
+
+    private void CancelForm() => showForm = false;
+
+    private async Task SaveForm()
+    {
+        if (string.IsNullOrWhiteSpace(form.Name) || string.IsNullOrWhiteSpace(form.TargetTable))
+        {
+            _toastService.ShowWarning("Name and target table are required");
+            return;
+        }
+
+        // Parse headers text into the config.
+        if (form.SourceKind == "Rest")
+        {
+            config.Headers = ParseHeaders(headersText);
+        }
+        form.Config = config;
+        form.KeyColumns = string.IsNullOrWhiteSpace(keyColumnsText)
+            ? new()
+            : keyColumnsText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        // Empty string means "no change"; send null so the stored secret is kept.
+        if (string.IsNullOrEmpty(form.Secret)) form.Secret = null;
+
+        try
+        {
+            isSaving = true;
+            HttpResponseMessage response = editingId == null
+                ? await _httpClient.PostAsJsonAsync($"api/datasets/{selectedDatasetId}/ingestion", form)
+                : await _httpClient.PutAsJsonAsync($"api/datasets/{selectedDatasetId}/ingestion/{editingId}", form);
+
+            if (response.IsSuccessStatusCode)
+            {
+                _toastService.ShowSuccess(editingId == null ? "Source created" : "Source updated");
+                showForm = false;
+                await LoadSources();
+            }
+            else
+            {
+                var msg = await response.Content.ReadAsStringAsync();
+                _toastService.ShowError($"Failed to save source: {msg}");
+            }
+        }
+        catch (Exception ex) { _toastService.ShowError($"Error saving source: {ex.Message}"); }
+        finally { isSaving = false; }
+    }
+
+    private async Task RunNow(IngestionSourceDto s)
+    {
+        try
+        {
+            runningId = s.Id;
+            StateHasChanged();
+            var response = await _httpClient.PostAsync($"api/datasets/{selectedDatasetId}/ingestion/{s.Id}/run", null);
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<ImportResult>();
+                if (result is { Success: true })
+                    _toastService.ShowSuccess($"{s.Name}: {result.RowsInserted} inserted, {result.RowsUpdated} updated, {result.RowsSkipped} skipped");
+                else
+                    _toastService.ShowError($"{s.Name} failed: {result?.Error ?? "unknown error"}");
+                await LoadSources();
+                if (expandedRunsId == s.Id) await LoadRuns(s.Id);
+            }
+            else
+            {
+                _toastService.ShowError($"Run failed: {await response.Content.ReadAsStringAsync()}");
+            }
+        }
+        catch (Exception ex) { _toastService.ShowError($"Error running source: {ex.Message}"); }
+        finally { runningId = null; StateHasChanged(); }
+    }
+
+    private async Task DeleteSource(IngestionSourceDto s)
+    {
+        try
+        {
+            var response = await _httpClient.DeleteAsync($"api/datasets/{selectedDatasetId}/ingestion/{s.Id}");
+            if (response.IsSuccessStatusCode) { _toastService.ShowSuccess("Source deleted"); await LoadSources(); }
+            else _toastService.ShowError($"Failed to delete: {response.StatusCode}");
+        }
+        catch (Exception ex) { _toastService.ShowError($"Error deleting source: {ex.Message}"); }
+    }
+
+    private async Task ToggleRuns(IngestionSourceDto s)
+    {
+        if (expandedRunsId == s.Id) { expandedRunsId = null; return; }
+        expandedRunsId = s.Id;
+        runs = null;
+        await LoadRuns(s.Id);
+    }
+
+    private async Task LoadRuns(string sourceId)
+    {
+        try { runs = await _httpClient.GetFromJsonAsync<List<IngestionRunDto>>($"api/datasets/{selectedDatasetId}/ingestion/{sourceId}/runs") ?? new(); }
+        catch { runs = new(); }
+    }
+
+    private static Dictionary<string, string>? ParseHeaders(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var dict = new Dictionary<string, string>();
+        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var idx = line.IndexOf(':');
+            if (idx > 0) dict[line.Substring(0, idx).Trim()] = line.Substring(idx + 1).Trim();
+        }
+        return dict.Count > 0 ? dict : null;
+    }
+
+    private string SecretHint() => form.SourceKind switch
+    {
+        "Rest" => "bearer token or basic password",
+        "Blob" => "connection string or SAS URL",
+        "Sftp" => "password",
+        _ => "optional"
+    };
+
+    private static string KindLabel(string kind) => kind switch
+    {
+        "ExternalDatabase" => "Database",
+        "Rest" => "REST API",
+        "Blob" => "Blob",
+        "Sftp" => "SFTP",
+        _ => kind
+    };
+
+    private RenderFragment FileFormatSelect() => __builder =>
+    {
+        <select class="ds-select" @bind="config.FileFormat">
+            <option value="">Auto (by extension)</option>
+            <option value="Csv">CSV</option>
+            <option value="Tsv">TSV</option>
+            <option value="Json">JSON</option>
+            <option value="Parquet">Parquet</option>
+            <option value="Excel">Excel</option>
+        </select>
+    };
+
+    private RenderFragment RunBadge(IngestionSourceDto s) => __builder =>
+    {
+        if (string.IsNullOrEmpty(s.LastRunStatus))
+        {
+            <span class="ds-dataset-desc">Never run</span>
+        }
+        else
+        {
+            var color = s.LastRunStatus == "Success" ? "#16a34a" : s.LastRunStatus == "Failed" ? "#dc2626" : "#71717a";
+            <span title="@(s.LastRunAt?.ToLocalTime().ToString("MMM dd, yyyy HH:mm"))"
+                  style="@($"display:inline-block;padding:0.125rem 0.5rem;border-radius:9999px;font-size:0.75rem;font-weight:600;color:{color};background:{color}1a")">
+                @s.LastRunStatus
+            </span>
+        }
+    };
+}

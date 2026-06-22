@@ -67,7 +67,7 @@ else
     }
     else if (currentStep == 2)
     {
-        <FileUploadStep OnFileUploaded="@HandleFileUploaded" OnBack="GoToPreviousStep" />
+        <FileUploadStep OnFileUploaded="@HandleFileUploaded" OnBack="GoToPreviousStep" DatasetId="@selectedDataset?.Id" />
     }
     else if (currentStep == 3)
     {
@@ -76,6 +76,9 @@ else
                                  CsvHeaders="@csvHeaders"
                                  SampleRows="@sampleRows"
                                  CompanyId="@companyId"
+                                 Format="@importFormat"
+                                 ServerColumns="@serverColumns"
+                                 FileBytes="@uploadedFileBytes"
                                  OnSchemaConfirmed="HandleSchemaConfirmed"
                                  OnBack="GoToPreviousStep"
                                  TableModel="@tableModel" />
@@ -92,7 +95,10 @@ else
     private string fileName = string.Empty;
     private List<string> csvHeaders = new();
     private List<List<string>> sampleRows = new();
+    private ImportFileFormat importFormat = ImportFileFormat.Csv;
+    private List<Column>? serverColumns;
     private Table tableModel = new();
+    private string? userId;
     private bool isProcessing = false;
     private bool canEdit;
 
@@ -111,10 +117,22 @@ else
             GoBack();
             return;
         }
+        // Set the headers the data API expects (X-Company-Id + UserId). The scoped HttpClient is shared
+        // for the session, so setting them once here covers every child step's calls.
+        _httpClient.DefaultRequestHeaders.Remove("X-Company-Id");
+        _httpClient.DefaultRequestHeaders.Add("X-Company-Id", companyId);
+
         var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
         // {companyId}_ADMIN is implicitly allowed by HasCompanyRole.
         canEdit = authState.User.HasCompanyRole(companyId, "EDIT_DATA");
         if (!canEdit) return;
+
+        userId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (!string.IsNullOrEmpty(userId))
+        {
+            _httpClient.DefaultRequestHeaders.Remove("UserId");
+            _httpClient.DefaultRequestHeaders.Add("UserId", userId);
+        }
     }
 
     private Task HandleDatasetSelected(Dataset dataset)
@@ -125,7 +143,7 @@ else
         return Task.CompletedTask;
     }
 
-    private Task HandleFileUploaded((byte[] fileBytes, string fileName, string contentType, List<string> headers, List<List<string>> sampleRows) data)
+    private Task HandleFileUploaded((byte[] fileBytes, string fileName, string contentType, List<string> headers, List<List<string>> sampleRows, ImportFileFormat format, List<Column>? serverColumns) data)
     {
         uploadedFileBytes = data.fileBytes;
         uploadedFileName = data.fileName;
@@ -133,37 +151,35 @@ else
         fileName = Path.GetFileNameWithoutExtension(data.fileName);
         csvHeaders = data.headers;
         sampleRows = data.sampleRows;
+        importFormat = data.format;
+        serverColumns = data.serverColumns;
         currentStep = 3;
         StateHasChanged();
         return Task.CompletedTask;
     }
 
-    private async Task HandleSchemaConfirmed(Table table)
+    private async Task HandleSchemaConfirmed((Table table, ImportMode mode, List<string> keyColumns, bool skipInvalidRows, ImportFileFormat format) submission)
     {
+        var table = submission.table;
         try
         {
             isProcessing = true;
             StateHasChanged();
 
-            var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
-            var user = authState.User;
-            if (user.Identity?.IsAuthenticated == true)
-            {
-                var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-                if (!string.IsNullOrEmpty(userId))
-                {
-                    _httpClient.DefaultRequestHeaders.Remove("UserId");
-                    _httpClient.DefaultRequestHeaders.Add("UserId", userId);
-                    table.CreatedBy = userId;
-                }
-            }
+            if (!string.IsNullOrEmpty(userId))
+                table.CreatedBy = userId;
 
+            // Create the table. If it already exists (a re-import into an existing table), continue —
+            // the chosen import mode (append/replace/upsert) handles the data.
             var tableResponse = await _httpClient.PostAsJsonAsync("api/Datasets/tables", table);
             if (!tableResponse.IsSuccessStatusCode)
             {
                 var errorContent = await tableResponse.Content.ReadAsStringAsync();
-                _toastService.ShowError($"Failed to create table: {errorContent}");
-                return;
+                if (!errorContent.Contains("already exists", StringComparison.OrdinalIgnoreCase))
+                {
+                    _toastService.ShowError($"Failed to create table: {errorContent}");
+                    return;
+                }
             }
 
             if (uploadedFileBytes == null)
@@ -174,23 +190,34 @@ else
 
             using var content = new MultipartFormDataContent();
             var fileContent = new ByteArrayContent(uploadedFileBytes);
-            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
-                string.IsNullOrEmpty(uploadedContentType) ? "text/csv" : uploadedContentType);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
             content.Add(fileContent, "file", uploadedFileName);
-            content.Add(new StringContent(table.TableName), "tableName");
-            content.Add(new StringContent(selectedDataset!.Id!), "datasetId");
+            content.Add(new StringContent(submission.format.ToString()), "format");
+            content.Add(new StringContent(submission.mode.ToString()), "mode");
+            content.Add(new StringContent(string.Join(",", submission.keyColumns)), "keyColumns");
+            content.Add(new StringContent(submission.skipInvalidRows.ToString()), "skipInvalidRows");
 
-            var importResponse = await _httpClient.PostAsync("api/Datasets/import-csv", content);
-            if (importResponse.IsSuccessStatusCode)
-            {
-                _toastService.ShowSuccess($"Data imported successfully into table '{table.SchemaName}.{table.TableName}'");
-                GoBack();
-            }
-            else
+            var importResponse = await _httpClient.PostAsync(
+                $"api/Datasets/{selectedDataset!.Id}/tables/{table.TableName}/import", content);
+            if (!importResponse.IsSuccessStatusCode)
             {
                 var errorContent = await importResponse.Content.ReadAsStringAsync();
                 _toastService.ShowError($"Failed to import data: {errorContent}");
+                return;
             }
+
+            var result = await importResponse.Content.ReadFromJsonAsync<ImportResult>();
+            if (result == null || !result.Success)
+            {
+                _toastService.ShowError($"Import failed: {result?.Error ?? "unknown error"}");
+                return;
+            }
+
+            var parts = new List<string> { $"{result.RowsInserted} inserted" };
+            if (result.RowsUpdated > 0) parts.Add($"{result.RowsUpdated} updated");
+            if (result.RowsSkipped > 0) parts.Add($"{result.RowsSkipped} skipped");
+            _toastService.ShowSuccess($"Imported into '{table.SchemaName}.{table.TableName}' — {string.Join(", ", parts)}");
+            GoBack();
         }
         catch (Exception ex)
         {

@@ -80,6 +80,17 @@ builder.Services.AddScoped<Application.Shared.Services.IDatabaseTableService,
     Application.Shared.Services.DatabaseTableService>();
 builder.Services.AddHttpClient();
 
+// Scheduled ingestion: DuckDB access + the shared executor, plus the Hangfire jobs.
+var duckdbOption = new DuckdbOption();
+builder.Configuration.Bind("Duckdb", duckdbOption);
+builder.Services.AddSingleton(duckdbOption);
+builder.Services.AddScoped<Application.Shared.Services.Data.IDuckdbService,
+    Application.Shared.Services.Data.DuckdbService>();
+builder.Services.AddScoped<Application.Shared.Services.Data.IIngestionService,
+    Application.Shared.Services.Data.IngestionService>();
+builder.Services.AddScoped<ScheduledIngestionJob>();
+builder.Services.AddScoped<IngestionRegistrarJob>();
+
 
 builder.Services.AddHangfire(cfg => cfg
     .UseSimpleAssemblyNameTypeSerializer()
@@ -224,6 +235,29 @@ RecurringJob.AddOrUpdate<AssetPingJob>(
     cronExpression: "*/15 * * * *",
     timeZone: tz
 );
+
+// Scheduled ingestion: a registrar reconciles per-source recurring jobs against the ingestion_source
+// table every 5 minutes, so UI changes take effect without a scheduler restart.
+RecurringJob.AddOrUpdate<IngestionRegistrarJob>(
+    recurringJobId: "ingestion-registrar",
+    methodCall: job => job.RunAsync(null, CancellationToken.None),
+    cronExpression: "*/5 * * * *",
+    timeZone: tz
+);
+
+// Reconcile once at startup so existing sources are scheduled immediately.
+using (var scope = app.Services.CreateScope())
+{
+    try
+    {
+        var registrar = scope.ServiceProvider.GetRequiredService<IngestionRegistrarJob>();
+        await registrar.RunAsync(null, CancellationToken.None);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Initial ingestion reconcile failed: {ex.Message}");
+    }
+}
 
 
 app.Run();

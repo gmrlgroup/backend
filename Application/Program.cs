@@ -299,6 +299,9 @@ builder.Services.AddScoped<IApiKeyService, ApiKeyService>();
 // SQL query workbench — saved queries (ad-hoc execution lives on IDuckdbService).
 builder.Services.AddScoped<ISavedQueryService, SavedQueryService>();
 
+// Scheduled/automated ingestion — executor shared with the scheduler ("Run now" runs it inline here).
+builder.Services.AddScoped<IIngestionService, IngestionService>();
+
 // Configure Azure OpenAI settings
 builder.Services.Configure<AzureOpenAIConfiguration>(builder.Configuration.GetSection("AzureOpenAI"));
 

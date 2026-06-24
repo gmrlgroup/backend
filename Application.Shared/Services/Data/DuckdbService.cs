@@ -805,15 +805,15 @@ public class DuckdbService : IDuckdbService
             var targetColumns = await resolveTargetColumns(connection);
 
             result.FileColumns = stagingColumns.Select(c => c.Name).ToList();
-            var stagingByLower = stagingColumns.ToDictionary(c => c.Name.ToLowerInvariant(), c => c.Name);
+            var stagingByKey = BuildColumnKeyMap(stagingColumns.Select(c => c.Name));
 
             // Columns the target expects but the file doesn't supply, and vice-versa.
             result.MissingColumns = targetColumns
-                .Where(t => !stagingByLower.ContainsKey(t.Name.ToLowerInvariant()))
+                .Where(t => !stagingByKey.ContainsKey(NormalizeColumnKey(t.Name)))
                 .Select(t => t.Name).ToList();
-            var targetLower = targetColumns.Select(t => t.Name.ToLowerInvariant()).ToHashSet();
+            var targetKeys = targetColumns.Select(t => NormalizeColumnKey(t.Name)).ToHashSet();
             result.ExtraColumns = stagingColumns
-                .Where(s => !targetLower.Contains(s.Name.ToLowerInvariant()))
+                .Where(s => !targetKeys.Contains(NormalizeColumnKey(s.Name)))
                 .Select(s => s.Name).ToList();
 
             result.TotalRows = (int)await ScalarLongAsync(connection, $"SELECT COUNT(*) FROM {StagingTable}", ct);
@@ -821,7 +821,7 @@ public class DuckdbService : IDuckdbService
             // Per common column: how many staged values fail TRY_CAST to the target type.
             foreach (var t in targetColumns)
             {
-                if (!stagingByLower.TryGetValue(t.Name.ToLowerInvariant(), out var stgName))
+                if (!stagingByKey.TryGetValue(NormalizeColumnKey(t.Name), out var stgName))
                     continue;
 
                 var invalidWhere = $"{Q(stgName)} IS NOT NULL AND TRY_CAST({Q(stgName)} AS {t.Type}) IS NULL";
@@ -997,12 +997,14 @@ public class DuckdbService : IDuckdbService
 
             var stagingColumns = await ReadStagingColumnsAsync(connection, ct);
             var targetColumns = await ReadTargetColumnsAsync(connection, tableName, ct);
-            var stagingByLower = stagingColumns.ToDictionary(c => c.Name.ToLowerInvariant(), c => c.Name);
+            var stagingByKey = BuildColumnKeyMap(stagingColumns.Select(c => c.Name));
 
-            // Only columns present in BOTH the file and the target are written; matched case-insensitively.
+            // Only columns present in BOTH the file and the target are written. Matched on a normalized
+            // key so a raw file header (e.g. "Mrp (LBP)") pairs with the slugged target column it created
+            // ("mrp__lbp_"); see NormalizeColumnKey.
             var common = targetColumns
-                .Where(t => stagingByLower.ContainsKey(t.Name.ToLowerInvariant()))
-                .Select(t => (Target: t.Name, Type: t.Type, Staging: stagingByLower[t.Name.ToLowerInvariant()]))
+                .Where(t => stagingByKey.ContainsKey(NormalizeColumnKey(t.Name)))
+                .Select(t => (Target: t.Name, Type: t.Type, Staging: stagingByKey[NormalizeColumnKey(t.Name)]))
                 .ToList();
 
             if (common.Count == 0)
@@ -1245,6 +1247,24 @@ public class DuckdbService : IDuckdbService
 
     // Quotes a SQL identifier (table/column) for safe embedding.
     private static string Q(string identifier) => "\"" + identifier.Replace("\"", "\"\"") + "\"";
+
+    // Normalizes a column name to the key used to pair file (staging) columns with target table columns.
+    // Mirrors the client-side SanitizeColumnName applied when a table is created from a file
+    // (SchemaConfigurationStep.SanitizeColumnName): lowercase + every char that isn't a letter, digit or
+    // underscore becomes '_'. This lets a raw file header like "Mrp (LBP)" match the stored column
+    // "mrp__lbp_", and "Sr.No" match "sr_no". Idempotent on already-sanitized names.
+    private static string NormalizeColumnKey(string name) =>
+        Regex.Replace(name ?? string.Empty, "[^a-zA-Z0-9_]", "_").ToLowerInvariant();
+
+    // Maps each column's normalized key → its actual name. First occurrence wins, so two file columns
+    // that collapse to the same key (rare) don't throw; the duplicate is simply treated as unmatched.
+    private static Dictionary<string, string> BuildColumnKeyMap(IEnumerable<string> names)
+    {
+        var map = new Dictionary<string, string>();
+        foreach (var name in names)
+            map.TryAdd(NormalizeColumnKey(name), name);
+        return map;
+    }
 
     private static void TryDelete(string? path)
     {

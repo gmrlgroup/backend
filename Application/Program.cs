@@ -1,5 +1,6 @@
 using Application.Authorization;
 using Application.Client.Pages;
+using Application.DailyInventory;
 using Application.Components;
 using Application.Components.Account;
 using Application.Helpers;
@@ -217,6 +218,9 @@ builder.Services.AddScoped<IMetricService, MetricService>();
 builder.Services.AddScoped<IMetricTargetService, MetricTargetService>();
 builder.Services.AddScoped<IMetricValueService, MetricValueService>();
 builder.Services.AddScoped<IClickHouseService, ClickHouseService>();
+
+// Daily Inventory (ClickHouse reporting)
+builder.Services.AddDailyInventory(builder.Configuration);
 
 // Add Data Warehouse Service
 builder.Services.AddScoped<DataWarehouseService>();

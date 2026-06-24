@@ -984,7 +984,7 @@ public class DuckdbService : IDuckdbService
                 }
 
                 if (format == ImportFileFormat.Excel)
-                    await ExecAsync(connection, "INSTALL excel; LOAD excel;", ct);
+                    await EnsureExcelExtensionAsync(connection, ct);
 
                 await ExecAsync(connection, $"CREATE TABLE {Q(tableName)} AS SELECT * FROM {InferringReaderExpr(format, tempPath)}", ct);
                 result.RowsInserted = (int)await ScalarLongAsync(connection, $"SELECT COUNT(*) FROM {Q(tableName)}", ct);
@@ -1183,12 +1183,26 @@ public class DuckdbService : IDuckdbService
     }
 
     // Materializes the file into a session-scoped TEMP table (auto-dropped on connection close).
-    private static async Task StageFileAsync(DuckDBConnection connection, string tempPath, ImportFileFormat format, CancellationToken ct)
+    private async Task StageFileAsync(DuckDBConnection connection, string tempPath, ImportFileFormat format, CancellationToken ct)
     {
         if (format == ImportFileFormat.Excel)
-            await ExecAsync(connection, "INSTALL excel; LOAD excel;", ct);
+            await EnsureExcelExtensionAsync(connection, ct);
 
         await ExecAsync(connection, $"CREATE OR REPLACE TEMP TABLE {StagingTable} AS SELECT * FROM {ReaderExpr(format, tempPath)}", ct);
+    }
+
+    // Installs + loads the DuckDB `excel` extension, after pinning the extension directory to a path we
+    // control. Without this, DuckDB derives the extension dir from the OS home directory; under a Windows
+    // service / IIS app pool identity that home is C:\Windows\System32\config\systemprofile (locked down),
+    // so INSTALL excel throws "Can't find the home directory...". Setting extension_directory explicitly
+    // bypasses that lookup. The directory is created on disk first; the service account must be able to
+    // write to it, and reach extensions.duckdb.org once to download the extension (it is cached after).
+    private async Task EnsureExcelExtensionAsync(DuckDBConnection connection, CancellationToken ct)
+    {
+        var extDir = _option.ResolveExtensionDirectory();
+        Directory.CreateDirectory(extDir);
+        await ExecAsync(connection, $"SET extension_directory = '{extDir.Replace("\\", "\\\\").Replace("'", "''")}';", ct);
+        await ExecAsync(connection, "INSTALL excel; LOAD excel;", ct);
     }
 
     private static async Task<List<(string Name, string Type)>> ReadStagingColumnsAsync(DuckDBConnection connection, CancellationToken ct)

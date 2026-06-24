@@ -173,6 +173,21 @@
             </Authorized>
         </AuthorizeView>
 
+        <AuthorizeView Roles="@($"{companyId}_ADMIN, {companyId}_INVENTORY_READ")">
+            <Authorized Context="demand">
+                <hr class="nav-divider" />
+                <div class="nav-section-label">Demand</div>
+                <a class="nav-item @NavClassExact("demand/daily-inventory")" href="@($"demand/daily-inventory{queryParameter}")" onclick="document.body.classList.remove('nav-open')">
+                    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 7 12 3 4 7v10l8 4 8-4z"/><path d="m4 7 8 4 8-4"/><path d="M12 11v10"/></svg>
+                    Daily Inventory
+                </a>
+                <a class="nav-item @NavClass("demand/daily-inventory-aggrid")" href="@($"demand/daily-inventory-aggrid{queryParameter}")" onclick="document.body.classList.remove('nav-open')">
+                    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>
+                    Daily Inventory (AG Grid)
+                </a>
+            </Authorized>
+        </AuthorizeView>
+
         <AuthorizeView Roles="@($"{companyId}_SALES, {companyId}_ADMIN")">
             <Authorized>
                 <hr class="nav-divider" />

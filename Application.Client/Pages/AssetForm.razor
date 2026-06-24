@@ -15,229 +15,267 @@
 <PageTitle>@(IsEditMode ? $"Edit {entity?.Name}" : "Create Entity")</PageTitle>
 
 <div class="min-h-screen bg-gray-50">
-    <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    @if (isLoading)
+    {
+        <div class="flex justify-center items-center h-64">
+            <div class="animate-spin rounded-full h-10 w-10 border-2 border-indigo-600 border-t-transparent"></div>
+        </div>
+    }
+    else
+    {
+        <div class="w-full px-4 sm:px-6 py-6">
+            <!-- Back link -->
+            <button @onclick="BackToEntities"
+                    class="inline-flex items-center text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors mb-4" style="border:none;background:none;">
+                <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                </svg>
+                Entities
+            </button>
 
-        <!-- Back + heading -->
-        <button @onclick="BackToEntities" class="inline-flex items-center text-sm text-gray-500 hover:text-gray-700 mb-4" style="border:none;background:none;">
-            <svg class="h-4 w-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-            </svg>
-            Entities
-        </button>
-        <h1 class="text-2xl font-bold text-gray-900">@(IsEditMode ? "Edit Entity" : "New Entity")</h1>
-        <p class="mt-1 text-sm text-gray-500">
-            @(IsEditMode ? "Update the details below." : "Fill in the details to create a new entity.")
-        </p>
-
-        @if (isLoading)
-        {
-            <div class="flex justify-center items-center h-64">
-                <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
-            </div>
-        }
-        else
-        {
-            <form @onsubmit="HandleValidSubmit" @onsubmit:preventDefault="true" class="mt-6 space-y-6">
-
-                <!-- Details -->
-                <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-                    <h2 class="text-base font-semibold text-gray-900 mb-4">Details</h2>
-                    <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
-                        <div class="sm:col-span-4">
-                            <label for="name" class="block text-sm font-medium text-gray-700">Name <span class="text-red-500">*</span></label>
-                            <input @bind="formModel.Name" id="name" required placeholder="Enter entity name"
-                                   class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+            <form @onsubmit="HandleValidSubmit" @onsubmit:preventDefault="true">
+                <!-- Header card -->
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 mb-5">
+                    <div class="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+                        <div class="flex items-start gap-4 min-w-0">
+                            <div class="flex-shrink-0 w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center text-2xl">
+                                @formModel.GetEntityTypeIcon()
+                            </div>
+                            <div class="min-w-0">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <h1 class="text-2xl font-bold text-gray-900 truncate">
+                                        @(IsEditMode ? (entity?.Name ?? "Edit Entity") : "New Entity")
+                                    </h1>
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium @formModel.GetEntityTypeClass()">
+                                        @formModel.EntityType.ToString()
+                                    </span>
+                                    @if (formModel.IsCritical)
+                                    {
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                                            <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                                            </svg>
+                                            Critical
+                                        </span>
+                                    }
+                                </div>
+                                <p class="mt-1.5 text-sm text-gray-500">
+                                    @(IsEditMode ? "Update the details below." : "Fill in the details to create a new entity.")
+                                </p>
+                            </div>
                         </div>
-                        <div class="sm:col-span-2">
-                            <label for="entityType" class="block text-sm font-medium text-gray-700">Type <span class="text-red-500">*</span></label>
-                            <select @bind="formModel.EntityType" id="entityType" required
-                                    class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
-                                @foreach (var assetType in Enum.GetValues<AssetType>())
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                            <button type="button" @onclick="Cancel"
+                                    class="inline-flex items-center px-3.5 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition-colors">
+                                Cancel
+                            </button>
+                            <button type="submit" disabled="@isSubmitting"
+                                    class="inline-flex items-center px-3.5 py-2 text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 transition-colors">
+                                @if (isSubmitting)
                                 {
-                                    <option value="@assetType">@assetType.ToString()</option>
+                                    <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    <span>@(IsEditMode ? "Saving…" : "Creating…")</span>
                                 }
-                            </select>
-                        </div>
-
-                        <div class="sm:col-span-6">
-                            <label for="description" class="block text-sm font-medium text-gray-700">Description</label>
-                            <textarea @bind="formModel.Description" id="description" rows="2" placeholder="What is this entity?"
-                                      class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"></textarea>
-                        </div>
-
-                        <div class="sm:col-span-4">
-                            <label for="url" class="block text-sm font-medium text-gray-700">URL / Host</label>
-                            <input @bind="formModel.Url" id="url" placeholder="https://example.com or host/IP"
-                                   class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
-                        </div>
-                        <div class="sm:col-span-2">
-                            <label for="version" class="block text-sm font-medium text-gray-700">Version</label>
-                            <input @bind="formModel.Version" id="version" placeholder="1.0.0"
-                                   class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
-                        </div>
-
-                        <div class="sm:col-span-3">
-                            <label for="owner" class="block text-sm font-medium text-gray-700">Owner</label>
-                            <input @bind="formModel.Owner" id="owner" placeholder="Team or person"
-                                   class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
-                        </div>
-                        <div class="sm:col-span-3">
-                            <label for="location" class="block text-sm font-medium text-gray-700">Location</label>
-                            <input @bind="formModel.Location" id="location" placeholder="Region or datacenter"
-                                   class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
-                        </div>
-                    </div>
-
-                    <!-- Status toggles -->
-                    <div class="mt-5 flex flex-col sm:flex-row gap-3">
-                        <label class="flex items-start gap-3 flex-1 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50">
-                            <input @bind="formModel.IsActive" type="checkbox" class="mt-0.5 h-4 w-4 rounded text-indigo-600 border-gray-300 focus:ring-indigo-500" />
-                            <span class="text-sm">
-                                <span class="block font-medium text-gray-800">Active</span>
-                                <span class="text-gray-500">Entity is currently operational</span>
-                            </span>
-                        </label>
-                        <label class="flex items-start gap-3 flex-1 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50">
-                            <input @bind="formModel.IsCritical" type="checkbox" class="mt-0.5 h-4 w-4 rounded text-red-600 border-gray-300 focus:ring-red-500" />
-                            <span class="text-sm">
-                                <span class="block font-medium text-gray-800">Critical</span>
-                                <span class="text-gray-500">Entity is business-critical</span>
-                            </span>
-                        </label>
-                    </div>
-                </section>
-
-                <!-- Dependencies -->
-                <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-base font-semibold text-gray-900">Dependencies</h2>
-                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-                            @selectedDependencies.Count
-                        </span>
-                    </div>
-
-                    <!-- Add row -->
-                    <div class="rounded-lg bg-gray-50 border border-gray-200 p-4 space-y-3">
-                        <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                            <div class="sm:col-span-5">
-                                <label class="block text-xs font-medium text-gray-500 mb-1">Depends on</label>
-                                <select @bind="selectedDependencyEntityId"
-                                        class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
-                                    <option value="">Choose an entity…</option>
-                                    @foreach (var availableEntity in FilteredDependencyEntities)
-                                    {
-                                        <option value="@availableEntity.Id">@availableEntity.Name</option>
-                                    }
-                                </select>
-                            </div>
-                            <div class="sm:col-span-3">
-                                <label class="block text-xs font-medium text-gray-500 mb-1">Type</label>
-                                <select @bind="dependencyType" @bind:after="OnDependencyTypeChanged"
-                                        class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
-                                    @foreach (var assetType in Enum.GetValues<AssetType>())
-                                    {
-                                        <option value="@assetType">@assetType.ToString()</option>
-                                    }
-                                </select>
-                            </div>
-                            <div class="sm:col-span-2">
-                                <label class="block text-xs font-medium text-gray-500 mb-1">Order</label>
-                                <input @bind="dependencyOrder" type="number" min="0"
-                                       class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
-                            </div>
-                            <div class="sm:col-span-2 flex items-end">
-                                <label class="inline-flex items-center gap-2 text-sm text-gray-700 pb-2">
-                                    <input @bind="isDependencyCritical" type="checkbox" class="h-4 w-4 rounded text-red-600 border-gray-300 focus:ring-red-500" />
-                                    Critical
-                                </label>
-                            </div>
-                        </div>
-                        <div class="flex gap-3">
-                            <input @bind="dependencyDescription" placeholder="Note (optional)"
-                                   class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
-                            <button type="button" @onclick="AddDependency" disabled="@(string.IsNullOrEmpty(selectedDependencyEntityId))"
-                                    class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
-                                Add
+                                else
+                                {
+                                    <span>@(IsEditMode ? "Save Changes" : "Create Entity")</span>
+                                }
                             </button>
                         </div>
                     </div>
+                </div>
 
-                    <!-- List -->
-                    @if (selectedDependencies.Any())
-                    {
-                        <ul class="mt-4 divide-y divide-gray-100 border border-gray-100 rounded-lg">
-                            @foreach (var dependency in selectedDependencies.OrderBy(d => d.Order))
-                            {
-                                <li class="flex items-center gap-3 px-4 py-3">
-                                    <span class="inline-flex items-center justify-center w-6 h-6 shrink-0 bg-gray-100 text-gray-600 text-xs font-medium rounded-full">@dependency.Order</span>
-                                    <div class="flex-1 min-w-0">
-                                        <div class="flex items-center gap-2 flex-wrap">
-                                            <span class="font-medium text-gray-900 truncate">
-                                                @(availableEntities.FirstOrDefault(e => e.Id == dependency.DependsOnEntityId)?.Name ?? "Unknown Entity")
-                                            </span>
-                                            @if (dependency.DependencyType.HasValue)
-                                            {
-                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">@dependency.DependencyType</span>
-                                            }
-                                            @if (dependency.IsCritical)
-                                            {
-                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Critical</span>
-                                            }
-                                        </div>
-                                        @if (!string.IsNullOrEmpty(dependency.Description))
+                <!-- Main content -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+                    <!-- Left column -->
+                    <div class="lg:col-span-2 space-y-5">
+                        <!-- Details -->
+                        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                            <h3 class="text-base font-semibold text-gray-900 mb-5">Details</h3>
+                            <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
+                                <div class="sm:col-span-4">
+                                    <label for="name" class="block text-sm font-medium text-gray-700">Name <span class="text-red-500">*</span></label>
+                                    <input @bind="formModel.Name" id="name" required placeholder="Enter entity name"
+                                           class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+                                </div>
+                                <div class="sm:col-span-2">
+                                    <label for="entityType" class="block text-sm font-medium text-gray-700">Type <span class="text-red-500">*</span></label>
+                                    <select @bind="formModel.EntityType" id="entityType" required
+                                            class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+                                        @foreach (var assetType in Enum.GetValues<AssetType>())
                                         {
-                                            <p class="text-xs text-gray-500 mt-0.5 truncate">@dependency.Description</p>
+                                            <option value="@assetType">@assetType.ToString()</option>
                                         }
+                                    </select>
+                                </div>
+
+                                <div class="sm:col-span-6">
+                                    <label for="description" class="block text-sm font-medium text-gray-700">Description</label>
+                                    <textarea @bind="formModel.Description" id="description" rows="2" placeholder="What is this entity?"
+                                              class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"></textarea>
+                                </div>
+
+                                <div class="sm:col-span-4">
+                                    <label for="url" class="block text-sm font-medium text-gray-700">URL / Host</label>
+                                    <input @bind="formModel.Url" id="url" placeholder="https://example.com or host/IP"
+                                           class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+                                </div>
+                                <div class="sm:col-span-2">
+                                    <label for="version" class="block text-sm font-medium text-gray-700">Version</label>
+                                    <input @bind="formModel.Version" id="version" placeholder="1.0.0"
+                                           class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+                                </div>
+
+                                <div class="sm:col-span-3">
+                                    <label for="owner" class="block text-sm font-medium text-gray-700">Owner</label>
+                                    <input @bind="formModel.Owner" id="owner" placeholder="Team or person"
+                                           class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+                                </div>
+                                <div class="sm:col-span-3">
+                                    <label for="location" class="block text-sm font-medium text-gray-700">Location</label>
+                                    <input @bind="formModel.Location" id="location" placeholder="Region or datacenter"
+                                           class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- Dependencies -->
+                        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-base font-semibold text-gray-900">Dependencies</h3>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                                    @selectedDependencies.Count
+                                </span>
+                            </div>
+
+                            <!-- Add row -->
+                            <div class="rounded-lg bg-gray-50 border border-gray-200 p-4 space-y-3">
+                                <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                                    <div class="sm:col-span-5">
+                                        <label class="block text-xs font-medium text-gray-500 mb-1">Depends on</label>
+                                        <select @bind="selectedDependencyEntityId"
+                                                class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+                                            <option value="">Choose an entity…</option>
+                                            @foreach (var availableEntity in FilteredDependencyEntities)
+                                            {
+                                                <option value="@availableEntity.Id">@availableEntity.Name</option>
+                                            }
+                                        </select>
                                     </div>
-                                    <button type="button" @onclick="() => RemoveDependency(dependency)" title="Remove"
-                                            class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg" style="border:none;background:none;">
-                                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                        </svg>
+                                    <div class="sm:col-span-3">
+                                        <label class="block text-xs font-medium text-gray-500 mb-1">Type</label>
+                                        <select @bind="dependencyType" @bind:after="OnDependencyTypeChanged"
+                                                class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+                                            @foreach (var assetType in Enum.GetValues<AssetType>())
+                                            {
+                                                <option value="@assetType">@assetType.ToString()</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="sm:col-span-2">
+                                        <label class="block text-xs font-medium text-gray-500 mb-1">Order</label>
+                                        <input @bind="dependencyOrder" type="number" min="0"
+                                               class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+                                    </div>
+                                    <div class="sm:col-span-2 flex items-end">
+                                        <label class="inline-flex items-center gap-2 text-sm text-gray-700 pb-2">
+                                            <input @bind="isDependencyCritical" type="checkbox" class="h-4 w-4 rounded text-red-600 border-gray-300 focus:ring-red-500" />
+                                            Critical
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="flex gap-3">
+                                    <input @bind="dependencyDescription" placeholder="Note (optional)"
+                                           class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+                                    <button type="button" @onclick="AddDependency" disabled="@(string.IsNullOrEmpty(selectedDependencyEntityId))"
+                                            class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
+                                        Add
                                     </button>
-                                </li>
+                                </div>
+                            </div>
+
+                            <!-- List -->
+                            @if (selectedDependencies.Any())
+                            {
+                                <ul class="mt-4 divide-y divide-gray-100 border border-gray-100 rounded-lg">
+                                    @foreach (var dependency in selectedDependencies.OrderBy(d => d.Order))
+                                    {
+                                        <li class="flex items-center gap-3 px-4 py-3">
+                                            <span class="inline-flex items-center justify-center w-6 h-6 shrink-0 bg-gray-100 text-gray-600 text-xs font-medium rounded-full">@dependency.Order</span>
+                                            <div class="flex-1 min-w-0">
+                                                <div class="flex items-center gap-2 flex-wrap">
+                                                    <span class="font-medium text-gray-900 truncate">
+                                                        @(availableEntities.FirstOrDefault(e => e.Id == dependency.DependsOnEntityId)?.Name ?? "Unknown Entity")
+                                                    </span>
+                                                    @if (dependency.DependencyType.HasValue)
+                                                    {
+                                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">@dependency.DependencyType</span>
+                                                    }
+                                                    @if (dependency.IsCritical)
+                                                    {
+                                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Critical</span>
+                                                    }
+                                                </div>
+                                                @if (!string.IsNullOrEmpty(dependency.Description))
+                                                {
+                                                    <p class="text-xs text-gray-500 mt-0.5 truncate">@dependency.Description</p>
+                                                }
+                                            </div>
+                                            <button type="button" @onclick="() => RemoveDependency(dependency)" title="Remove"
+                                                    class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg" style="border:none;background:none;">
+                                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                </svg>
+                                            </button>
+                                        </li>
+                                    }
+                                </ul>
                             }
-                        </ul>
-                    }
-                    else
-                    {
-                        <p class="mt-4 text-center text-sm text-gray-400 py-6">No dependencies added.</p>
-                    }
-                </section>
+                            else
+                            {
+                                <p class="mt-4 text-center text-sm text-gray-400 py-6">No dependencies added.</p>
+                            }
+                        </section>
+                    </div>
 
-                <!-- Advanced / Metadata -->
-                <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-                    <h2 class="text-base font-semibold text-gray-900 mb-1">Metadata</h2>
-                    <p class="text-sm text-gray-500 mb-3">Optional JSON for extra configuration.</p>
-                    <textarea @bind="formModel.Metadata" rows="3" placeholder='{"environment": "production"}'
-                              class="block w-full font-mono text-sm rounded-lg border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"></textarea>
-                </section>
+                    <!-- Right column - sidebar -->
+                    <div class="space-y-5">
+                        <!-- Settings -->
+                        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                            <h3 class="text-base font-semibold text-gray-900 mb-4">Settings</h3>
+                            <div class="space-y-3">
+                                <label class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50">
+                                    <input @bind="formModel.IsActive" type="checkbox" class="mt-0.5 h-4 w-4 rounded text-indigo-600 border-gray-300 focus:ring-indigo-500" />
+                                    <span class="text-sm">
+                                        <span class="block font-medium text-gray-800">Active</span>
+                                        <span class="text-gray-500">Entity is currently operational</span>
+                                    </span>
+                                </label>
+                                <label class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50">
+                                    <input @bind="formModel.IsCritical" type="checkbox" class="mt-0.5 h-4 w-4 rounded text-red-600 border-gray-300 focus:ring-red-500" />
+                                    <span class="text-sm">
+                                        <span class="block font-medium text-gray-800">Critical</span>
+                                        <span class="text-gray-500">Entity is business-critical</span>
+                                    </span>
+                                </label>
+                            </div>
+                        </section>
 
-                <!-- Actions -->
-                <div class="flex justify-end gap-3">
-                    <button type="button" @onclick="Cancel"
-                            class="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50">
-                        Cancel
-                    </button>
-                    <button type="submit" disabled="@isSubmitting"
-                            class="inline-flex items-center justify-center px-5 py-2 rounded-lg text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300">
-                        @if (isSubmitting)
-                        {
-                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            <span>@(IsEditMode ? "Saving…" : "Creating…")</span>
-                        }
-                        else
-                        {
-                            <span>@(IsEditMode ? "Save Changes" : "Create Entity")</span>
-                        }
-                    </button>
+                        <!-- Metadata -->
+                        <section class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                            <h3 class="text-base font-semibold text-gray-900 mb-1">Metadata</h3>
+                            <p class="text-xs text-gray-500 mb-3">Optional JSON for extra configuration.</p>
+                            <textarea @bind="formModel.Metadata" rows="4" placeholder='{"environment": "production"}'
+                                      class="block w-full font-mono text-sm rounded-lg border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"></textarea>
+                        </section>
+                    </div>
                 </div>
             </form>
-        }
-    </div>
+        </div>
+    }
 </div>
 
 @code {

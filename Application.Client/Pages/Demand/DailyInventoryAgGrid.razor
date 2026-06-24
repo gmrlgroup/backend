@@ -1,0 +1,532 @@
+@page "/demand/daily-inventory-aggrid"
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@using Application.Shared.Models.DailyInventory
+@using Application.Shared.Authorization
+@using Microsoft.AspNetCore.Authorization
+@using System.Net.Http.Json
+@attribute [Authorize(Policy = PolicyNames.InventoryRead)]
+@inject HttpClient Http
+@inject StateContainer _stateContainer
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Daily Inventory (AG Grid)</PageTitle>
+
+<div style="max-width: 1800px; margin: 0 auto; padding: 0; height: 100%; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden;">
+
+    <!-- Header -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-shrink: 0;">
+        <div>
+            <h1 style="font-size: 1.5rem; font-weight: 700; color: #1f2937; margin: 0;">
+                Daily Inventory
+                <span style="font-size: 0.7rem; font-weight: 600; color: #4f46e5; background: #eef2ff; padding: 2px 8px; border-radius: 5px; vertical-align: middle; margin-left: 6px;">AG GRID</span>
+            </h1>
+            <p style="font-size: 0.8rem; color: #6b7280; margin: 4px 0 0;">Item-location stock positions with 6-week rolling sales</p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <button @onclick="ExportCsv" title="Export all filtered rows (max 1,000,000) to CSV"
+                    style="padding: 6px 12px; border-radius: 6px; border: 1px solid #d1d5db; background: white; font-size: 0.8rem; cursor: pointer; color: #374151; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Export CSV
+            </button>
+            @if (_loading)
+            {
+                <span style="font-size: 11px; color: #6b7280;">Loading…</span>
+            }
+            @if (_rows.Count > 0)
+            {
+                <span style="font-size: 11px; font-weight: 500; color: #6b7280; background: #f0f1f3; padding: 3px 8px; border-radius: 5px;">
+                    @_rows.Count rows@(_hasMore ? "+" : "")
+                </span>
+            }
+        </div>
+    </div>
+
+    <!-- Body: main + right sidebar -->
+    <div style="display: flex; gap: 12px; flex: 1; min-height: 0;">
+
+        <!-- Main column -->
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
+
+            <!-- Filter bar -->
+            <div style="background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 16px; margin-bottom: 12px; flex-shrink: 0;">
+                <div style="display: grid; grid-template-columns: auto auto 1fr 1fr auto auto; gap: 8px; align-items: end;">
+                    <div>
+                        <label style="font-size: 0.72rem; font-weight: 600; color: #6b7280; display: block; margin-bottom: 3px; text-transform: uppercase;">End Date</label>
+                        <input type="date" value="@_filter.EndDate.ToString("yyyy-MM-dd")"
+                               @onchange="OnEndDateChanged"
+                               style="padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.8rem; color: #374151;" />
+                    </div>
+
+                    <!-- Location multi-select -->
+                    <div style="position: relative;">
+                        <label style="font-size: 0.72rem; font-weight: 600; color: #6b7280; display: block; margin-bottom: 3px; text-transform: uppercase;">Location</label>
+                        <button @onclick="ToggleLocationDropdown" type="button"
+                                style="min-width: 160px; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.8rem; color: #374151; background: white; cursor: pointer; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                @if (_selectedLocations.Count == 0)
+                                { <span style="color: #9ca3af;">All locations</span> }
+                                else if (_selectedLocations.Count == 1)
+                                { @_selectedLocations.First() }
+                                else
+                                { <span>@_selectedLocations.Count selected</span> }
+                            </span>
+                            <span style="font-size: 0.6rem; color: #9ca3af; flex-shrink: 0;">▼</span>
+                        </button>
+
+                        @if (_locationDropdownOpen)
+                        {
+                            <div style="position: absolute; top: 100%; left: 0; z-index: 100; background: white; border: 1px solid #d1d5db; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.1); min-width: 220px; max-height: 280px; overflow-y: auto; margin-top: 2px;">
+                                @if (_loadingLocations)
+                                {
+                                    <div style="padding: 12px 14px; font-size: 0.8rem; color: #6b7280;">Loading…</div>
+                                }
+                                else
+                                {
+                                    <div style="padding: 8px 10px; border-bottom: 1px solid #f3f4f6;">
+                                        <input @bind="_locationSearch" @bind:event="oninput" placeholder="Search…"
+                                               style="width: 100%; padding: 5px 8px; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 0.78rem; box-sizing: border-box;" />
+                                    </div>
+                                    @if (_selectedLocations.Count > 0)
+                                    {
+                                        <div style="padding: 6px 10px; border-bottom: 1px solid #f3f4f6;">
+                                            <button @onclick="ClearLocationSelection" type="button"
+                                                    style="font-size: 0.75rem; color: #6b7280; background: none; border: none; cursor: pointer; padding: 0;">
+                                                Clear selection (@_selectedLocations.Count)
+                                            </button>
+                                        </div>
+                                    }
+                                    @foreach (var loc in FilteredLocations)
+                                    {
+                                        var isChecked = _selectedLocations.Contains(loc.Code!);
+                                        <label style="display: flex; align-items: center; gap: 8px; padding: 7px 14px; cursor: pointer; font-size: 0.8rem; color: #374151; @(isChecked ? "background: #f0f7ff;" : "")">
+                                            <input type="checkbox" checked="@isChecked"
+                                                   @onchange="@(e => ToggleLocation(loc.Code!, (bool)e.Value!))"
+                                                   style="cursor: pointer;" />
+                                            <span>
+                                                @loc.Code
+                                                @if (!string.IsNullOrWhiteSpace(loc.Name))
+                                                {
+                                                    <span style="color: #9ca3af; margin-left: 4px; font-size: 0.75rem;">@loc.Name</span>
+                                                }
+                                            </span>
+                                        </label>
+                                    }
+                                    @if (!FilteredLocations.Any())
+                                    {
+                                        <div style="padding: 12px 14px; font-size: 0.8rem; color: #9ca3af;">No locations found</div>
+                                    }
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <div>
+                        <label style="font-size: 0.72rem; font-weight: 600; color: #6b7280; display: block; margin-bottom: 3px; text-transform: uppercase;">Item No</label>
+                        <input value="@_filter.ItemNo" @oninput="e => OnFilterInput(e, v => _filter.ItemNo = v)"
+                               placeholder="Filter..." @onkeydown="OnFilterKeyDown"
+                               style="width: 100%; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.8rem; color: #374151; box-sizing: border-box;" />
+                    </div>
+                    <div>
+                        <label style="font-size: 0.72rem; font-weight: 600; color: #6b7280; display: block; margin-bottom: 3px; text-transform: uppercase;">Variant</label>
+                        <input value="@_filter.VariantCode" @oninput="e => OnFilterInput(e, v => _filter.VariantCode = v)"
+                               placeholder="Filter..." @onkeydown="OnFilterKeyDown"
+                               style="width: 100%; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.8rem; color: #374151; box-sizing: border-box;" />
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px; justify-content: flex-end;">
+                        <label style="font-size: 0.78rem; color: #374151; display: flex; align-items: center; gap: 6px; white-space: nowrap; cursor: pointer;">
+                            <input type="checkbox" @bind="_filter.HasStock" style="cursor: pointer;" /> Has stock
+                        </label>
+                        <label style="font-size: 0.78rem; color: #374151; display: flex; align-items: center; gap: 6px; white-space: nowrap; cursor: pointer;">
+                            <input type="checkbox" @bind="_filter.HasSales" style="cursor: pointer;" /> Has sales
+                        </label>
+                    </div>
+                    <div style="display: flex; align-items: flex-end; gap: 6px;">
+                        <button @onclick="ApplyFilters"
+                                style="padding: 6px 14px; border-radius: 6px; border: 1px solid #4f46e5; background: #4f46e5; font-size: 0.8rem; cursor: pointer; color: white; font-weight: 500; white-space: nowrap;">
+                            Apply
+                        </button>
+                        <button @onclick="ResetFilters"
+                                style="padding: 6px 12px; border-radius: 6px; border: 1px solid #d1d5db; background: white; font-size: 0.8rem; cursor: pointer; color: #374151; white-space: nowrap;">
+                            Clear
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AG Grid -->
+            <div id="ag-di-grid" class="ag-theme-quartz" style="flex: 1; min-height: 0; width: 100%;"></div>
+        </div>
+
+        <!-- Right sidebar: item detail column selector -->
+        <aside style="width: 260px; flex-shrink: 0; background: white; border: 1px solid #e5e7eb; border-radius: 10px; display: flex; flex-direction: column; min-height: 0;">
+            <div style="padding: 12px 14px; border-bottom: 1px solid #f3f4f6; flex-shrink: 0;">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <span style="font-size: 0.78rem; font-weight: 700; color: #374151; text-transform: uppercase; letter-spacing: 0.03em;">Item Detail Columns</span>
+                    @if (_selectedDetailColumns.Count > 0)
+                    {
+                        <button @onclick="ClearDetailColumns" type="button"
+                                style="font-size: 0.72rem; color: #6b7280; background: none; border: none; cursor: pointer; padding: 0;">
+                            Clear (@_selectedDetailColumns.Count)
+                        </button>
+                    }
+                </div>
+                <p style="font-size: 0.7rem; color: #9ca3af; margin: 6px 0 0;">Pick attributes to add as columns. Loaded on demand.</p>
+                <input @bind="_detailColumnSearch" @bind:event="oninput" placeholder="Search columns…"
+                       style="width: 100%; margin-top: 8px; padding: 5px 8px; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 0.78rem; box-sizing: border-box;" />
+            </div>
+            <div style="flex: 1; min-height: 0; overflow-y: auto; padding: 6px;">
+                @if (_loadingDetailColumns)
+                {
+                    <div style="padding: 12px 8px; font-size: 0.8rem; color: #6b7280;">Loading columns…</div>
+                }
+                else if (!FilteredDetailColumns.Any())
+                {
+                    <div style="padding: 12px 8px; font-size: 0.8rem; color: #9ca3af;">No columns found.</div>
+                }
+                else
+                {
+                    @foreach (var col in FilteredDetailColumns)
+                    {
+                        var isSel = _selectedDetailColumns.Contains(col);
+                        <label style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; cursor: pointer; font-size: 0.8rem; color: #374151; border-radius: 6px; @(isSel ? "background: #eef2ff;" : "")">
+                            <input type="checkbox" checked="@isSel"
+                                   @onchange="@(e => ToggleDetailColumn(col, (bool)e.Value!))"
+                                   style="cursor: pointer;" />
+                            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">@col</span>
+                        </label>
+                    }
+                }
+            </div>
+        </aside>
+    </div>
+</div>
+
+@code {
+    private List<DailyInventoryRow> _rows = new();
+    private bool _loading;
+    private bool _hasMore = true;
+    private int _currentOffset;
+    private const int PageSize = 10000;
+
+    private DailyInventoryQuery _filter = new() { EndDate = DateTime.Today };
+
+    // Location multi-select
+    private List<DailyInventoryLocation> _locations = new();
+    private HashSet<string> _selectedLocations = new();
+    private bool _locationDropdownOpen;
+    private bool _loadingLocations;
+    private string _locationSearch = "";
+
+    // Item-detail columns (sidebar)
+    private List<string> _availableDetailColumns = new();
+    private List<string> _selectedDetailColumns = new();
+    private bool _loadingDetailColumns;
+    private string _detailColumnSearch = "";
+
+    private DotNetObjectReference<DailyInventoryAgGrid>? _selfRef;
+    private bool _gridReady;
+
+    private IEnumerable<DailyInventoryLocation> FilteredLocations =>
+        string.IsNullOrWhiteSpace(_locationSearch)
+            ? _locations
+            : _locations.Where(l =>
+                (l.Code?.Contains(_locationSearch, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (l.Name?.Contains(_locationSearch, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    private IEnumerable<string> FilteredDetailColumns =>
+        string.IsNullOrWhiteSpace(_detailColumnSearch)
+            ? _availableDetailColumns
+            : _availableDetailColumns.Where(c => c.Contains(_detailColumnSearch, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        _selfRef = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("aggridDailyInventory.init", "ag-di-grid", _selfRef);
+        _gridReady = true;
+
+        await Task.WhenAll(LoadLocationsAsync(), LoadDetailColumnsAsync());
+        await LoadFirstPage();
+    }
+
+    private async Task<string?> GetCompanyIdAsync()
+    {
+        for (var i = 0; i < 50 && _stateContainer.Company is null; i++)
+            await Task.Delay(100);
+        return _stateContainer.Company?.Id;
+    }
+
+    private async Task ExportCsv()
+    {
+        var companyId = await GetCompanyIdAsync();
+        if (string.IsNullOrEmpty(companyId)) return;
+        await JS.InvokeVoidAsync("downloadFile", BuildExportUrl(companyId));
+    }
+
+    private string BuildExportUrl(string companyId)
+    {
+        var sb = new System.Text.StringBuilder("api/dailyinventory/export?");
+        sb.Append($"companyId={Uri.EscapeDataString(companyId)}");
+        sb.Append($"&c={Uri.EscapeDataString(companyId)}"); // resolved by the auth policy's company accessor
+        sb.Append($"&endDate={_filter.EndDate:yyyy-MM-dd}");
+        if (!string.IsNullOrWhiteSpace(_filter.ItemNo))      sb.Append($"&itemNo={Uri.EscapeDataString(_filter.ItemNo)}");
+        if (!string.IsNullOrWhiteSpace(_filter.VariantCode)) sb.Append($"&variantCode={Uri.EscapeDataString(_filter.VariantCode)}");
+        foreach (var code in _selectedLocations)             sb.Append($"&locationCodes={Uri.EscapeDataString(code)}");
+        if (_filter.HasStock) sb.Append("&hasStock=true");
+        if (_filter.HasSales) sb.Append("&hasSales=true");
+        foreach (var col in _selectedDetailColumns)          sb.Append($"&detailColumns={Uri.EscapeDataString(col)}");
+        return sb.ToString();
+    }
+
+    private async Task LoadLocationsAsync()
+    {
+        var companyId = await GetCompanyIdAsync();
+        if (string.IsNullOrEmpty(companyId)) return;
+
+        _loadingLocations = true;
+        try
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, "api/dailyinventory/locations");
+            req.Headers.Add("X-Company-ID", companyId);
+            var resp = await Http.SendAsync(req);
+            if (resp.IsSuccessStatusCode)
+                _locations = await resp.Content.ReadFromJsonAsync<List<DailyInventoryLocation>>() ?? new();
+        }
+        catch (Exception ex) { Console.WriteLine(ex.Message); }
+        finally { _loadingLocations = false; }
+    }
+
+    private async Task LoadDetailColumnsAsync()
+    {
+        var companyId = await GetCompanyIdAsync();
+        if (string.IsNullOrEmpty(companyId)) return;
+
+        _loadingDetailColumns = true;
+        try
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, "api/dailyinventory/detail-columns");
+            req.Headers.Add("X-Company-ID", companyId);
+            var resp = await Http.SendAsync(req);
+            if (resp.IsSuccessStatusCode)
+                _availableDetailColumns = await resp.Content.ReadFromJsonAsync<List<string>>() ?? new();
+        }
+        catch (Exception ex) { Console.WriteLine(ex.Message); }
+        finally { _loadingDetailColumns = false; }
+    }
+
+    private void ToggleLocationDropdown()
+    {
+        _locationDropdownOpen = !_locationDropdownOpen;
+        _locationSearch = "";
+    }
+
+    private void CloseLocationDropdown() => _locationDropdownOpen = false;
+
+    private void ToggleLocation(string code, bool selected)
+    {
+        if (selected) _selectedLocations.Add(code);
+        else _selectedLocations.Remove(code);
+    }
+
+    private void ClearLocationSelection() => _selectedLocations.Clear();
+
+    private async Task ToggleDetailColumn(string col, bool selected)
+    {
+        if (selected)
+        {
+            if (!_selectedDetailColumns.Contains(col)) _selectedDetailColumns.Add(col);
+        }
+        else
+        {
+            _selectedDetailColumns.Remove(col);
+        }
+
+        await JS.InvokeVoidAsync("aggridDailyInventory.setDetailColumns", _selectedDetailColumns);
+
+        // Refresh detail values on all loaded rows, then re-push to the grid.
+        foreach (var r in _rows) r.Details = new();
+        if (_selectedDetailColumns.Count > 0)
+            await FetchDetailsForAsync(_rows);
+        await JS.InvokeVoidAsync("aggridDailyInventory.setRows", _rows);
+    }
+
+    private async Task ClearDetailColumns()
+    {
+        _selectedDetailColumns.Clear();
+        await JS.InvokeVoidAsync("aggridDailyInventory.setDetailColumns", _selectedDetailColumns);
+        foreach (var r in _rows) r.Details = new();
+        await JS.InvokeVoidAsync("aggridDailyInventory.setRows", _rows);
+    }
+
+    private async Task FetchDetailsForAsync(IReadOnlyList<DailyInventoryRow> targetRows)
+    {
+        if (_selectedDetailColumns.Count == 0 || targetRows.Count == 0) return;
+
+        var companyId = await GetCompanyIdAsync();
+        if (string.IsNullOrEmpty(companyId)) return;
+
+        var items = targetRows
+            .GroupBy(r => (r.ItemNo, r.VariantCode))
+            .Select(g => new ItemKey { ItemNo = g.Key.ItemNo, VariantCode = g.Key.VariantCode })
+            .ToList();
+
+        var request = new ItemDetailsRequest { Columns = _selectedDetailColumns.ToList(), Items = items };
+
+        try
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, "api/dailyinventory/details")
+            {
+                Content = JsonContent.Create(request)
+            };
+            req.Headers.Add("X-Company-ID", companyId);
+            var resp = await Http.SendAsync(req);
+            if (!resp.IsSuccessStatusCode) return;
+
+            var details = await resp.Content.ReadFromJsonAsync<List<ItemDetailsRow>>() ?? new();
+            var lookup = new Dictionary<string, ItemDetailsRow>();
+            foreach (var d in details) lookup[Key(d.ItemNo, d.VariantCode)] = d;
+
+            foreach (var row in targetRows)
+            {
+                if (lookup.TryGetValue(Key(row.ItemNo, row.VariantCode), out var d))
+                    foreach (var col in _selectedDetailColumns)
+                        row.Details[col] = d.Values.GetValueOrDefault(col);
+            }
+        }
+        catch (Exception ex) { Console.WriteLine(ex.Message); }
+    }
+
+    private static string Key(string? itemNo, string? variantCode) => $"{itemNo}{variantCode}";
+
+    private async Task LoadFirstPage()
+    {
+        if (!_gridReady) return;
+
+        var companyId = await GetCompanyIdAsync();
+        if (string.IsNullOrEmpty(companyId)) return;
+
+        _loading = true;
+        StateHasChanged();
+        try
+        {
+            _rows.Clear();
+            _currentOffset = 0;
+
+            var page = await FetchPageAsync(companyId, _currentOffset);
+            _rows.AddRange(page);
+            _hasMore = page.Count == PageSize;
+
+            if (_selectedDetailColumns.Count > 0)
+                await FetchDetailsForAsync(page);
+
+            await JS.InvokeVoidAsync("aggridDailyInventory.setHasMore", _hasMore);
+            await JS.InvokeVoidAsync("aggridDailyInventory.setRows", _rows);
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    [JSInvokable]
+    public async Task LoadMore()
+    {
+        if (_loading || !_hasMore) return;
+
+        var companyId = await GetCompanyIdAsync();
+        if (string.IsNullOrEmpty(companyId)) return;
+
+        _loading = true;
+        StateHasChanged();
+        try
+        {
+            _currentOffset += PageSize;
+            var page = await FetchPageAsync(companyId, _currentOffset);
+
+            if (_selectedDetailColumns.Count > 0)
+                await FetchDetailsForAsync(page);
+
+            _rows.AddRange(page);
+            _hasMore = page.Count == PageSize;
+
+            await JS.InvokeVoidAsync("aggridDailyInventory.setHasMore", _hasMore);
+            await JS.InvokeVoidAsync("aggridDailyInventory.addRows", page);
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task<List<DailyInventoryRow>> FetchPageAsync(string companyId, int offset)
+    {
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, BuildUrl(offset));
+            request.Headers.Add("X-Company-ID", companyId);
+            var response = await Http.SendAsync(request);
+            if (response.IsSuccessStatusCode)
+                return await response.Content.ReadFromJsonAsync<List<DailyInventoryRow>>() ?? new();
+
+            var body = await response.Content.ReadAsStringAsync();
+            Console.WriteLine($"Daily inventory fetch failed ({(int)response.StatusCode}): {body}");
+        }
+        catch (Exception ex) { Console.WriteLine(ex.Message); }
+        return new();
+    }
+
+    private string BuildUrl(int offset)
+    {
+        var sb = new System.Text.StringBuilder("api/dailyinventory?");
+        sb.Append($"endDate={_filter.EndDate:yyyy-MM-dd}");
+        sb.Append($"&offset={offset}&limit={PageSize}");
+        if (!string.IsNullOrWhiteSpace(_filter.ItemNo))       sb.Append($"&itemNo={Uri.EscapeDataString(_filter.ItemNo)}");
+        if (!string.IsNullOrWhiteSpace(_filter.VariantCode))  sb.Append($"&variantCode={Uri.EscapeDataString(_filter.VariantCode)}");
+        foreach (var code in _selectedLocations)              sb.Append($"&locationCodes={Uri.EscapeDataString(code)}");
+        if (_filter.HasStock) sb.Append("&hasStock=true");
+        if (_filter.HasSales) sb.Append("&hasSales=true");
+        return sb.ToString();
+    }
+
+    private void OnEndDateChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var date))
+            _filter.EndDate = date;
+    }
+
+    private void OnFilterInput(ChangeEventArgs e, Action<string?> setter)
+    {
+        setter(e.Value?.ToString());
+    }
+
+    private async Task OnFilterKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await ApplyFilters();
+    }
+
+    private async Task ApplyFilters()
+    {
+        _locationDropdownOpen = false;
+        await LoadFirstPage();
+    }
+
+    private async Task ResetFilters()
+    {
+        _filter = new DailyInventoryQuery { EndDate = DateTime.Today };
+        _selectedLocations.Clear();
+        _locationDropdownOpen = false;
+        await LoadFirstPage();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("aggridDailyInventory.dispose"); }
+        catch { /* circuit may already be gone */ }
+        _selfRef?.Dispose();
+    }
+}

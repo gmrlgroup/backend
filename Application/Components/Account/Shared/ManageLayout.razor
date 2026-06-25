@@ -1,18 +1,16 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 @layout AccountLayout
 
-<h1>Manage your account</h1>
+<div class="acct-shell">
+    <div class="acct-page-head">
+        <h1 class="acct-page-title">Account settings</h1>
+        <p class="acct-page-sub">Manage your profile, security, and personal data.</p>
+    </div>
 
-<div class="manage">
-    <h2>Change your account settings</h2>
-    <hr />
-    <FluentGrid>
-        <FluentGridItem sm="3">
-            <ManageNavMenu />
-        </FluentGridItem>
-
-        <FluentGridItem sm="9">
+    <div class="acct-layout">
+        <ManageNavMenu />
+        <div class="acct-content">
             @Body
-        </FluentGridItem>
-    </FluentGrid>
+        </div>
+    </div>
 </div>

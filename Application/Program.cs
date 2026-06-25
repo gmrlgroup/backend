@@ -166,8 +166,14 @@ builder.Services.AddDbContext<StatusDbContext>(options =>
 
 
 var userManagementConnectionString = builder.Configuration.GetConnectionString("UserManagementDbContext") ?? throw new InvalidOperationException("Connection string 'ApplicationDbContext' not found.");
-builder.Services.AddDbContext<UserManagementDbContext>(options =>
+// Register a factory so services (e.g. CompanyService) can create short-lived, non-shared
+// contexts. This prevents "A second operation was started on this context instance" when a
+// layout and a page issue concurrent queries during Blazor SSR rendering. Identity still needs
+// a scoped UserManagementDbContext, so also expose one that is created from the factory.
+builder.Services.AddDbContextFactory<UserManagementDbContext>(options =>
     options.UseSqlServer(userManagementConnectionString, b => b.MigrationsAssembly("Application")));
+builder.Services.AddScoped<UserManagementDbContext>(sp =>
+    sp.GetRequiredService<IDbContextFactory<UserManagementDbContext>>().CreateDbContext());
 
 
 // Add Data Warehouse DbContext

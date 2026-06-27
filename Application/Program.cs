@@ -1,6 +1,8 @@
 using Application.Authorization;
 using Application.Client.Pages;
 using Application.DailyInventory;
+using Hangfire;
+using Hangfire.SqlServer;
 using Application.Components;
 using Application.Components.Account;
 using Application.Helpers;
@@ -323,6 +325,24 @@ builder.Services.AddScoped<ISavedQueryService, SavedQueryService>();
 // Scheduled/automated ingestion — executor shared with the scheduler ("Run now" runs it inline here).
 builder.Services.AddScoped<IIngestionService, IngestionService>();
 
+// Hangfire CLIENT only (no server): lets "Run as batch" enqueue an ingestion job into the same storage
+// the Application.Scheduler process reads from, so it runs there instead of inline in this web request.
+// Requires the 'SchedulerDbContext' connection string; without it, batch mode stays disabled and "Run
+// now" (inline) still works. Serializer settings mirror the scheduler so jobs deserialize cleanly.
+var hangfireConnectionString = builder.Configuration.GetConnectionString("SchedulerDbContext");
+if (!string.IsNullOrWhiteSpace(hangfireConnectionString))
+{
+    builder.Services.AddHangfire(cfg => cfg
+        .UseSimpleAssemblyNameTypeSerializer()
+        .UseRecommendedSerializerSettings()
+        .UseSqlServerStorage(hangfireConnectionString, new SqlServerStorageOptions
+        {
+            SchemaName = "HangFire",
+            PrepareSchemaIfNecessary = true,
+        }));
+    // No AddHangfireServer() here — the scheduler process is the only worker.
+}
+
 // Configure Azure OpenAI settings
 builder.Services.Configure<AzureOpenAIConfiguration>(builder.Configuration.GetSection("AzureOpenAI"));
 
@@ -404,5 +424,21 @@ app.MapRazorComponents<App>()
 
 // Add additional endpoints required by the Identity /Account Razor components.
 app.MapAdditionalIdentityEndpoints();
+
+// A "Run now" ingestion executes inline in the web request, so a restart mid-run can leave its run
+// record stuck at "Running". Reconcile any such orphaned runs once at startup.
+using (var startupScope = app.Services.CreateScope())
+{
+    try
+    {
+        var ingestion = startupScope.ServiceProvider.GetRequiredService<IIngestionService>();
+        var staleHours = builder.Configuration.GetValue<double?>("Ingestion:StaleRunTimeoutHours") ?? 6;
+        await ingestion.FailStaleRunsAsync(TimeSpan.FromHours(staleHours));
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Stale ingestion run reconciliation at startup failed.");
+    }
+}
 
 app.Run();

@@ -33,8 +33,28 @@ public interface IIngestionService
     Task<bool> DeleteAsync(string companyId, string id, CancellationToken ct = default);
     Task<List<IngestionRunDto>> GetRunsAsync(string companyId, string sourceId, int limit = 20, CancellationToken ct = default);
 
-    /// <summary>Runs one ingestion source end-to-end. Never throws — failures are captured in the run record.</summary>
-    Task<ImportResult> RunSourceAsync(string sourceId, CancellationToken ct = default);
+    /// <summary>Runs one ingestion source end-to-end. Never throws — failures are captured in the run record.
+    /// When <paramref name="runId"/> matches an existing (e.g. "Queued") run it is reused/transitioned;
+    /// otherwise a new run is created. <paramref name="jobId"/> records the Hangfire job id when applicable.</summary>
+    Task<ImportResult> RunSourceAsync(string sourceId, string? runId = null, string? jobId = null, CancellationToken ct = default);
+
+    /// <summary>Creates a placeholder run in the <c>Queued</c> state (before a Hangfire batch job starts)
+    /// and returns its id, so the UI shows the queued run immediately and the job id can be attached.</summary>
+    Task<string> CreateQueuedRunAsync(string companyId, string sourceId, CancellationToken ct = default);
+
+    /// <summary>Attaches a Hangfire job id to an existing run via a targeted column update (no row clobber).</summary>
+    Task SetRunJobIdAsync(string runId, string jobId, CancellationToken ct = default);
+
+    /// <summary>Reconciles orphaned run records: marks any run still flagged <c>Running</c> whose start is
+    /// older than <paramref name="olderThan"/> as <c>Failed</c>. A "Run now" executes inline in the web
+    /// request, so a process restart mid-run leaves its run row stuck at Running — this cleans those up.
+    /// Returns the number of runs reconciled.</summary>
+    Task<int> FailStaleRunsAsync(TimeSpan olderThan, CancellationToken ct = default);
+
+    /// <summary>User-initiated, immediate reconcile of a single source: marks its <c>Running</c> runs as
+    /// <c>Failed</c> regardless of age (the user has confirmed the run is stuck). Company-scoped.
+    /// Returns the number of runs cleared.</summary>
+    Task<int> FailRunningRunsForSourceAsync(string companyId, string sourceId, CancellationToken ct = default);
 
     /// <summary>One-off snapshot: runs a read-only SELECT against a connected Database entity and materializes
     /// the rows into <paramref name="targetTable"/> in the dataset's DuckDB file (replace + create-if-missing).
@@ -138,7 +158,8 @@ public class IngestionService : IIngestionService
                 FinishedAt = r.FinishedAt,
                 Status = r.Status,
                 RowsIngested = r.RowsIngested,
-                ErrorMessage = r.ErrorMessage
+                ErrorMessage = r.ErrorMessage,
+                JobId = r.JobId
             })
             .ToListAsync(ct);
     }
@@ -201,20 +222,32 @@ public class IngestionService : IIngestionService
 
     // ---- Execution ----
 
-    public async Task<ImportResult> RunSourceAsync(string sourceId, CancellationToken ct = default)
+    public async Task<ImportResult> RunSourceAsync(string sourceId, string? runId = null, string? jobId = null, CancellationToken ct = default)
     {
         var source = await _db.IngestionSource.FirstOrDefaultAsync(s => s.Id == sourceId, ct);
         if (source == null)
             return new ImportResult { Error = "Ingestion source not found." };
 
-        var run = new IngestionRun
+        // Reuse a pre-created (e.g. "Queued") run when a runId is supplied, so the batch flow's queued row
+        // becomes this execution; otherwise start a fresh run record.
+        IngestionRun? run = runId != null
+            ? await _db.IngestionRun.FirstOrDefaultAsync(r => r.Id == runId, ct)
+            : null;
+
+        if (run == null)
         {
-            SourceId = source.Id,
-            CompanyId = source.CompanyId,
-            StartedAt = DateTime.UtcNow,
-            Status = "Running"
-        };
-        _db.IngestionRun.Add(run);
+            run = new IngestionRun
+            {
+                SourceId = source.Id,
+                CompanyId = source.CompanyId,
+            };
+            if (runId != null) run.Id = runId;
+            _db.IngestionRun.Add(run);
+        }
+
+        run.StartedAt = DateTime.UtcNow;
+        run.Status = "Running";
+        if (!string.IsNullOrEmpty(jobId)) run.JobId = jobId;
         await _db.SaveChangesAsync(ct);
 
         string? tempPath = null;
@@ -266,6 +299,98 @@ public class IngestionService : IIngestionService
         }
 
         return result;
+    }
+
+    public async Task<string> CreateQueuedRunAsync(string companyId, string sourceId, CancellationToken ct = default)
+    {
+        var run = new IngestionRun
+        {
+            SourceId = sourceId,
+            CompanyId = companyId,
+            StartedAt = DateTime.UtcNow,
+            Status = "Queued"
+        };
+        _db.IngestionRun.Add(run);
+        await _db.SaveChangesAsync(ct);
+        return run.Id;
+    }
+
+    public async Task SetRunJobIdAsync(string runId, string jobId, CancellationToken ct = default)
+    {
+        // Targeted column update so it can't clobber a Status the executing job may have already written.
+        await _db.IngestionRun
+            .Where(r => r.Id == runId)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.JobId, jobId), ct);
+    }
+
+    public async Task<int> FailStaleRunsAsync(TimeSpan olderThan, CancellationToken ct = default)
+    {
+        // A threshold (rather than "every Running row") is deliberate: the web app and scheduler share
+        // this table, so a freshly-started run owned by the *other* process must not be failed here.
+        var cutoff = DateTime.UtcNow - olderThan;
+        var stale = await _db.IngestionRun
+            .Where(r => r.Status == "Running" && r.StartedAt < cutoff)
+            .ToListAsync(ct);
+        if (stale.Count == 0)
+            return 0;
+
+        var now = DateTime.UtcNow;
+        const string message = "Marked as failed: the run did not finish (the process was restarted or it exceeded the stale-run timeout).";
+
+        foreach (var run in stale)
+        {
+            run.Status = "Failed";
+            run.FinishedAt = now;
+            run.ErrorMessage = message;
+        }
+
+        // Reflect the failure on each parent source when the orphaned run is its most recent activity,
+        // so the source's status pill doesn't keep showing the stale outcome.
+        foreach (var group in stale.GroupBy(r => r.SourceId))
+        {
+            var latest = group.OrderByDescending(r => r.StartedAt).First();
+            var source = await _db.IngestionSource.FirstOrDefaultAsync(s => s.Id == group.Key, ct);
+            if (source != null && (source.LastRunAt == null || source.LastRunAt <= latest.StartedAt))
+            {
+                source.LastRunAt = now;
+                source.LastRunStatus = "Failed";
+                source.LastRunMessage = message;
+            }
+        }
+
+        await _db.SaveChangesAsync(ct);
+        _logger.LogInformation("Reconciled {Count} stale ingestion run(s) started before {Cutoff:o}.", stale.Count, cutoff);
+        return stale.Count;
+    }
+
+    public async Task<int> FailRunningRunsForSourceAsync(string companyId, string sourceId, CancellationToken ct = default)
+    {
+        var running = await _db.IngestionRun
+            .Where(r => r.SourceId == sourceId && r.CompanyId == companyId && r.Status == "Running")
+            .ToListAsync(ct);
+        if (running.Count == 0)
+            return 0;
+
+        var now = DateTime.UtcNow;
+        const string message = "Marked as failed manually — the run was stuck in Running.";
+
+        foreach (var run in running)
+        {
+            run.Status = "Failed";
+            run.FinishedAt = now;
+            run.ErrorMessage = message;
+        }
+
+        var source = await _db.IngestionSource.FirstOrDefaultAsync(s => s.Id == sourceId && s.CompanyId == companyId, ct);
+        if (source != null)
+        {
+            source.LastRunAt = now;
+            source.LastRunStatus = "Failed";
+            source.LastRunMessage = message;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return running.Count;
     }
 
     public async Task<ImportResult> SnapshotQueryAsync(string companyId, string datasetId, string sourceEntityId, string sql, string targetTable, CancellationToken ct = default)

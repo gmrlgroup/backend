@@ -239,8 +239,11 @@ else
                                         <div class="ds-actions">
                                             @if (canEdit)
                                             {
-                                                <button class="btn-icon" title="Run now" @onclick="() => RunNow(s)" disabled="@(runningId == s.Id)">
+                                                <button class="btn-icon" title="Run now (inline)" @onclick="() => RunNow(s)" disabled="@(runningId == s.Id)">
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                                </button>
+                                                <button class="btn-icon" title="Run as batch (background job via the scheduler)" @onclick="() => RunBatch(s)" disabled="@(runningId == s.Id || batchQueuingId == s.Id)">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v16h16"/><path d="m5 19 6-6 4 4 6-6"/></svg>
                                                 </button>
                                                 <button class="btn-icon" title="Edit" @onclick="() => StartEdit(s)">
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg>
@@ -268,15 +271,41 @@ else
                                             }
                                             else if (runs.Any())
                                             {
+                                                @if (canEdit && runs.Any(r => r.Status == "Running"))
+                                                {
+                                                    <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin-bottom:0.4rem;padding:0.4rem 0.5rem;background:#fffbeb;border:1px solid #fde68a;border-radius:6px">
+                                                        <span style="font-size:0.75rem;color:#92400e">A run is stuck in <strong>Running</strong>. If the app was restarted mid-run, mark it failed.</span>
+                                                        <button class="btn btn-outline" style="padding:0.2rem 0.5rem;font-size:0.75rem" @onclick="() => ReconcileRuns(s)" disabled="@(reconcilingId == s.Id)">
+                                                            @(reconcilingId == s.Id ? "Working…" : "Mark as failed")
+                                                        </button>
+                                                    </div>
+                                                }
                                                 <table style="width:100%;font-size:0.8125rem;border-collapse:collapse">
-                                                    <thead><tr style="text-align:left;color:#71717a"><th style="padding:0.25rem 0.5rem">Started</th><th style="padding:0.25rem 0.5rem">Status</th><th style="padding:0.25rem 0.5rem">Rows</th><th style="padding:0.25rem 0.5rem">Message</th></tr></thead>
+                                                    <thead><tr style="text-align:left;color:#71717a"><th style="padding:0.25rem 0.5rem">Started</th><th style="padding:0.25rem 0.5rem">Status</th><th style="padding:0.25rem 0.5rem">Rows</th><th style="padding:0.25rem 0.5rem">Run ID</th><th style="padding:0.25rem 0.5rem">Job</th><th style="padding:0.25rem 0.5rem">Message</th></tr></thead>
                                                     <tbody>
                                                         @foreach (var r in runs)
                                                         {
                                                             <tr style="border-top:1px solid #f4f4f5">
                                                                 <td style="padding:0.25rem 0.5rem">@r.StartedAt.ToLocalTime().ToString("MMM dd HH:mm:ss")</td>
-                                                                <td style="padding:0.25rem 0.5rem;color:@(r.Status == "Success" ? "#15803d" : r.Status == "Failed" ? "#b91c1c" : "#71717a")">@r.Status</td>
+                                                                <td style="padding:0.25rem 0.5rem;color:@(r.Status == "Success" ? "#15803d" : r.Status == "Failed" ? "#b91c1c" : r.Status == "Queued" ? "#2563eb" : "#71717a")">@r.Status</td>
                                                                 <td style="padding:0.25rem 0.5rem">@(r.RowsIngested?.ToString() ?? "—")</td>
+                                                                <td style="padding:0.25rem 0.5rem;font-family:ui-monospace,Consolas,monospace" title="@r.Id">@Short(r.Id)</td>
+                                                                <td style="padding:0.25rem 0.5rem;white-space:nowrap">
+                                                                    @if (!string.IsNullOrEmpty(r.JobId))
+                                                                    {
+                                                                        <span style="font-family:ui-monospace,Consolas,monospace" title="@r.JobId">@Short(r.JobId)</span>
+                                                                        @if (!string.IsNullOrEmpty(r.JobUrl))
+                                                                        {
+                                                                            <a href="@r.JobUrl" target="_blank" rel="noopener" title="Open in Hangfire dashboard" style="margin-left:0.35rem;color:#2563eb;vertical-align:middle">
+                                                                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+                                                                            </a>
+                                                                        }
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <span style="color:#a1a1aa" title="Ran inline in the web app (not via Hangfire)">inline</span>
+                                                                    }
+                                                                </td>
                                                                 <td style="padding:0.25rem 0.5rem;color:#71717a">@(r.ErrorMessage ?? "")</td>
                                                             </tr>
                                                         }
@@ -334,6 +363,8 @@ else
 
     private string? expandedRunsId;
     private string? runningId;
+    private string? reconcilingId;
+    private string? batchQueuingId;
 
     [SupplyParameterFromQuery(Name = "c")]
     public string? c { get; set; }
@@ -501,6 +532,55 @@ else
         }
         catch (Exception ex) { _toastService.ShowError($"Error running source: {ex.Message}"); }
         finally { runningId = null; StateHasChanged(); }
+    }
+
+    // Compact display of a long id (run/job) — first 8 chars; the full value is on the cell's title.
+    private static string Short(string? id) => string.IsNullOrEmpty(id) ? "—" : (id.Length <= 10 ? id : id[..8] + "…");
+
+    private async Task RunBatch(IngestionSourceDto s)
+    {
+        try
+        {
+            batchQueuingId = s.Id;
+            StateHasChanged();
+            var response = await _httpClient.PostAsync($"api/datasets/{selectedDatasetId}/ingestion/{s.Id}/run-batch", null);
+            if (response.IsSuccessStatusCode)
+            {
+                _toastService.ShowSuccess($"{s.Name} queued — it will run in the background (requires the scheduler to be running).");
+            }
+            else if ((int)response.StatusCode == 503)
+            {
+                _toastService.ShowError(await response.Content.ReadAsStringAsync());
+            }
+            else
+            {
+                _toastService.ShowError($"Failed to queue: {await response.Content.ReadAsStringAsync()}");
+            }
+        }
+        catch (Exception ex) { _toastService.ShowError($"Error queueing batch run: {ex.Message}"); }
+        finally { batchQueuingId = null; StateHasChanged(); }
+    }
+
+    private async Task ReconcileRuns(IngestionSourceDto s)
+    {
+        try
+        {
+            reconcilingId = s.Id;
+            StateHasChanged();
+            var response = await _httpClient.PostAsync($"api/datasets/{selectedDatasetId}/ingestion/{s.Id}/runs/reconcile", null);
+            if (response.IsSuccessStatusCode)
+            {
+                _toastService.ShowSuccess("Stuck run(s) marked as failed");
+                await LoadSources();
+                if (expandedRunsId == s.Id) await LoadRuns(s.Id);
+            }
+            else
+            {
+                _toastService.ShowError($"Failed to reconcile: {await response.Content.ReadAsStringAsync()}");
+            }
+        }
+        catch (Exception ex) { _toastService.ShowError($"Error reconciling runs: {ex.Message}"); }
+        finally { reconcilingId = null; StateHasChanged(); }
     }
 
     private async Task DeleteSource(IngestionSourceDto s)

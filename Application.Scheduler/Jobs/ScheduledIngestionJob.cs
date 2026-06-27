@@ -21,7 +21,9 @@ public class ScheduledIngestionJob
 
     public async Task RunAsync(string sourceId, PerformContext? context, CancellationToken ct = default)
     {
-        var result = await _ingestion.RunSourceAsync(sourceId, ct);
+        // Record the Hangfire job id on the run so the UI can deep-link to the dashboard.
+        var jobId = context?.BackgroundJob?.Id;
+        var result = await _ingestion.RunSourceAsync(sourceId, runId: null, jobId: jobId, ct: ct);
         if (!result.Success)
             _logger.LogWarning("Ingestion source {SourceId} failed: {Error}", sourceId, result.Error);
         else

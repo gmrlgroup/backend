@@ -97,4 +97,8 @@ public class IngestionRunDto
     public string Status { get; set; } = string.Empty;
     public int? RowsIngested { get; set; }
     public string? ErrorMessage { get; set; }
+    // The Hangfire job id (present when run via batch/scheduler), and a ready-to-open dashboard link the
+    // server fills in when a Hangfire dashboard URL is configured.
+    public string? JobId { get; set; }
+    public string? JobUrl { get; set; }
 }

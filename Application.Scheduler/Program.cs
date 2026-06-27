@@ -167,12 +167,6 @@ using (var scope = app.Services.CreateScope())
     Console.WriteLine($"Loaded {databases.Count} records at startup from RBO");
 }
 
-// using (var scope = app.Services.CreateScope())
-// {
-//     var databaseRepository = scope.ServiceProvider.GetRequiredService<IDatabaseRepository>();
-//     noknokDatabases = await databaseRepository.GetNokNokDatabaseDetails();
-//     Console.WriteLine($"Loaded {noknokDatabases.Count} records at startup from NKDB");
-// }
 
 
 
@@ -180,29 +174,14 @@ int offset = 0;
 var minuteOffset = 0;
 
 
-foreach (var db in databases)
-{
-
-    minuteOffset = offset % 5; // ensure it’s within 0-9
-    //#pragma warning restore CS0618 // Type or member is obsolete
-    RecurringJob.AddOrUpdate<SalesJob>(
-        recurringJobId: $"sales-grouped-by-store-hour-{db.Name}",
-        methodCall: job => job.RunAsync(db, null, CancellationToken.None), // context and ct are not used in this example
-        cronExpression: $"{minuteOffset}/5 * * * *",
-        timeZone: tz
-    );
-
-    offset++;
-}
-
-
-// foreach (var db in noknokDatabases)
+/// TODO: REMOVE THE COMMENTS
+// foreach (var db in databases)
 // {
 
-//     var minuteOffset = offset % 5; // ensure it’s within 0-9
+//     minuteOffset = offset % 5; // ensure it’s within 0-9
 //     //#pragma warning restore CS0618 // Type or member is obsolete
 //     RecurringJob.AddOrUpdate<SalesJob>(
-//         recurringJobId: $"sales-grouped-by-store-hour-NOKNOK", //{db.Name}
+//         recurringJobId: $"sales-grouped-by-store-hour-{db.Name}",
 //         methodCall: job => job.RunAsync(db, null, CancellationToken.None), // context and ct are not used in this example
 //         cronExpression: $"{minuteOffset}/5 * * * *",
 //         timeZone: tz
@@ -212,21 +191,24 @@ foreach (var db in databases)
 // }
 
 
-minuteOffset = 0; // ensure it’s within 0-9
-//#pragma warning restore CS0618 // Type or member is obsolete
-RecurringJob.AddOrUpdate<SalesJob>(
-    recurringJobId: $"sales-grouped-by-store-hour_FO", //{db.Name}
-    methodCall: job => job.RunNokNokFoAsync(null, CancellationToken.None), // context and ct are not used in this example
-    cronExpression: $"{minuteOffset}/15 * * * *",
-    timeZone: tz
-);
 
-RecurringJob.AddOrUpdate<SalesSnapshotEmailJob>(
-    recurringJobId: "sales-snapshot-email",
-    methodCall: job => job.RunAsync(CancellationToken.None),
-    cronExpression: "5 0 * * *",
-    timeZone: tz
-);
+// minuteOffset = 0; // ensure it’s within 0-9
+// //#pragma warning restore CS0618 // Type or member is obsolete
+// RecurringJob.AddOrUpdate<SalesJob>(
+//     recurringJobId: $"sales-grouped-by-store-hour_FO", //{db.Name}
+//     methodCall: job => job.RunNokNokFoAsync(null, CancellationToken.None), // context and ct are not used in this example
+//     cronExpression: $"{minuteOffset}/15 * * * *",
+//     timeZone: tz
+// );
+
+// RecurringJob.AddOrUpdate<SalesSnapshotEmailJob>(
+//     recurringJobId: "sales-snapshot-email",
+//     methodCall: job => job.RunAsync(CancellationToken.None),
+//     cronExpression: "5 0 * * *",
+//     timeZone: tz
+// );
+
+
 
 // Status ping monitoring — every 15 minutes
 RecurringJob.AddOrUpdate<AssetPingJob>(
@@ -245,6 +227,15 @@ RecurringJob.AddOrUpdate<IngestionRegistrarJob>(
     timeZone: tz
 );
 
+// Reconcile orphaned ingestion runs (stuck at "Running" after a process restart) on a recurring basis,
+// so stale rows are cleaned up even without a restart of either process.
+RecurringJob.AddOrUpdate<Application.Shared.Services.Data.IIngestionService>(
+    recurringJobId: "ingestion-stale-run-sweep",
+    methodCall: svc => svc.FailStaleRunsAsync(TimeSpan.FromHours(6), CancellationToken.None),
+    cronExpression: "*/30 * * * *",
+    timeZone: tz
+);
+
 // Reconcile once at startup so existing sources are scheduled immediately.
 using (var scope = app.Services.CreateScope())
 {
@@ -252,6 +243,9 @@ using (var scope = app.Services.CreateScope())
     {
         var registrar = scope.ServiceProvider.GetRequiredService<IngestionRegistrarJob>();
         await registrar.RunAsync(null, CancellationToken.None);
+
+        var ingestion = scope.ServiceProvider.GetRequiredService<Application.Shared.Services.Data.IIngestionService>();
+        await ingestion.FailStaleRunsAsync(TimeSpan.FromHours(6), CancellationToken.None);
     }
     catch (Exception ex)
     {

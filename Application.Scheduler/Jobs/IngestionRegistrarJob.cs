@@ -43,9 +43,9 @@ public class IngestionRegistrarJob
             var tz = ResolveTimeZone(source.TimeZone);
             try
             {
-                RecurringJob.AddOrUpdate<ScheduledIngestionJob>(
+                RecurringJob.AddOrUpdate<Application.Shared.Services.Data.IngestionJob>(
                     recurringJobId: jobId,
-                    methodCall: job => job.RunAsync(source.Id, null, CancellationToken.None),
+                    methodCall: job => job.RunAsync(source.Id, null, null, CancellationToken.None),
                     cronExpression: source.CronExpression,
                     timeZone: tz);
                 liveJobIds.Add(jobId);

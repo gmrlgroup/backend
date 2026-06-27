@@ -88,7 +88,7 @@ builder.Services.AddScoped<Application.Shared.Services.Data.IDuckdbService,
     Application.Shared.Services.Data.DuckdbService>();
 builder.Services.AddScoped<Application.Shared.Services.Data.IIngestionService,
     Application.Shared.Services.Data.IngestionService>();
-builder.Services.AddScoped<ScheduledIngestionJob>();
+builder.Services.AddScoped<Application.Shared.Services.Data.IngestionJob>();
 builder.Services.AddScoped<IngestionRegistrarJob>();
 
 

@@ -35,8 +35,9 @@ public interface IIngestionService
 
     /// <summary>Runs one ingestion source end-to-end. Never throws — failures are captured in the run record.
     /// When <paramref name="runId"/> matches an existing (e.g. "Queued") run it is reused/transitioned;
-    /// otherwise a new run is created. <paramref name="jobId"/> records the Hangfire job id when applicable.</summary>
-    Task<ImportResult> RunSourceAsync(string sourceId, string? runId = null, string? jobId = null, CancellationToken ct = default);
+    /// otherwise a new run is created. <paramref name="jobId"/> records the Hangfire job id when applicable.
+    /// <paramref name="progress"/> (optional) receives log lines + progress for the Hangfire dashboard.</summary>
+    Task<ImportResult> RunSourceAsync(string sourceId, string? runId = null, string? jobId = null, IJobProgress? progress = null, CancellationToken ct = default);
 
     /// <summary>Creates a placeholder run in the <c>Queued</c> state (before a Hangfire batch job starts)
     /// and returns its id, so the UI shows the queued run immediately and the job id can be attached.</summary>
@@ -222,11 +223,14 @@ public class IngestionService : IIngestionService
 
     // ---- Execution ----
 
-    public async Task<ImportResult> RunSourceAsync(string sourceId, string? runId = null, string? jobId = null, CancellationToken ct = default)
+    public async Task<ImportResult> RunSourceAsync(string sourceId, string? runId = null, string? jobId = null, IJobProgress? progress = null, CancellationToken ct = default)
     {
         var source = await _db.IngestionSource.FirstOrDefaultAsync(s => s.Id == sourceId, ct);
         if (source == null)
+        {
+            progress?.WriteLine("Ingestion source not found.");
             return new ImportResult { Error = "Ingestion source not found." };
+        }
 
         // Reuse a pre-created (e.g. "Queued") run when a runId is supplied, so the batch flow's queued row
         // becomes this execution; otherwise start a fresh run record.
@@ -250,12 +254,23 @@ public class IngestionService : IIngestionService
         if (!string.IsNullOrEmpty(jobId)) run.JobId = jobId;
         await _db.SaveChangesAsync(ct);
 
+        progress?.WriteLine($"Ingestion '{source.Name}' → {source.DatasetId}/{source.TargetTable} (run {run.Id}).");
+        progress?.SetProgress(5);
+
         string? tempPath = null;
         ImportResult result;
         try
         {
             var config = ParseConfig(source.SourceConfig);
-            (tempPath, var format) = await FetchToTempAsync(source, config, ct);
+
+            // Live row count from the source fetch (throttled by the reader) → dashboard log.
+            var fetchProgress = progress == null ? null : new Progress<long>(rows =>
+                progress.WriteLine($"Fetched {rows:N0} rows from source…"));
+
+            progress?.WriteLine($"Fetching from {source.SourceKind}…");
+            (tempPath, var format) = await FetchToTempAsync(source, config, fetchProgress, ct);
+            progress?.WriteLine("Fetch complete; loading into the dataset…");
+            progress?.SetProgress(60);
 
             var mode = Enum.TryParse<ImportMode>(source.ImportMode, ignoreCase: true, out var m) ? m : ImportMode.Append;
             var keys = string.IsNullOrWhiteSpace(source.KeyColumns)
@@ -267,6 +282,7 @@ public class IngestionService : IIngestionService
                 result = await _duckdb.ImportFileAsync(source.DatasetId, source.TargetTable, stream, format, mode, keys,
                     skipInvalidRows: true, createIfMissing: source.CreateIfNotExists, ct);
             }
+            progress?.SetProgress(90);
 
             // Advance the watermark to the highest value now present in the target table.
             if (result.Success && !string.IsNullOrWhiteSpace(source.IncrementalColumn))
@@ -279,10 +295,16 @@ public class IngestionService : IIngestionService
             run.Status = result.Success ? "Success" : "Failed";
             run.ErrorMessage = result.Error;
             run.RowsIngested = result.RowsInserted + result.RowsUpdated;
+
+            if (result.Success)
+                progress?.WriteLine($"Done: {result.RowsInserted:N0} inserted, {result.RowsUpdated:N0} updated, {result.RowsSkipped:N0} skipped.");
+            else
+                progress?.WriteLine($"Failed: {result.Error}");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Ingestion source {SourceId} failed.", sourceId);
+            progress?.WriteLine($"Error: {ex.Message}");
             result = new ImportResult { Error = ex.Message };
             run.Status = "Failed";
             run.ErrorMessage = ex.Message;
@@ -296,6 +318,7 @@ public class IngestionService : IIngestionService
             source.LastRunRows = run.RowsIngested;
             await _db.SaveChangesAsync(ct);
             TryDelete(tempPath);
+            progress?.SetProgress(100);
         }
 
         return result;
@@ -424,13 +447,14 @@ public class IngestionService : IIngestionService
         }
     }
 
-    // Fetches the source's data to a temp file and reports its format.
-    private async Task<(string path, ImportFileFormat format)> FetchToTempAsync(IngestionSource source, IngestionSourceConfig config, CancellationToken ct)
+    // Fetches the source's data to a temp file and reports its format. rowProgress (optional) receives a
+    // running row count from the DB fetch.
+    private async Task<(string path, ImportFileFormat format)> FetchToTempAsync(IngestionSource source, IngestionSourceConfig config, IProgress<long>? rowProgress, CancellationToken ct)
     {
         var kind = Enum.TryParse<IngestionSourceKind>(source.SourceKind, ignoreCase: true, out var k) ? k : IngestionSourceKind.ExternalDatabase;
         return kind switch
         {
-            IngestionSourceKind.ExternalDatabase => await FetchFromDatabaseAsync(source, config, ct),
+            IngestionSourceKind.ExternalDatabase => await FetchFromDatabaseAsync(source, config, rowProgress, ct),
             IngestionSourceKind.Rest => await FetchFromRestAsync(source, config, ct),
             IngestionSourceKind.Blob => await FetchFromBlobAsync(source, config, ct),
             IngestionSourceKind.Sftp => await FetchFromSftpAsync(source, config, ct),
@@ -438,7 +462,7 @@ public class IngestionService : IIngestionService
         };
     }
 
-    private async Task<(string, ImportFileFormat)> FetchFromDatabaseAsync(IngestionSource source, IngestionSourceConfig config, CancellationToken ct)
+    private async Task<(string, ImportFileFormat)> FetchFromDatabaseAsync(IngestionSource source, IngestionSourceConfig config, IProgress<long>? rowProgress, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(source.SourceEntityId))
             throw new InvalidOperationException("This database source has no linked database entity.");
@@ -457,7 +481,16 @@ public class IngestionService : IIngestionService
             query = $"SELECT * FROM ({baseQuery}) _src WHERE _src.{source.IncrementalColumn} > {IncrementalLiteral(source.IncrementalLastValue!)}";
 
         var path = TempPath(".csv");
-        await _dbTables.ReadToTempCsvAsync(conn, query, path, ct);
+
+        // Optional keyset batching for very large tables: read in ordered pages so no single query has to
+        // return millions of rows at once. Falls back to a single streaming read otherwise. Either way a
+        // generous (configurable) command timeout is applied so long pulls don't time out.
+        var batchKey = !string.IsNullOrWhiteSpace(config.BatchKeyColumn) ? config.BatchKeyColumn : source.IncrementalColumn;
+        if (config.BatchSize is int batchSize && batchSize > 0 && !string.IsNullOrWhiteSpace(batchKey))
+            await _dbTables.ReadToTempCsvBatchedAsync(conn, query, batchKey!, batchSize, path, ct, config.CommandTimeoutSeconds, rowProgress);
+        else
+            await _dbTables.ReadToTempCsvAsync(conn, query, path, ct, config.CommandTimeoutSeconds, rowProgress);
+
         return (path, ImportFileFormat.Csv);
     }
 

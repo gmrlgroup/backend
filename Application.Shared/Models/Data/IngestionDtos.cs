@@ -16,6 +16,16 @@ public class IngestionSourceConfig
     public string? Schema { get; set; }
     public string? Table { get; set; }
 
+    // Command timeout (seconds) for the source query. null = a generous default; 0 = no limit. Large
+    // pulls stream row-by-row, so the only reason they fail is the command timing out — raise this.
+    public int? CommandTimeoutSeconds { get; set; }
+
+    // Optional keyset batching for very large tables: when BatchSize > 0 the source is read in ordered
+    // pages of that size (WHERE key > lastKey ORDER BY key FETCH/LIMIT), each a short bounded query —
+    // SSIS-style. BatchKeyColumn must be a sortable, ideally unique column; falls back to IncrementalColumn.
+    public int? BatchSize { get; set; }
+    public string? BatchKeyColumn { get; set; }
+
     // --- Rest ---
     public string? Url { get; set; }
     public string? Method { get; set; } = "GET";

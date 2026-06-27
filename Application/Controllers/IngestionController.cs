@@ -164,9 +164,10 @@ public class IngestionController : ControllerBase
         // in the UI. The worker reuses this exact run via its id; we then attach the Hangfire job id to it.
         var runId = await _ingestionService.CreateQueuedRunAsync(companyId, id, HttpContext.RequestAborted);
 
-        // Enqueue against the shared interface; the scheduler's worker resolves the implementation and runs
-        // the same RunSourceAsync that "Run now" uses (which transitions this Queued run to Running/done).
-        var jobId = jobClient.Enqueue<IIngestionService>(svc => svc.RunSourceAsync(id, runId, null, CancellationToken.None));
+        // Enqueue the shared IngestionJob wrapper (not RunSourceAsync directly) so the worker runs with a
+        // Hangfire PerformContext — that's what enables dashboard console logs + the progress bar. The
+        // scheduler resolves IngestionJob and runs the same RunSourceAsync, transitioning this Queued run.
+        var jobId = jobClient.Enqueue<IngestionJob>(job => job.RunAsync(id, runId, null, CancellationToken.None));
         await _ingestionService.SetRunJobIdAsync(runId, jobId, HttpContext.RequestAborted);
 
         return Ok(new { jobId, runId });

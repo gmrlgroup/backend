@@ -61,5 +61,11 @@ public interface IDatabaseTableService
     /// <summary>Runs a read-only SELECT over the (already-decrypted) connection and streams the result
     /// to a UTF-8 CSV file (header + rows). Returns the number of data rows written. Used by scheduled
     /// ingestion to pull an external table/query into a dataset.</summary>
-    Task<int> ReadToTempCsvAsync(DatabaseConnection decryptedConnection, string query, string destCsvPath, CancellationToken ct = default);
+    Task<int> ReadToTempCsvAsync(DatabaseConnection decryptedConnection, string query, string destCsvPath, CancellationToken ct = default, int? commandTimeoutSeconds = null, IProgress<long>? rowProgress = null);
+
+    /// <summary>Like <see cref="ReadToTempCsvAsync"/> but reads the query in ordered keyset pages of
+    /// <paramref name="batchSize"/> rows (WHERE key &gt; lastKey ORDER BY key), appending to one CSV.
+    /// Each page is a short, bounded query — avoids a single multi-million-row statement timing out.
+    /// <paramref name="keyColumn"/> must be sortable and ideally unique. ADO providers only.</summary>
+    Task<int> ReadToTempCsvBatchedAsync(DatabaseConnection decryptedConnection, string baseQuery, string keyColumn, int batchSize, string destCsvPath, CancellationToken ct = default, int? commandTimeoutSeconds = null, IProgress<long>? rowProgress = null);
 }

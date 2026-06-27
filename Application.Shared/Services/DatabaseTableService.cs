@@ -519,7 +519,11 @@ public class DatabaseTableService : IDatabaseTableService
 
     // ---- Bulk read for ingestion (no DbContext) ----
 
-    public async Task<int> ReadToTempCsvAsync(DatabaseConnection c, string query, string destCsvPath, CancellationToken ct = default)
+    // A generous default so large (streaming) pulls don't trip the provider's short default timeout.
+    // 0 means "no timeout". Callers can override per ingestion source.
+    private const int DefaultReadCommandTimeoutSeconds = 3600;
+
+    public async Task<int> ReadToTempCsvAsync(DatabaseConnection c, string query, string destCsvPath, CancellationToken ct = default, int? commandTimeoutSeconds = null, IProgress<long>? rowProgress = null)
     {
         // ClickHouse has no ADO driver — ask it for CSV directly over the read-only HTTP endpoint.
         if (c.DatabaseType == DataSourceType.ClickHouse)
@@ -529,35 +533,114 @@ public class DatabaseTableService : IDatabaseTableService
             await File.WriteAllTextAsync(destCsvPath, body, new UTF8Encoding(false), ct);
             // Row count = lines minus the header (best-effort).
             var lines = body.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
-            return Math.Max(0, lines - 1);
+            var count = Math.Max(0, lines - 1);
+            rowProgress?.Report(count);
+            return count;
         }
 
         await using var connection = CreateAdoConnection(c);
         await connection.OpenAsync(ct);
-
-        var readOnlySetup = ReadOnlySetupFor(c.DatabaseType);
-        if (!string.IsNullOrEmpty(readOnlySetup))
-        {
-            await using var setup = connection.CreateCommand();
-            setup.CommandText = readOnlySetup;
-            await setup.ExecuteNonQueryAsync(ct);
-        }
+        await ApplyReadOnlySetupAsync(connection, c, ct);
 
         await using var command = connection.CreateCommand();
         command.CommandText = query;
+        command.CommandTimeout = commandTimeoutSeconds ?? DefaultReadCommandTimeoutSeconds;
         await using var reader = await command.ExecuteReaderAsync(ct);
 
         await using var writer = new StreamWriter(destCsvPath, false, new UTF8Encoding(false));
+        await WriteCsvHeaderAsync(reader, writer);
+        return await WriteCsvRowsAsync(reader, writer, ct, rowProgress);
+    }
 
-        // Header
-        var fieldCount = reader.FieldCount;
-        for (int i = 0; i < fieldCount; i++)
+    public async Task<int> ReadToTempCsvBatchedAsync(DatabaseConnection c, string baseQuery, string keyColumn, int batchSize, string destCsvPath, CancellationToken ct = default, int? commandTimeoutSeconds = null, IProgress<long>? rowProgress = null)
+    {
+        if (batchSize <= 0)
+            return await ReadToTempCsvAsync(c, baseQuery, destCsvPath, ct, commandTimeoutSeconds, rowProgress);
+        if (c.DatabaseType == DataSourceType.ClickHouse)
+            // ClickHouse streams CSV over HTTP in one shot; keyset paging isn't wired for it.
+            return await ReadToTempCsvAsync(c, baseQuery, destCsvPath, ct, commandTimeoutSeconds, rowProgress);
+
+        await using var connection = CreateAdoConnection(c);
+        await connection.OpenAsync(ct);
+        await ApplyReadOnlySetupAsync(connection, c, ct);
+
+        await using var writer = new StreamWriter(destCsvPath, false, new UTF8Encoding(false));
+        var timeout = commandTimeoutSeconds ?? DefaultReadCommandTimeoutSeconds;
+        var totalRows = 0;
+        var headerWritten = false;
+        string? lastKeyLiteral = null;
+
+        while (true)
+        {
+            var pageSql = BuildKeysetPageSql(c.DatabaseType, baseQuery, keyColumn, batchSize, lastKeyLiteral);
+
+            await using var command = connection.CreateCommand();
+            command.CommandText = pageSql;
+            command.CommandTimeout = timeout;
+            await using var reader = await command.ExecuteReaderAsync(ct);
+
+            if (!headerWritten)
+            {
+                await WriteCsvHeaderAsync(reader, writer);
+                headerWritten = true;
+            }
+
+            var keyOrdinal = FindOrdinal(reader, keyColumn);
+            if (keyOrdinal < 0)
+                throw new InvalidOperationException($"Batch key column '{keyColumn}' was not found in the source result. It must be one of the selected columns.");
+
+            var fieldCount = reader.FieldCount;
+            var pageRows = 0;
+            object? lastKeyValue = null;
+            while (await reader.ReadAsync(ct))
+            {
+                for (int i = 0; i < fieldCount; i++)
+                {
+                    if (i > 0) await writer.WriteAsync(',');
+                    if (!reader.IsDBNull(i))
+                        await writer.WriteAsync(CsvEscape(FormatCsvValue(reader.GetValue(i))));
+                }
+                await writer.WriteAsync('\n');
+                if (!reader.IsDBNull(keyOrdinal)) lastKeyValue = reader.GetValue(keyOrdinal);
+                pageRows++;
+                totalRows++;
+            }
+
+            rowProgress?.Report(totalRows);
+
+            // Last (smaller) page, or we can't advance the keyset cursor → done.
+            if (pageRows < batchSize || lastKeyValue == null)
+                break;
+            lastKeyLiteral = KeyLiteral(lastKeyValue);
+        }
+
+        return totalRows;
+    }
+
+    private async Task ApplyReadOnlySetupAsync(DbConnection connection, DatabaseConnection c, CancellationToken ct)
+    {
+        var readOnlySetup = ReadOnlySetupFor(c.DatabaseType);
+        if (string.IsNullOrEmpty(readOnlySetup)) return;
+        await using var setup = connection.CreateCommand();
+        setup.CommandText = readOnlySetup;
+        await setup.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task WriteCsvHeaderAsync(DbDataReader reader, StreamWriter writer)
+    {
+        for (int i = 0; i < reader.FieldCount; i++)
         {
             if (i > 0) await writer.WriteAsync(',');
             await writer.WriteAsync(CsvEscape(reader.GetName(i)));
         }
         await writer.WriteAsync('\n');
+    }
 
+    private const int RowProgressInterval = 50_000;
+
+    private static async Task<int> WriteCsvRowsAsync(DbDataReader reader, StreamWriter writer, CancellationToken ct, IProgress<long>? rowProgress = null)
+    {
+        var fieldCount = reader.FieldCount;
         var rows = 0;
         while (await reader.ReadAsync(ct))
         {
@@ -569,10 +652,51 @@ public class DatabaseTableService : IDatabaseTableService
             }
             await writer.WriteAsync('\n');
             rows++;
+            if (rowProgress != null && rows % RowProgressInterval == 0)
+                rowProgress.Report(rows);
         }
-
+        if (rowProgress != null && rows % RowProgressInterval != 0)
+            rowProgress.Report(rows); // final count
         return rows;
     }
+
+    private static int FindOrdinal(DbDataReader reader, string columnName)
+    {
+        for (int i = 0; i < reader.FieldCount; i++)
+            if (string.Equals(reader.GetName(i), columnName, StringComparison.OrdinalIgnoreCase))
+                return i;
+        return -1;
+    }
+
+    // Builds one ordered keyset page over an arbitrary base query. Strict '>' on the key means the key
+    // should be unique; a non-unique key risks skipping rows that share the boundary value.
+    private static string BuildKeysetPageSql(DataSourceType type, string baseQuery, string keyColumn, int batchSize, string? lastKeyLiteral)
+    {
+        var col = QuoteIdentifier(type, keyColumn);
+        var inner = baseQuery.TrimEnd().TrimEnd(';');
+        var where = lastKeyLiteral == null ? string.Empty : $" WHERE _src.{col} > {lastKeyLiteral}";
+        var order = $" ORDER BY _src.{col} ASC";
+        return type switch
+        {
+            DataSourceType.SQLServer or DataSourceType.PostgreSQL =>
+                $"SELECT * FROM ({inner}) _src{where}{order} OFFSET 0 ROWS FETCH NEXT {batchSize} ROWS ONLY",
+            _ => // MySQL, DuckDB
+                $"SELECT * FROM ({inner}) _src{where}{order} LIMIT {batchSize}"
+        };
+    }
+
+    // Formats a key value as a SQL literal for the keyset WHERE clause (numbers bare, dates/strings quoted).
+    private static string KeyLiteral(object value) => value switch
+    {
+        null or DBNull => "NULL",
+        bool b => b ? "1" : "0",
+        byte or sbyte or short or ushort or int or uint or long or ulong or decimal or double or float
+            => Convert.ToString(value, CultureInfo.InvariantCulture)!,
+        DateTime dt => $"'{dt:yyyy-MM-dd HH:mm:ss.fffffff}'",
+        DateTimeOffset dto => $"'{dto:yyyy-MM-dd HH:mm:ss.fffffff}'",
+        Guid g => $"'{g}'",
+        _ => "'" + (value.ToString() ?? string.Empty).Replace("'", "''") + "'"
+    };
 
     // Formats a value for a CSV cell in a way DuckDB can TRY_CAST back to a typed column.
     private static string FormatCsvValue(object value) => value switch

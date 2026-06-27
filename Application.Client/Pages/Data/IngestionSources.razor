@@ -102,6 +102,23 @@ else
                         <input class="ds-input" @bind="config.Schema" placeholder="schema (optional)" />
                         <input class="ds-input" @bind="config.Table" placeholder="table (used if no query)" />
                     </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-top:0.5rem">
+                        <div class="ds-field" style="margin-bottom:0">
+                            <label class="ds-label">Command timeout (s) <span style="color:#71717a;font-weight:400">(0 = none)</span></label>
+                            <input class="ds-input" type="number" min="0" @bind="config.CommandTimeoutSeconds" placeholder="3600" />
+                        </div>
+                        <div class="ds-field" style="margin-bottom:0">
+                            <label class="ds-label">Batch size <span style="color:#71717a;font-weight:400">(0 = off)</span></label>
+                            <input class="ds-input" type="number" min="0" @bind="config.BatchSize" placeholder="e.g. 100000" />
+                        </div>
+                        <div class="ds-field" style="margin-bottom:0">
+                            <label class="ds-label">Batch key column</label>
+                            <input class="ds-input" @bind="config.BatchKeyColumn" placeholder="id (sortable, unique)" />
+                        </div>
+                    </div>
+                    <span class="ds-hint" style="display:block;margin-top:0.35rem;color:#71717a;font-size:0.75rem">
+                        Large pulls stream row-by-row, so raise the command timeout for big tables. For very large tables, set a batch size + a sortable/unique key to page the read (falls back to the incremental column).
+                    </span>
                 }
                 else if (form.SourceKind == "Rest")
                 {

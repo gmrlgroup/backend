@@ -6,6 +6,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Application.Shared.Enums;
 
 namespace Application.Shared.Models;
 
@@ -34,6 +35,16 @@ public class Dataset
     [MinLength(3, ErrorMessage = "Dataset description must be at least 3 characters long")]
     [Display(Name = "Description")]
     public string? Description { get; set; }
+
+    // Where the dataset's tables live. Local = its own DuckDB file; External = backed by a connected
+    // Database entity and queried live (the DuckDB file then only holds saved snapshots).
+    public DatasetSourceType SourceType { get; set; } = DatasetSourceType.Local;
+
+    // For External datasets, the id of the Database-type MonitoredAsset (Status side) whose saved
+    // connection is used to run queries. Stored as a plain string — it crosses DbContexts, so there is
+    // no FK (same cross-context pattern as IngestionSource.SourceEntityId).
+    [MaxLength(450)]
+    public string? SourceEntityId { get; set; }
 
     // User who created the dataset
     public string? CreatedBy { get; set; }

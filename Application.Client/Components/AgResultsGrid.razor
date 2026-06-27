@@ -1,0 +1,52 @@
+@*
+    Read-only AG Grid wrapper for ad-hoc query results (Query Workbench). The grid DOM is owned by
+    JS (dataGridEditor, editable:false), so the parent re-rendering on every SQL-editor keystroke is
+    cheap — only a new query result (a new Data reference) pushes rows into the grid. Columns are
+    rebuilt per result because each query returns a different shape.
+*@
+@using Application.Shared.Models.Data
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div id="@GridId" class="ag-theme-quartz" style="height:100%;width:100%"></div>
+
+@code {
+    [Parameter] public List<Dictionary<string, object?>> Data { get; set; } = new();
+    [Parameter] public List<Column>? Columns { get; set; }
+
+    private const string GridId = "query-results-grid";
+    private bool _inited;
+    private object? _lastData;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _lastData = Data;
+            await JS.InvokeVoidAsync("dataGridEditor.init", GridId, null, BuildColumns(), Data ?? new(), new { editable = false });
+            _inited = true;
+        }
+        else if (_inited && !ReferenceEquals(_lastData, Data))
+        {
+            // A new query result arrived — swap columns + rows in place (no Blazor re-render of cells).
+            _lastData = Data;
+            await JS.InvokeVoidAsync("dataGridEditor.setColumnsAndData", BuildColumns(), Data ?? new());
+        }
+    }
+
+    private List<object> BuildColumns()
+    {
+        // Prefer the result's declared columns; fall back to the keys of the first row.
+        if (Columns?.Any() == true)
+            return Columns.Select(c => (object)new { name = c.Name, dataType = c.DataType }).ToList();
+        var first = Data?.FirstOrDefault();
+        if (first != null)
+            return first.Keys.Select(k => (object)new { name = k, dataType = "" }).ToList();
+        return new();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("dataGridEditor.dispose"); } catch { /* circuit may already be gone */ }
+    }
+}

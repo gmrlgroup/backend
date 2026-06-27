@@ -1,0 +1,30 @@
+@*
+    Wraps DataResultsTable and only re-renders when the result set (Data) reference changes.
+    The Query Workbench re-renders on every keystroke in the SQL editor (two-way bound), which would
+    otherwise re-paint the whole results grid each character and cause typing lag. Isolating the grid
+    behind ShouldRender keeps keystrokes cheap while still refreshing when a new query result arrives.
+*@
+<DataResultsTable Data="@Data"
+                  ShowGlobalFilter="@ShowGlobalFilter"
+                  ShowColumnFilters="@ShowColumnFilters"
+                  ShowExport="@ShowExport"
+                  PageSize="@PageSize" />
+
+@code {
+    [Parameter] public List<Dictionary<string, object?>> Data { get; set; } = new();
+    [Parameter] public bool ShowGlobalFilter { get; set; } = true;
+    [Parameter] public bool ShowColumnFilters { get; set; }
+    [Parameter] public bool ShowExport { get; set; } = true;
+    [Parameter] public int PageSize { get; set; } = 50;
+
+    private object? _lastData;
+
+    protected override bool ShouldRender()
+    {
+        // Re-render only when a different result set is supplied (new query run), not on parent
+        // re-renders triggered by editor keystrokes that leave Data unchanged.
+        if (ReferenceEquals(_lastData, Data)) return false;
+        _lastData = Data;
+        return true;
+    }
+}

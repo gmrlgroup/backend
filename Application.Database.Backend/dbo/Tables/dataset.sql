@@ -5,7 +5,9 @@ CREATE TABLE [dbo].[dataset] (
     [description] NVARCHAR (500) NOT NULL,
     [created_at]  DATETIME2 (7)  DEFAULT ('0001-01-01T00:00:00.0000000') NOT NULL,
     [created_by]  NVARCHAR (MAX) NULL,
-    [modified_at] DATETIME2 (7)  NULL
+    [modified_at] DATETIME2 (7)  NULL,
+    [source_type]      INT            DEFAULT ((0)) NOT NULL,
+    [source_entity_id] NVARCHAR (450) NULL
 );
 GO
 

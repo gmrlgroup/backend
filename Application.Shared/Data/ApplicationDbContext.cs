@@ -77,7 +77,9 @@ namespace Application.Shared.Data
         public DbSet<Dataset> Dataset { get; set; }
         
         public DbSet<DatasetUser> DatasetUser { get; set; }
-        
+
+        public DbSet<DatasetUserTable> DatasetUserTable { get; set; }
+
         public DbSet<DataTableComment> DataTableComment { get; set; }
 
         public DbSet<SalesData> SalesData { get; set; }

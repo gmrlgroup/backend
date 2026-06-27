@@ -52,6 +52,15 @@ public class DatasetSharingService : IDatasetSharingService
             })
             .ToListAsync();
 
+        // Per-user table scopes (empty = all tables).
+        var tableRows = await _context.DatasetUserTable
+            .Where(t => t.DatasetId == datasetId)
+            .Select(t => new { t.UserId, t.TableName })
+            .ToListAsync();
+        var tablesByUser = tableRows
+            .GroupBy(t => t.UserId)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.TableName).OrderBy(n => n).ToList());
+
         // Populate user details using IUserService
         foreach (var du in datasetUsers)
         {
@@ -61,6 +70,8 @@ public class DatasetSharingService : IDatasetSharingService
                 du.Email = user.Email;
                 du.UserName = user.UserName;
             }
+            if (tablesByUser.TryGetValue(du.UserId, out var tables))
+                du.Tables = tables;
         }
 
         return datasetUsers;
@@ -104,17 +115,117 @@ public class DatasetSharingService : IDatasetSharingService
                 _context.DatasetUser.Add(datasetUser);
             }
 
+            // Replace the user's table scope. Null/empty Tables = full access (no restriction rows).
+            var currentTableRows = await _context.DatasetUserTable
+                .Where(t => t.DatasetId == request.DatasetId && t.UserId == user.Id)
+                .ToListAsync();
+            _context.DatasetUserTable.RemoveRange(currentTableRows);
+
+            var scopedTables = (request.Tables ?? new List<string>())
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Select(t => t.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var tableName in scopedTables)
+            {
+                _context.DatasetUserTable.Add(new DatasetUserTable
+                {
+                    DatasetId = request.DatasetId,
+                    UserId = user.Id,
+                    TableName = tableName,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
             await _context.SaveChangesAsync();
 
             // Get the user who shared the dataset
             var sharedByUser = await _userManager.FindByIdAsync(sharedByUserId);
-            
-            // Send email notification
+
+            // Send email notification (never throws — a mail failure must not fail the share).
             await _emailNotificationService.SendDatasetSharedNotificationAsync(
                 request.Email,
+                dataset.Id!,
                 dataset.Name!,
+                dataset.CompanyId,
                 sharedByUser?.UserName ?? "Unknown User",
-                request.UserType);
+                request.UserType,
+                scopedTables);
+
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    public async Task<bool> GrantTableAccessAsync(GrantTableShareRequest request, string sharedByUserId)
+    {
+        try
+        {
+            var dataset = await _context.Dataset.FindAsync(request.DatasetId);
+            if (dataset == null) return false;
+
+            var user = await _userManager.FindByEmailAsync(request.Email);
+            if (user == null) return false;
+
+            var tableName = request.TableName.Trim();
+            if (string.IsNullOrWhiteSpace(tableName)) return false;
+
+            var existingShare = await _context.DatasetUser
+                .FirstOrDefaultAsync(du => du.DatasetId == request.DatasetId && du.UserId == user.Id);
+
+            if (existingShare == null)
+            {
+                // New share → restricted to just this table.
+                _context.DatasetUser.Add(new DatasetUser
+                {
+                    DatasetId = request.DatasetId,
+                    UserId = user.Id,
+                    Type = request.UserType,
+                    CreatedAt = DateTime.UtcNow
+                });
+                _context.DatasetUserTable.Add(new DatasetUserTable
+                {
+                    DatasetId = request.DatasetId,
+                    UserId = user.Id,
+                    TableName = tableName,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+            else if (existingShare.Type != DatasetUserType.Admin)
+            {
+                var rows = await _context.DatasetUserTable
+                    .Where(t => t.DatasetId == request.DatasetId && t.UserId == user.Id)
+                    .ToListAsync();
+
+                // rows.Count == 0 means the user already has full access — don't downgrade them to one table.
+                if (rows.Count > 0 && !rows.Any(r => string.Equals(r.TableName, tableName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _context.DatasetUserTable.Add(new DatasetUserTable
+                    {
+                        DatasetId = request.DatasetId,
+                        UserId = user.Id,
+                        TableName = tableName,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+            }
+            // existingShare.Type == Admin → already full access; nothing to do.
+
+            await _context.SaveChangesAsync();
+
+            var sharedByUser = await _userManager.FindByIdAsync(sharedByUserId);
+            await _emailNotificationService.SendDatasetSharedNotificationAsync(
+                request.Email,
+                dataset.Id!,
+                dataset.Name!,
+                dataset.CompanyId,
+                sharedByUser?.UserName ?? "Unknown User",
+                request.UserType,
+                new List<string> { tableName });
 
             return true;
         }
@@ -155,6 +266,12 @@ public class DatasetSharingService : IDatasetSharingService
 
             if (datasetUser == null)
                 return false;
+
+            // No cascade deletes in this codebase — remove the user's table scopes explicitly first.
+            var tableRows = await _context.DatasetUserTable
+                .Where(t => t.DatasetId == datasetId && t.UserId == userId)
+                .ToListAsync();
+            _context.DatasetUserTable.RemoveRange(tableRows);
 
             _context.DatasetUser.Remove(datasetUser);
             await _context.SaveChangesAsync();

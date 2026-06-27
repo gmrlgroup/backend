@@ -1,69 +1,121 @@
-using Application.Helpers;
+using System.Net.Http.Json;
+using System.Text.Json.Serialization;
 using Application.Shared.Models;
+using Application.Shared.Options;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Application.Services.Data;
 
+/// <summary>
+/// Sends "dataset shared" notifications through the Next.js/Resend email service (same service used
+/// for incident and sales-snapshot emails) by POSTing a payload to its dataset-shared route.
+/// Never throws — a notification failure must not break the share operation.
+/// </summary>
 public class EmailNotificationService : Application.Shared.Services.Data.IEmailNotificationService
 {
-    private readonly EmailHelper _emailHelper;
+    public const string HttpClientName = "DatasetSharedEmailApi";
 
-    public EmailNotificationService(EmailHelper emailHelper)
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly DatasetSharedEmailOptions _options;
+    private readonly ILogger<EmailNotificationService> _logger;
+
+    public EmailNotificationService(
+        IHttpClientFactory httpClientFactory,
+        IOptions<DatasetSharedEmailOptions> options,
+        ILogger<EmailNotificationService> logger)
     {
-        _emailHelper = emailHelper;
+        _httpClientFactory = httpClientFactory;
+        _options = options.Value;
+        _logger = logger;
     }
 
-    public async Task SendDatasetSharedNotificationAsync(string recipientEmail, string datasetName, string sharedByUserName, DatasetUserType userType)
+    public async Task SendDatasetSharedNotificationAsync(
+        string recipientEmail, string datasetId, string datasetName, string companyId, string sharedByUserName, DatasetUserType userType,
+        IReadOnlyCollection<string>? tables = null)
     {
         try
         {
-            // For now, this is a mock implementation
-            // In a real application, you would use the EmailHelper to send actual emails
-            
-            var subject = $"Dataset '{datasetName}' has been shared with you";
-            var body = GenerateDatasetSharedEmailBody(datasetName, sharedByUserName, userType);
-            
-            // Uncomment the line below to actually send emails when EmailHelper is configured
-            // _emailHelper.SendEmail(recipientEmail, subject, body);
-            
-            await Task.CompletedTask;
+            if (string.IsNullOrWhiteSpace(_options.ApiBaseUri) || string.IsNullOrWhiteSpace(_options.From))
+            {
+                _logger.LogWarning("[DatasetShared] Skipped — email service is not configured (ApiBaseUri/From).");
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(recipientEmail))
+                return;
+
+            var accessLevel = userType switch
+            {
+                DatasetUserType.Admin => "Administrator",
+                DatasetUserType.Editor => "Editor",
+                DatasetUserType.Viewer => "Viewer",
+                _ => "Viewer"
+            };
+
+            var appBase = (_options.AppBaseUri ?? string.Empty).TrimEnd('/');
+            var datasetUrl = string.IsNullOrEmpty(appBase)
+                ? null
+                : $"{appBase}/data/tables?c={companyId}&d={datasetId}";
+
+            // Describe the table scope: empty = all tables, otherwise the named tables.
+            var scopeSentence = tables is { Count: > 0 }
+                ? $" You have access to {tables.Count} table{(tables.Count == 1 ? "" : "s")}: {string.Join(", ", tables)}."
+                : " You have access to all tables in this dataset.";
+
+            var payload = new DatasetSharedEmailPayload
+            {
+                From = _options.From!,
+                To = new List<string> { recipientEmail.Trim() },
+                Subject = $"Dataset '{datasetName}' has been shared with you",
+                DatasetName = datasetName,
+                SharedByName = sharedByUserName,
+                AccessLevel = accessLevel,
+                DatasetUrl = datasetUrl,
+                Message = $"{sharedByUserName} has shared the dataset \"{datasetName}\" with you. Your access level is {accessLevel}.{scopeSentence}"
+            };
+
+            var client = _httpClientFactory.CreateClient(HttpClientName);
+            var endpoint = string.IsNullOrWhiteSpace(_options.Endpoint) ? "/api/email/dataset-shared" : _options.Endpoint;
+
+            var response = await client.PostAsJsonAsync(endpoint, payload);
+            response.EnsureSuccessStatusCode();
+
+            _logger.LogInformation("[DatasetShared] Sent share notification for dataset {DatasetId} to {Recipient}.", datasetId, recipientEmail);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error sending dataset shared notification: {ex.Message}");
+            // Notifications must never break the share operation.
+            _logger.LogError(ex, "[DatasetShared] Failed to send share notification for dataset {DatasetId}.", datasetId);
         }
     }
 
-    private string GenerateDatasetSharedEmailBody(string datasetName, string sharedByUserName, DatasetUserType userType)
+    private sealed class DatasetSharedEmailPayload
     {
-        var accessLevel = userType switch
-        {
-            DatasetUserType.Admin => "Administrator",
-            DatasetUserType.Editor => "Editor",
-            DatasetUserType.Viewer => "Viewer",
-            _ => "Unknown"
-        };
+        [JsonPropertyName("from")]
+        public string From { get; set; } = string.Empty;
 
-        return $@"
-            <html>
-            <body>
-                <h2>Dataset Shared with You</h2>
-                <p>Hello,</p>
-                <p><strong>{sharedByUserName}</strong> has shared the dataset <strong>'{datasetName}'</strong> with you.</p>
-                <p>Your access level: <strong>{accessLevel}</strong></p>
-                
-                <h3>What you can do with {accessLevel} access:</h3>
-                <ul>
-                    {(userType == DatasetUserType.Admin ? "<li>Full administrative access</li><li>Share with other users</li>" : "")}
-                    {(userType == DatasetUserType.Editor || userType == DatasetUserType.Admin ? "<li>Edit dataset structure</li><li>Add/modify tables</li>" : "")}
-                    <li>View dataset contents</li>
-                    <li>Query data</li>
-                    <li>Generate reports</li>
-                </ul>
-                
-                <p>You can now access this dataset in your dashboard.</p>
-                
-                <p>Best regards,<br/>The FlowByte Team</p>
-            </body>
-            </html>";
+        [JsonPropertyName("to")]
+        public List<string> To { get; set; } = new();
+
+        [JsonPropertyName("subject")]
+        public string Subject { get; set; } = string.Empty;
+
+        [JsonPropertyName("recipientName")]
+        public string? RecipientName { get; set; }
+
+        [JsonPropertyName("datasetName")]
+        public string DatasetName { get; set; } = string.Empty;
+
+        [JsonPropertyName("sharedByName")]
+        public string SharedByName { get; set; } = string.Empty;
+
+        [JsonPropertyName("accessLevel")]
+        public string AccessLevel { get; set; } = string.Empty;
+
+        [JsonPropertyName("datasetUrl")]
+        public string? DatasetUrl { get; set; }
+
+        [JsonPropertyName("message")]
+        public string? Message { get; set; }
     }
 }

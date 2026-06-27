@@ -35,6 +35,11 @@ public interface IIngestionService
 
     /// <summary>Runs one ingestion source end-to-end. Never throws — failures are captured in the run record.</summary>
     Task<ImportResult> RunSourceAsync(string sourceId, CancellationToken ct = default);
+
+    /// <summary>One-off snapshot: runs a read-only SELECT against a connected Database entity and materializes
+    /// the rows into <paramref name="targetTable"/> in the dataset's DuckDB file (replace + create-if-missing).
+    /// Used by the workbench's "Save data" for external datasets. Never throws.</summary>
+    Task<ImportResult> SnapshotQueryAsync(string companyId, string datasetId, string sourceEntityId, string sql, string targetTable, CancellationToken ct = default);
 }
 
 public class IngestionService : IIngestionService
@@ -261,6 +266,37 @@ public class IngestionService : IIngestionService
         }
 
         return result;
+    }
+
+    public async Task<ImportResult> SnapshotQueryAsync(string companyId, string datasetId, string sourceEntityId, string sql, string targetTable, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(sourceEntityId))
+            return new ImportResult { Error = "This dataset has no linked database entity." };
+        if (string.IsNullOrWhiteSpace(targetTable))
+            return new ImportResult { Error = "A target table name is required." };
+
+        var conn = await _dbTables.GetDecryptedConnectionAsync(sourceEntityId, companyId, ct);
+        if (conn == null)
+            return new ImportResult { Error = "No connection is configured on the source database entity." };
+
+        var tempPath = TempPath(".csv");
+        try
+        {
+            await _dbTables.ReadToTempCsvAsync(conn, sql.TrimEnd().TrimEnd(';'), tempPath, ct);
+            await using var stream = File.OpenRead(tempPath);
+            // Replace + create-if-missing so re-snapshotting refreshes the table in place.
+            return await _duckdb.ImportFileAsync(datasetId, targetTable, stream, ImportFileFormat.Csv,
+                ImportMode.Replace, new List<string>(), skipInvalidRows: true, createIfMissing: true, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Snapshot of external query into {Dataset}/{Table} failed.", datasetId, targetTable);
+            return new ImportResult { Error = ex.Message };
+        }
+        finally
+        {
+            TryDelete(tempPath);
+        }
     }
 
     // Fetches the source's data to a temp file and reports its format.

@@ -18,6 +18,14 @@ public class DatabaseConnectionDto
     public bool HasSecret { get; set; }
 }
 
+/// <summary>A Database-type entity that has a saved connection — offered as a dataset source.</summary>
+public class DatabaseEntityOptionDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public DataSourceType DatabaseType { get; set; }
+}
+
 /// <summary>Payload to create/update a Database entity's connection. Blank <see cref="Secret"/> keeps the existing password.</summary>
 public class DatabaseConnectionRequest
 {

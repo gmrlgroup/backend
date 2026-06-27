@@ -9,6 +9,9 @@ public class SqlQueryRequest
     public string Sql { get; set; } = string.Empty;
     // Optional cap on returned rows; the service clamps this to a hard maximum.
     public int? MaxRows { get; set; }
+    // For External datasets: when true, query the dataset's local DuckDB snapshots instead of the live
+    // source connection. Ignored for Local datasets (they are always DuckDB).
+    public bool SnapshotMode { get; set; }
 }
 
 /// <summary>Result of running ad-hoc SQL. SQL errors are returned via <see cref="Error"/> (not thrown).</summary>
@@ -32,6 +35,9 @@ public class SaveResultRequest
     public string Sql { get; set; } = string.Empty;
     public string ObjectName { get; set; } = string.Empty;
     public bool AsView { get; set; }
+    // For External datasets in source mode: snapshot the live query result into a local DuckDB table.
+    // When true (or for Local datasets) the SQL targets DuckDB and AsView applies as usual.
+    public bool SnapshotMode { get; set; }
 }
 
 public class SavedQueryDto

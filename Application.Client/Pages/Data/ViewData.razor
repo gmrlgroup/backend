@@ -1,6 +1,8 @@
 @page "/data/view"
+@page "/data/edit"
 @using Application.Shared.Models.Data
 @using Application.Shared.Models
+@using Application.Shared.Enums
 @using Microsoft.FluentUI.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Components.Web
@@ -11,6 +13,7 @@
 @inject IToastService ToastService
 @rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
 @attribute [Authorize(Policy = PolicyNames.DatasetsAccess)]
+@implements IAsyncDisposable
 
 <PageTitle>Data Viewer - @(TableInfo?.TableName ?? "Loading...")</PageTitle>
 
@@ -36,13 +39,33 @@ else
                     @(TableInfo?.TableName ?? "Loading…")
                 </h1>
                 <p style="margin:0;font-size:0.8125rem;color:#71717a">
-                    @if (DatasetInfo != null && TableInfo != null) { <span>@DatasetInfo.Name · @TotalRows rows</span> }
+                    @if (DatasetInfo != null && TableInfo != null)
+                    {
+                        <span>@DatasetInfo.Name · @TotalRows rows</span>
+                        @if (hasChanges) { <span style="color:#b45309;font-weight:600"> · unsaved changes</span> }
+                    }
                     else { <span>Loading table information…</span> }
                 </p>
             </div>
         </div>
         <div style="display:flex;align-items:center;gap:0.5rem">
-            <button class="btn btn-outline" style="color:#16a34a;border-color:#16a34a" @onclick="DownloadFilteredData" disabled="@IsLoading">
+            @if (AllowEdit)
+            {
+                <button class="btn btn-outline" @onclick="AddRow" disabled="@(IsLoading || isSaving)" title="Add a new row">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                    Add Row
+                </button>
+                <button class="btn btn-outline" style="color:#dc2626;border-color:#fecaca" @onclick="DeleteSelected" disabled="@(IsLoading || isSaving)" title="Delete selected rows">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                    Delete
+                </button>
+                <button class="btn btn-default" @onclick="SaveChanges" disabled="@(IsLoading || isSaving || !hasChanges)">
+                    @if (isSaving) { <span class="ds-spinner" style="width:14px;height:14px;border-width:1.5px"></span><span>Saving…</span> }
+                    else { <span>Save</span> }
+                </button>
+                <span style="width:1px;height:22px;background:#e4e4e7;margin:0 0.25rem"></span>
+            }
+            <button class="btn btn-outline" style="color:#16a34a;border-color:#16a34a" @onclick="DownloadCsv" disabled="@IsLoading" title="Export the current view to CSV">
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
                 Download
             </button>
@@ -66,11 +89,18 @@ else
         </div>
     </div>
 
+    @if (truncated)
+    {
+        <div style="background:#fffbeb;border-bottom:1px solid #fde68a;color:#92400e;padding:0.5rem 1.25rem;font-size:0.8125rem;flex-shrink:0">
+            Showing the first @LoadedRows of @TotalRows rows. @(AllowEdit ? "Edits apply to the loaded rows — use the SQL workbench or a re-import for bulk changes." : "Use filters or the SQL workbench to reach the rest.")
+        </div>
+    }
+
     <!-- Body -->
     <div style="flex:1;display:flex;overflow:hidden">
         <!-- Table area -->
         <div style="flex:1;padding:1rem;overflow:hidden;display:flex;flex-direction:column">
-            @if (IsLoading && !TableData.Any())
+            @if (IsLoading)
             {
                 <div style="flex:1;display:flex;align-items:center;justify-content:center;background:#fff;border-radius:0.5rem;border:1px solid #e4e4e7">
                     <div style="text-align:center">
@@ -81,22 +111,15 @@ else
             }
             else if (TableColumns?.Any() == true)
             {
-                <DynamicTableComponent TItem="Dictionary<string, object>"
-                                     Items="@TableData"
-                                     DefaultColumns="@DefaultColumnNames"
-                                     AllColumns="@AllColumnNames"
-                                     VisibleColumns="@UserColumnSettings"
-                                     IsLoading="@IsLoading"
-                                     CurrentPage="@CurrentPage"
-                                     PageSize="@PageSize"
-                                     TotalRows="@TotalRows"
-                                     TableHeight="100%"
-                                     OnColumnSettingsChanged="@OnColumnSettingsChanged"
-                                     OnFiltersChanged="@OnFiltersChanged"
-                                     OnSearchChanged="@OnSearchChanged"
-                                     OnPageChanged="@OnPageChanged" />
+                <div id="@GridId" class="ag-theme-quartz" style="flex:1;width:100%"></div>
+                @if (AllowEdit)
+                {
+                    <p style="font-size:0.75rem;color:#a1a1aa;margin:0.5rem 0 0 0">
+                        Click a cell to edit · Enter / Tab to move · Ctrl+Z to undo · select rows with the checkboxes to delete · filter from the header row.
+                    </p>
+                }
             }
-            else if (!IsLoading)
+            else
             {
                 <div style="flex:1;display:flex;align-items:center;justify-content:center;background:#fff;border-radius:0.5rem;border:1px solid #e4e4e7">
                     <div style="text-align:center">
@@ -136,78 +159,98 @@ else
     [SupplyParameterFromQuery] public string? DatasetId { get; set; }
     [SupplyParameterFromQuery] public string? TableName { get; set; }
 
+    private const string GridId = "data-view-grid";
+    private const int rowCap = 5000;
+
     private bool ShowApiDocs = false;
 
     private Dataset? DatasetInfo;
     private Table? TableInfo;
     private List<Column>? TableColumns;
     private List<Dictionary<string, object>> TableData = new();
-    private List<ColumnSettings>? UserColumnSettings;
-    private TableDataQuery CurrentQuery = new();
 
     private bool canView;
+    private bool canEdit;
+    // Editing is offered only to EDIT_DATA users on local DuckDB datasets; external sources are read-only.
+    private bool AllowEdit => canEdit && DatasetInfo?.SourceType == DatasetSourceType.Local;
     private bool IsLoading = false;
+    private bool isSaving;
+    private bool hasChanges;
+    private bool truncated;
     private bool ShowCommentsPanel = false;
-    private int CurrentPage = 1;
-    private int PageSize = 50;
     private int TotalRows = 0;
+    private int LoadedRows => TableData.Count;
     private int CommentsCount = 0;
     private string CurrentUserId = string.Empty;
 
-    private List<string> DefaultColumnNames => TableColumns?.Select(c => c.Name).ToList() ?? new List<string>();
-    private List<string> AllColumnNames => TableColumns?.Select(c => c.Name).ToList() ?? new List<string>();
+    private string? loadedKey;
+    private bool gridInitialized;
+    private DotNetObjectReference<ViewData>? dotNetRef;
 
     protected override async Task OnInitializedAsync()
     {
-        if (!HttpClient.DefaultRequestHeaders.Contains("X-Company-ID"))
-            HttpClient.DefaultRequestHeaders.Add("X-Company-ID", c);
+        EnsureCompanyHeader();
 
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-        CurrentUserId = authState.User.Claims.FirstOrDefault(c => c.Type.EndsWith("nameidentifier"))?.Value ??
-                        authState.User.Claims.FirstOrDefault(c => c.Type.EndsWith("id"))?.Value ?? string.Empty;
+        CurrentUserId = authState.User.Claims.FirstOrDefault(x => x.Type.EndsWith("nameidentifier"))?.Value ??
+                        authState.User.Claims.FirstOrDefault(x => x.Type.EndsWith("id"))?.Value ?? string.Empty;
+        EnsureUserIdHeader();
 
         var companyId = c ?? "";
         canView = authState.User.HasCompanyRole(companyId, "VIEW_DATA");
-        if (!canView) return;
+        canEdit = authState.User.HasCompanyRole(companyId, "EDIT_DATA");
     }
 
     protected override async Task OnParametersSetAsync()
     {
-        if (!string.IsNullOrEmpty(DatasetId) && !string.IsNullOrEmpty(TableName))
-            await LoadInitialData();
+        if (!canView || string.IsNullOrEmpty(DatasetId) || string.IsNullOrEmpty(TableName))
+            return;
+
+        var key = $"{DatasetId}|{TableName}";
+        if (key == loadedKey) return;
+        loadedKey = key;
+
+        // Navigated to a different table on the same component instance — tear the grid down first.
+        if (gridInitialized)
+        {
+            try { await JSRuntime.InvokeVoidAsync("dataGridEditor.dispose"); } catch { }
+            gridInitialized = false;
+        }
+
+        await LoadInitialData();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Build the grid once data is loaded and the container has rendered.
+        if (!canView || IsLoading || TableColumns == null || !TableColumns.Any() || gridInitialized)
+            return;
+        gridInitialized = true;
+        dotNetRef ??= DotNetObjectReference.Create(this);
+        var colPayload = TableColumns.Select(col => new { name = col.Name, dataType = col.DataType }).ToList();
+        await JSRuntime.InvokeVoidAsync("dataGridEditor.init", GridId, dotNetRef, colPayload, TableData, new { editable = AllowEdit });
     }
 
     private async Task LoadInitialData()
     {
         IsLoading = true;
+        hasChanges = false;
         StateHasChanged();
-
-        if (!HttpClient.DefaultRequestHeaders.Contains("X-Company-ID"))
-            HttpClient.DefaultRequestHeaders.Add("X-Company-ID", c);
+        EnsureCompanyHeader();
 
         try
         {
             DatasetInfo = await HttpClient.GetFromJsonAsync<Dataset>($"api/Datasets/{DatasetId}");
-            var tableResponse = await HttpClient.GetFromJsonAsync<Table>($"api/Datasets/{DatasetId}/tables/{TableName}");
-            TableInfo = tableResponse;
-            TableColumns = tableResponse?.Columns;
+            TableInfo = await HttpClient.GetFromJsonAsync<Table>($"api/Datasets/{DatasetId}/tables/{TableName}");
+            TableColumns = TableInfo?.Columns;
 
-            await LoadUserPreferences();
-
-            CurrentQuery = new TableDataQuery
-            {
-                DatasetId = DatasetId!,
-                TableName = TableName!,
-                Page = CurrentPage,
-                PageSize = PageSize,
-                SelectedColumns = UserColumnSettings?.Where(c => c.IsVisible).OrderBy(c => c.Order).Select(c => c.ColumnName).ToList()
-            };
-
-            await LoadTableData();
+            await LoadCommentsCount();
+            await LoadRowsAsync(initial: true);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error loading initial data: {ex.Message}");
+            ToastService.ShowError($"Failed to load table: {ex.Message}");
         }
         finally
         {
@@ -216,135 +259,150 @@ else
         }
     }
 
-    private async Task LoadUserPreferences()
+    private async Task LoadCommentsCount()
     {
         try
         {
-            if (!HttpClient.DefaultRequestHeaders.Contains("X-Company-ID"))
-                HttpClient.DefaultRequestHeaders.Add("X-Company-ID", c);
-
             var comments = await HttpClient.GetFromJsonAsync<List<DataTableComment>>($"api/DataViews/comments/{DatasetId}/{TableName}");
-            CommentsCount = comments?.Count(c => c.DatasetId == DatasetId && c.TableName == TableName) ?? 0;
-
-            var response = await HttpClient.GetFromJsonAsync<UserColumnPreferences>($"api/DataViews/preferences/{DatasetId}/{TableName}");
-
-            if (response?.ColumnSettings?.Any() == true)
-                UserColumnSettings = response.ColumnSettings;
-            else if (TableColumns?.Any() == true)
-                UserColumnSettings = TableColumns.Select((col, index) => new ColumnSettings { ColumnName = col.Name, IsVisible = true, Order = index }).ToList();
+            CommentsCount = comments?.Count(x => x.DatasetId == DatasetId && x.TableName == TableName) ?? 0;
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error loading user preferences: {ex.Message}");
-            if (TableColumns?.Any() == true)
-                UserColumnSettings = TableColumns.Select((col, index) => new ColumnSettings { ColumnName = col.Name, IsVisible = true, Order = index }).ToList();
-        }
+        catch (Exception ex) { Console.WriteLine($"Error loading comments: {ex.Message}"); }
     }
 
-    private async Task LoadTableData()
+    private async Task LoadRowsAsync(bool initial = false)
     {
-        IsLoading = true;
-        try
+        EnsureCompanyHeader();
+        EnsureUserIdHeader();
+
+        var query = new TableDataQuery
         {
-            var response = await HttpClient.PostAsJsonAsync($"api/Datasets/{DatasetId}/tables/{TableName}/data", CurrentQuery);
-            if (response.IsSuccessStatusCode)
-            {
-                var result = await response.Content.ReadFromJsonAsync<TableDataResult>();
-                if (result != null)
-                {
-                    TableData = result.Data;
-                    TotalRows = result.TotalRows;
-                    CurrentPage = result.Page;
-                }
-            }
+            DatasetId = DatasetId!,
+            TableName = TableName!,
+            Page = 1,
+            PageSize = rowCap,
+            // Only fetch the rowid when the grid is editable — the viewer doesn't need it.
+            IncludeRowId = AllowEdit
+        };
+
+        var response = await HttpClient.PostAsJsonAsync($"api/Datasets/{DatasetId}/tables/{TableName}/data", query);
+        if (!response.IsSuccessStatusCode)
+        {
+            ToastService.ShowError($"Failed to load data: {response.StatusCode}");
+            return;
         }
-        catch (Exception ex)
+
+        var result = await response.Content.ReadFromJsonAsync<TableDataResult>();
+        TableData = result?.Data ?? new();
+        TotalRows = result?.TotalRows ?? TableData.Count;
+        truncated = TotalRows > TableData.Count;
+
+        // On reload (refresh/save/discard) push fresh rows straight into the live grid.
+        if (!initial && gridInitialized)
+            await JSRuntime.InvokeVoidAsync("dataGridEditor.setData", TableData);
+
+        hasChanges = false;
+    }
+
+    [JSInvokable]
+    public Task SetDirty(bool dirty)
+    {
+        if (hasChanges != dirty)
         {
-            Console.WriteLine($"Error loading table data: {ex.Message}");
-        }
-        finally
-        {
-            IsLoading = false;
+            hasChanges = dirty;
             StateHasChanged();
         }
+        return Task.CompletedTask;
     }
 
-    private async Task OnColumnSettingsChanged(List<ColumnSettings> newSettings)
+    private async Task AddRow() => await JSRuntime.InvokeVoidAsync("dataGridEditor.addRow");
+
+    private async Task DeleteSelected()
     {
-        UserColumnSettings = newSettings;
-        try
+        var count = await JSRuntime.InvokeAsync<int>("dataGridEditor.deleteSelected");
+        if (count == 0)
+            ToastService.ShowInfo("Select one or more rows (using the checkboxes) to delete.");
+    }
+
+    private async Task SaveChanges()
+    {
+        var changes = await JSRuntime.InvokeAsync<BulkRowEditRequest>("dataGridEditor.getChanges");
+        if (changes == null ||
+            (changes.Updates.Count == 0 && changes.Inserts.Count == 0 && changes.Deletes.Count == 0))
         {
-            await HttpClient.PostAsJsonAsync("api/DataViews/preferences", new UserColumnPreferences
-            {
-                DatasetId = DatasetId!, TableName = TableName!, ColumnSettings = newSettings
-            });
+            ToastService.ShowInfo("No changes to save.");
+            return;
         }
-        catch (Exception ex) { Console.WriteLine($"Error saving preferences: {ex.Message}"); }
-        CurrentQuery.SelectedColumns = newSettings.Where(c => c.IsVisible).OrderBy(c => c.Order).Select(c => c.ColumnName).ToList();
-        await LoadTableData();
-    }
 
-    private async Task OnFiltersChanged(List<FilterCondition> filters)
-    {
-        CurrentQuery.Filters = filters;
-        CurrentQuery.Page = 1;
-        CurrentPage = 1;
-        await LoadTableData();
-    }
-
-    private async Task OnSearchChanged(string searchTerm)
-    {
-        if (!string.IsNullOrWhiteSpace(searchTerm))
-            CurrentQuery.Filters = TableColumns?.Select(col => new FilterCondition { ColumnName = col.Name, Operator = "contains", Value = searchTerm }).ToList() ?? new();
-        else
-            CurrentQuery.Filters = new();
-        CurrentQuery.Page = 1;
-        CurrentPage = 1;
-        await LoadTableData();
-    }
-
-    private async Task OnPageChanged(int newPage)
-    {
-        CurrentPage = newPage;
-        CurrentQuery.Page = newPage;
-        await LoadTableData();
-    }
-
-    private async Task RefreshData() => await LoadTableData();
-
-    private async Task DownloadFilteredData()
-    {
-        if (string.IsNullOrEmpty(DatasetId) || string.IsNullOrEmpty(TableName)) { ToastService.ShowError("Dataset ID or Table Name is missing"); return; }
+        isSaving = true;
+        StateHasChanged();
         try
         {
-            var downloadQuery = new TableDataQuery
-            {
-                DatasetId = DatasetId, TableName = TableName, Page = 1, PageSize = int.MaxValue,
-                SelectedColumns = CurrentQuery.SelectedColumns, Filters = CurrentQuery.Filters, SortColumns = CurrentQuery.SortColumns
-            };
-            var response = await HttpClient.PostAsJsonAsync($"api/Datasets/{DatasetId}/tables/{TableName}/download-filtered", downloadQuery);
+            EnsureCompanyHeader();
+            EnsureUserIdHeader();
+            var response = await HttpClient.PostAsJsonAsync($"api/Datasets/{DatasetId}/tables/{TableName}/rows/bulk", changes);
             if (response.IsSuccessStatusCode)
             {
-                var content = await response.Content.ReadAsByteArrayAsync();
-                var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/csv";
-                var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                var filterCount = CurrentQuery.Filters?.Count ?? 0;
-                var fileName = filterCount > 0 ? $"{TableName}_filtered_{timestamp}.csv" : $"{TableName}_{timestamp}.csv";
-                if (response.Content.Headers.ContentDisposition?.FileName != null)
-                    fileName = response.Content.Headers.ContentDisposition.FileName.Trim('"');
-                await JSRuntime.InvokeVoidAsync("downloadFileFromByteArray", fileName, contentType, content);
-                ToastService.ShowSuccess($"Downloaded{(filterCount > 0 ? " (filtered)" : "")} successfully");
+                var result = await response.Content.ReadFromJsonAsync<BulkRowEditResult>();
+                if (result?.Success == true)
+                {
+                    ToastService.ShowSuccess($"Saved · {result.Inserted} added, {result.Updated} updated, {result.Deleted} deleted");
+                    await LoadRowsAsync();
+                }
+                else
+                {
+                    ToastService.ShowError(result?.Error ?? "Changes could not be saved.");
+                }
             }
             else
             {
-                ToastService.ShowError($"Failed to download: {response.StatusCode}");
+                ToastService.ShowError($"Save failed: {await response.Content.ReadAsStringAsync()}");
             }
         }
-        catch (Exception ex) { ToastService.ShowError($"Error: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            ToastService.ShowError($"Error saving changes: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        if (hasChanges && !await JSRuntime.InvokeAsync<bool>("confirm", "Refresh will discard unsaved changes. Continue?"))
+            return;
+        await LoadRowsAsync();
+    }
+
+    private async Task DownloadCsv()
+    {
+        var fileName = $"{TableName}_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+        await JSRuntime.InvokeVoidAsync("dataGridEditor.exportCsv", fileName);
+    }
+
+    private void EnsureCompanyHeader()
+    {
+        if (!HttpClient.DefaultRequestHeaders.Contains("X-Company-ID"))
+            HttpClient.DefaultRequestHeaders.Add("X-Company-ID", c);
+    }
+
+    private void EnsureUserIdHeader()
+    {
+        if (string.IsNullOrEmpty(CurrentUserId)) return;
+        HttpClient.DefaultRequestHeaders.Remove("UserId");
+        HttpClient.DefaultRequestHeaders.Add("UserId", CurrentUserId);
     }
 
     private void GoBack() => NavigationManager.NavigateTo($"/data/tables?c={c}&d={DatasetId}");
     private void GoToQuery() => NavigationManager.NavigateTo($"/data/query?c={c}&DatasetId={DatasetId}&TableName={TableName}");
     private void OnCommentAdded(DataTableComment comment) { CommentsCount++; StateHasChanged(); }
     private void OnCommentDeleted(string commentId) { CommentsCount = Math.Max(0, CommentsCount - 1); StateHasChanged(); }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JSRuntime.InvokeVoidAsync("dataGridEditor.dispose"); } catch { /* circuit may already be gone */ }
+        dotNetRef?.Dispose();
+    }
 }

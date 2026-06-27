@@ -2,7 +2,10 @@ using System.Linq;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using Application.Shared.Authorization;
+using Application.Shared.Enums;
+using Application.Shared.Models;
 using Application.Shared.Models.Data;
+using Application.Shared.Services;
 using Application.Shared.Services.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -21,12 +24,21 @@ public class QueryController : ControllerBase
     private readonly IDuckdbService _duckdbService;
     private readonly IDatasetService _datasetService;
     private readonly ISavedQueryService _savedQueryService;
+    private readonly IDatabaseTableService _databaseTableService;
+    private readonly IIngestionService _ingestionService;
 
-    public QueryController(IDuckdbService duckdbService, IDatasetService datasetService, ISavedQueryService savedQueryService)
+    public QueryController(
+        IDuckdbService duckdbService,
+        IDatasetService datasetService,
+        ISavedQueryService savedQueryService,
+        IDatabaseTableService databaseTableService,
+        IIngestionService ingestionService)
     {
         _duckdbService = duckdbService;
         _datasetService = datasetService;
         _savedQueryService = savedQueryService;
+        _databaseTableService = databaseTableService;
+        _ingestionService = ingestionService;
     }
 
     // POST: api/datasets/{datasetId}/query/run
@@ -37,8 +49,24 @@ public class QueryController : ControllerBase
         if (error != null) return BadRequest(error);
         if (!User.HasCompanyRole(companyId, "VIEW_DATA")) return Forbid();
         if (string.IsNullOrWhiteSpace(request?.Sql)) return BadRequest("Query is required");
-        if (!await DatasetAccessible(datasetId, userId))
+
+        var dataset = await _datasetService.GetDatasetAsync(datasetId, userId);
+        if (dataset == null)
             return NotFound($"Dataset '{datasetId}' not found.");
+
+        // Table-level share scope: block queries that reference a dataset table the user can't access.
+        var blockedTable = await FindDisallowedTableAsync(dataset, userId, companyId, request.Sql, request.SnapshotMode, HttpContext.RequestAborted);
+        if (blockedTable != null)
+            return Ok(new SqlQueryResult { IsSelect = true, Error = $"Access to table '{blockedTable}' is not permitted." });
+
+        // External datasets run against the live source connection (always read-only). The
+        // 'snapshot' query param lets the workbench query the local DuckDB snapshots instead.
+        if (dataset.SourceType == DatasetSourceType.External && !request.SnapshotMode)
+        {
+            var external = await _databaseTableService.ExecuteQueryAsync(
+                dataset.SourceEntityId ?? "", companyId, request.Sql, request.MaxRows ?? 0, HttpContext.RequestAborted);
+            return Ok(external);
+        }
 
         // VIEW_DATA → read-only; EDIT_DATA/ADMIN → writes allowed. The service classifies the
         // statement and returns a clear error inline if a write is attempted without edit rights.
@@ -57,8 +85,29 @@ public class QueryController : ControllerBase
         if (!User.HasCompanyRole(companyId, "EDIT_DATA")) return Forbid();
         if (request == null || string.IsNullOrWhiteSpace(request.Sql) || string.IsNullOrWhiteSpace(request.ObjectName))
             return BadRequest("Query and object name are required");
-        if (!await DatasetAccessible(datasetId, userId))
+
+        var dataset = await _datasetService.GetDatasetAsync(datasetId, userId);
+        if (dataset == null)
             return NotFound($"Dataset '{datasetId}' not found.");
+
+        // Table-level share scope: the SELECT being materialized must not reference disallowed tables.
+        var blockedTable = await FindDisallowedTableAsync(dataset, userId, companyId, request.Sql, request.SnapshotMode, HttpContext.RequestAborted);
+        if (blockedTable != null)
+            return Ok(new SqlQueryResult { Error = $"Access to table '{blockedTable}' is not permitted." });
+
+        // External source mode: there is no write-back to a read-only source, so the result is snapshotted
+        // into a local DuckDB table instead. (Snapshot mode / Local datasets fall through to DuckDB write-back.)
+        if (dataset.SourceType == DatasetSourceType.External && !request.SnapshotMode)
+        {
+            var import = await _ingestionService.SnapshotQueryAsync(
+                companyId, datasetId, dataset.SourceEntityId ?? "", request.Sql, request.ObjectName, HttpContext.RequestAborted);
+            return Ok(new SqlQueryResult
+            {
+                IsSelect = false,
+                Error = import.Error,
+                RowsAffected = import.RowsInserted + import.RowsUpdated
+            });
+        }
 
         var result = await _duckdbService.CreateObjectFromQueryAsync(
             datasetId, request.ObjectName, request.Sql, request.AsView, HttpContext.RequestAborted);
@@ -119,6 +168,48 @@ public class QueryController : ControllerBase
         if (!await _savedQueryService.DeleteAsync(companyId, id, userId, isAdmin))
             return NotFound("Query not found, or you don't have permission to delete it.");
         return NoContent();
+    }
+
+    // Matches the identifier following FROM/JOIN (handles quotes/brackets/backticks and schema.table).
+    private static readonly System.Text.RegularExpressions.Regex TableRefRegex =
+        new(@"\b(?:from|join)\s+([A-Za-z0-9_\.""\[\]`]+)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static IEnumerable<string> ExtractReferencedTables(string sql)
+    {
+        foreach (System.Text.RegularExpressions.Match m in TableRefRegex.Matches(sql ?? ""))
+        {
+            var cleaned = m.Groups[1].Value.Replace("\"", "").Replace("[", "").Replace("]", "").Replace("`", "");
+            if (!string.IsNullOrWhiteSpace(cleaned))
+                yield return cleaned;
+        }
+    }
+
+    /// <summary>
+    /// Best-effort table-level guard for ad-hoc SQL: returns the name of a referenced table the user is
+    /// NOT allowed to access, or null if the query is clear. Only blocks references that match a KNOWN
+    /// dataset table outside the user's allow-list, so CTEs/aliases/functions are never false-flagged.
+    /// </summary>
+    private async Task<string?> FindDisallowedTableAsync(Dataset dataset, string userId, string companyId, string sql, bool snapshotMode, System.Threading.CancellationToken ct)
+    {
+        var accessible = await _datasetService.GetAccessibleTablesAsync(dataset.Id!, userId);
+        if (accessible == null) return null; // full access — no guard needed
+
+        IEnumerable<string> allTables;
+        if (dataset.SourceType == DatasetSourceType.External && !snapshotMode && !string.IsNullOrWhiteSpace(dataset.SourceEntityId))
+        {
+            var discovery = await _databaseTableService.DiscoverTablesAsync(dataset.SourceEntityId, companyId, ct);
+            allTables = discovery.Tables.Select(t => t.FullName);
+        }
+        else
+        {
+            allTables = await _duckdbService.GetTablesAsync(dataset.Id!);
+        }
+
+        var disallowed = allTables.Where(t => !accessible.Contains(t)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (disallowed.Count == 0) return null;
+
+        return ExtractReferencedTables(sql).FirstOrDefault(r => disallowed.Contains(r));
     }
 
     private (string companyId, string userId, string? error) ReadHeaders()

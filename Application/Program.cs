@@ -263,6 +263,17 @@ builder.Services.AddHttpClient(IncidentNotificationService.HttpClientName, (sp, 
     client.Timeout = TimeSpan.FromSeconds(60);
 });
 
+// Dataset-shared notification emails (same Resend microservice).
+builder.Services.Configure<Application.Shared.Options.DatasetSharedEmailOptions>(
+    builder.Configuration.GetSection("DatasetSharedEmail"));
+builder.Services.AddHttpClient(Application.Services.Data.EmailNotificationService.HttpClientName, (sp, client) =>
+{
+    var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Application.Shared.Options.DatasetSharedEmailOptions>>().Value;
+    if (string.IsNullOrWhiteSpace(opts.ApiBaseUri)) return;
+    client.BaseAddress = new Uri(opts.ApiBaseUri);
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
+
 // Server Management (credentials + remote service start/stop)
 // Keys must persist OUTSIDE the app folder so redeploys don't wipe them — losing the key ring
 // makes every stored credential undecryptable. Configurable via DataProtection:KeysPath

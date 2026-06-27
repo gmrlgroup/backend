@@ -542,17 +542,19 @@ public class DuckdbService : IDuckdbService
 
             // Build the SQL query
             var sqlBuilder = new StringBuilder();
-            
-            // SELECT clause
+
+            // SELECT clause. When IncludeRowId is requested, prepend the DuckDB rowid pseudocolumn under a
+            // reserved alias so the viewer can target the exact row for edits/deletes; it is stripped from
+            // the returned Columns list below so it never renders as a data column.
+            var selectParts = new List<string>();
+            if (query.IncludeRowId)
+                selectParts.Add($"rowid AS {Q(TableDataQuery.RowIdKey)}");
             if (query.SelectedColumns?.Any() == true)
-            {
-                sqlBuilder.Append($"SELECT {string.Join(", ", query.SelectedColumns.Select(c => $"\"{c}\""))}");
-            }
+                selectParts.AddRange(query.SelectedColumns.Select(c => $"\"{c}\""));
             else
-            {
-                sqlBuilder.Append("SELECT *");
-            }
-            
+                selectParts.Add("*");
+            sqlBuilder.Append("SELECT " + string.Join(", ", selectParts));
+
             sqlBuilder.Append($" FROM \"{query.TableName}\"");
 
             // WHERE clause for filters (reused for the COUNT below so the total matches the filtered view)
@@ -583,13 +585,16 @@ public class DuckdbService : IDuckdbService
 
                 using var reader = await command.ExecuteReaderAsync();
 
-                // Get column information
+                // Get column information (the rowid alias is metadata, not a data column).
                 var columns = new List<Column>();
                 for (int i = 0; i < reader.FieldCount; i++)
                 {
+                    var columnName = reader.GetName(i);
+                    if (query.IncludeRowId && columnName == TableDataQuery.RowIdKey)
+                        continue;
                     columns.Add(new Column
                     {
-                        Name = reader.GetName(i),
+                        Name = columnName,
                         DataType = reader.GetFieldType(i).Name
                     });
                 }
@@ -1411,6 +1416,211 @@ public class DuckdbService : IDuckdbService
             
             throw new InvalidOperationException($"Failed to get table row count: {ex.Message}", ex);
         }
+    }
+
+    // ----- Row-level editing (data viewer) --------------------------------------------------------
+    // Rows are addressed by the DuckDB rowid pseudocolumn, which is unique per row in a base table — so
+    // edits/deletes target exactly one row even when the table has no primary key. Values arrive as
+    // strings and are CAST to the column's declared type, so an empty value in a non-text column becomes
+    // NULL rather than a cast error.
+
+    public async Task<RowMutationResult> UpdateRowAsync(string datasetId, string tableName, long rowId, Dictionary<string, string?> values, CancellationToken ct = default)
+    {
+        var result = new RowMutationResult();
+        var duckdbFilePath = $"{_option.DuckdbFilePath}/{datasetId}.duckdb";
+        if (!File.Exists(duckdbFilePath)) { result.Error = "Dataset database not found."; return result; }
+        if (values == null || values.Count == 0) { result.Error = "No values to update."; return result; }
+
+        try
+        {
+            var columnsByName = await GetColumnLookupAsync(datasetId, tableName);
+
+            var assignments = new List<string>();
+            foreach (var kv in values)
+            {
+                // Ignore keys that aren't real columns (e.g. the reserved rowid alias).
+                if (!columnsByName.TryGetValue(kv.Key, out var col)) continue;
+                assignments.Add($"{Q(col.Name)} = {ToSqlLiteral(kv.Value, col.DataType)}");
+            }
+            if (assignments.Count == 0) { result.Error = "No valid columns to update."; return result; }
+
+            using var connection = new DuckDBConnection($"DataSource={duckdbFilePath}");
+            await connection.OpenAsync(ct);
+            using var command = connection.CreateCommand();
+            command.CommandText = $"UPDATE {Q(tableName)} SET {string.Join(", ", assignments)} WHERE rowid = {rowId}";
+            result.RowsAffected = await command.ExecuteNonQueryAsync(ct);
+            await connection.CloseAsync();
+
+            result.Success = result.RowsAffected > 0;
+            if (!result.Success)
+                result.Error = "Row not found — it may have changed or been removed. Refresh and try again.";
+        }
+        catch (Exception ex) { result.Error = ex.Message; }
+        return result;
+    }
+
+    public async Task<RowMutationResult> InsertRowAsync(string datasetId, string tableName, Dictionary<string, string?> values, CancellationToken ct = default)
+    {
+        var result = new RowMutationResult();
+        var duckdbFilePath = $"{_option.DuckdbFilePath}/{datasetId}.duckdb";
+        if (!File.Exists(duckdbFilePath)) { result.Error = "Dataset database not found."; return result; }
+
+        try
+        {
+            var columnsByName = await GetColumnLookupAsync(datasetId, tableName);
+
+            var columnList = new List<string>();
+            var valueList = new List<string>();
+            foreach (var kv in values ?? new())
+            {
+                if (!columnsByName.TryGetValue(kv.Key, out var col)) continue;
+                columnList.Add(Q(col.Name));
+                valueList.Add(ToSqlLiteral(kv.Value, col.DataType));
+            }
+            if (columnList.Count == 0) { result.Error = "No valid columns provided."; return result; }
+
+            using var connection = new DuckDBConnection($"DataSource={duckdbFilePath}");
+            await connection.OpenAsync(ct);
+            using var command = connection.CreateCommand();
+            command.CommandText = $"INSERT INTO {Q(tableName)} ({string.Join(", ", columnList)}) VALUES ({string.Join(", ", valueList)})";
+            result.RowsAffected = await command.ExecuteNonQueryAsync(ct);
+            await connection.CloseAsync();
+
+            result.Success = result.RowsAffected > 0;
+        }
+        catch (Exception ex) { result.Error = ex.Message; }
+        return result;
+    }
+
+    public async Task<RowMutationResult> DeleteRowAsync(string datasetId, string tableName, long rowId, CancellationToken ct = default)
+    {
+        var result = new RowMutationResult();
+        var duckdbFilePath = $"{_option.DuckdbFilePath}/{datasetId}.duckdb";
+        if (!File.Exists(duckdbFilePath)) { result.Error = "Dataset database not found."; return result; }
+
+        try
+        {
+            using var connection = new DuckDBConnection($"DataSource={duckdbFilePath}");
+            await connection.OpenAsync(ct);
+            using var command = connection.CreateCommand();
+            command.CommandText = $"DELETE FROM {Q(tableName)} WHERE rowid = {rowId}";
+            result.RowsAffected = await command.ExecuteNonQueryAsync(ct);
+            await connection.CloseAsync();
+
+            result.Success = result.RowsAffected > 0;
+            if (!result.Success)
+                result.Error = "Row not found — it may have already been removed.";
+        }
+        catch (Exception ex) { result.Error = ex.Message; }
+        return result;
+    }
+
+    public async Task<BulkRowEditResult> ApplyRowChangesAsync(string datasetId, string tableName, BulkRowEditRequest changes, CancellationToken ct = default)
+    {
+        var result = new BulkRowEditResult();
+        var duckdbFilePath = $"{_option.DuckdbFilePath}/{datasetId}.duckdb";
+        if (!File.Exists(duckdbFilePath)) { result.Error = "Dataset database not found."; return result; }
+        if (changes == null) { result.Error = "No changes provided."; return result; }
+
+        try
+        {
+            var columnsByName = await GetColumnLookupAsync(datasetId, tableName);
+
+            using var connection = new DuckDBConnection($"DataSource={duckdbFilePath}");
+            await connection.OpenAsync(ct);
+
+            // One transaction for the whole batch: if any statement fails the table is left untouched.
+            // Order matters — updates run against the rowids captured at load time before any deletes
+            // remove rows; inserts come last.
+            await ExecAsync(connection, "BEGIN TRANSACTION", ct);
+            try
+            {
+                foreach (var update in changes.Updates)
+                {
+                    if (update?.RowId == null || update.Values == null) continue;
+                    var assignments = new List<string>();
+                    foreach (var kv in update.Values)
+                    {
+                        if (!columnsByName.TryGetValue(kv.Key, out var col)) continue;
+                        assignments.Add($"{Q(col.Name)} = {ToSqlLiteral(kv.Value, col.DataType)}");
+                    }
+                    if (assignments.Count == 0) continue;
+
+                    using var cmd = connection.CreateCommand();
+                    cmd.CommandText = $"UPDATE {Q(tableName)} SET {string.Join(", ", assignments)} WHERE rowid = {update.RowId.Value}";
+                    result.Updated += await cmd.ExecuteNonQueryAsync(ct);
+                }
+
+                foreach (var rowId in changes.Deletes.Distinct())
+                {
+                    using var cmd = connection.CreateCommand();
+                    cmd.CommandText = $"DELETE FROM {Q(tableName)} WHERE rowid = {rowId}";
+                    result.Deleted += await cmd.ExecuteNonQueryAsync(ct);
+                }
+
+                foreach (var insert in changes.Inserts)
+                {
+                    if (insert?.Values == null) continue;
+                    var columnList = new List<string>();
+                    var valueList = new List<string>();
+                    foreach (var kv in insert.Values)
+                    {
+                        if (!columnsByName.TryGetValue(kv.Key, out var col)) continue;
+                        columnList.Add(Q(col.Name));
+                        valueList.Add(ToSqlLiteral(kv.Value, col.DataType));
+                    }
+                    if (columnList.Count == 0) continue;
+
+                    using var cmd = connection.CreateCommand();
+                    cmd.CommandText = $"INSERT INTO {Q(tableName)} ({string.Join(", ", columnList)}) VALUES ({string.Join(", ", valueList)})";
+                    result.Inserted += await cmd.ExecuteNonQueryAsync(ct);
+                }
+
+                await ExecAsync(connection, "COMMIT", ct);
+                result.Success = true;
+            }
+            catch
+            {
+                try { await ExecAsync(connection, "ROLLBACK", ct); } catch { /* best-effort */ }
+                throw;
+            }
+
+            await connection.CloseAsync();
+        }
+        catch (Exception ex)
+        {
+            result.Error = ex.Message;
+        }
+        return result;
+    }
+
+    // Case-insensitive map of column name → column (with declared type) for the table.
+    private async Task<Dictionary<string, Column>> GetColumnLookupAsync(string datasetId, string tableName)
+    {
+        var columns = await GetTableColumnsAsync(datasetId, tableName);
+        var map = new Dictionary<string, Column>(StringComparer.OrdinalIgnoreCase);
+        foreach (var col in columns)
+            map.TryAdd(col.Name, col);
+        return map;
+    }
+
+    // Renders a single edited value as a SQL literal for the given column type. null (and empty values in
+    // a non-text column) become NULL; everything else is a single-quote-escaped string CAST to the column
+    // type, which lets DuckDB parse numbers/dates/booleans from their text form. The data type comes from
+    // PRAGMA table_info (trusted), so interpolating it is safe.
+    private static string ToSqlLiteral(string? value, string dataType)
+    {
+        if (value == null) return "NULL";
+
+        var type = (dataType ?? string.Empty).ToUpperInvariant();
+        var isTextual = type.Contains("CHAR") || type.Contains("TEXT") || type == "STRING"
+            || type == "JSON" || type == "UUID" || type.Contains("BLOB");
+        if (value.Length == 0 && !isTextual) return "NULL";
+
+        var escaped = value.Replace("'", "''");
+        return string.IsNullOrWhiteSpace(dataType)
+            ? $"'{escaped}'"
+            : $"CAST('{escaped}' AS {dataType})";
     }
 
     //private async Task<string> CleanCsvStreamToTempFileAsync(Stream csvStream, Encoding sourceEncoding)

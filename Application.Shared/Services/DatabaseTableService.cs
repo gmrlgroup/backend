@@ -7,6 +7,7 @@ using System.Text.Json;
 using Application.Shared.Data;
 using Application.Shared.Enums;
 using Application.Shared.Models;
+using Application.Shared.Models.Data;
 using DuckDB.NET.Data;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -22,6 +23,9 @@ public class DatabaseTableService : IDatabaseTableService
     private readonly ICredentialProtector _protector;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<DatabaseTableService> _logger;
+
+    // Hard cap on rows the ad-hoc workbench will pull back from an external source in one query.
+    private const int MaxExternalRows = 5000;
 
     public DatabaseTableService(
         StatusDbContext context,
@@ -167,6 +171,174 @@ public class DatabaseTableService : IDatabaseTableService
 
         return dto;
     }
+
+    // ---- Dataset source: candidate databases + ad-hoc query ----
+
+    public async Task<List<DatabaseEntityOptionDto>> GetConnectedDatabasesAsync(string companyId, CancellationToken ct = default)
+    {
+        // Database entities that actually have a saved connection — only those can back a dataset.
+        var query =
+            from e in _context.MonitoredAssets
+            where e.CompanyId == companyId && !e.IsDeleted && e.EntityType == AssetType.Database
+            join c in _context.DatabaseConnections on e.Id equals c.EntityId
+            where c.CompanyId == companyId
+            orderby e.Name
+            select new DatabaseEntityOptionDto { Id = e.Id, Name = e.Name ?? string.Empty, DatabaseType = c.DatabaseType };
+
+        return await query.ToListAsync(ct);
+    }
+
+    public async Task<SqlQueryResult> ExecuteQueryAsync(string entityId, string companyId, string sql, int maxRows, CancellationToken ct = default)
+    {
+        var result = new SqlQueryResult { IsSelect = true };
+
+        if (string.IsNullOrWhiteSpace(sql))
+        {
+            result.Error = "Query is required.";
+            return result;
+        }
+        // External sources are strictly read-only — reject writes/DDL and stacked statements.
+        if (!IsReadOnlyStatement(sql))
+        {
+            result.Error = "Only a single read-only SELECT statement is allowed against an external database source.";
+            return result;
+        }
+
+        var connection = await LoadDecryptedAsync(entityId, companyId, ct);
+        if (connection == null)
+        {
+            result.Error = "No connection is configured for this database source.";
+            return result;
+        }
+
+        var cap = maxRows > 0 ? Math.Min(maxRows, MaxExternalRows) : MaxExternalRows;
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            if (connection.DatabaseType == DataSourceType.ClickHouse)
+                await ExecuteClickHouseGridAsync(connection, sql, cap, result, ct);
+            else
+                await ExecuteAdoGridAsync(connection, sql, cap, result, ct);
+        }
+        catch (Exception ex)
+        {
+            result.Error = Truncate(ex.Message);
+        }
+
+        sw.Stop();
+        result.ElapsedMs = (long)sw.Elapsed.TotalMilliseconds;
+        result.RowsReturned = result.Rows.Count;
+        return result;
+    }
+
+    /// <summary>Allows only a single read-only statement (SELECT/WITH/SHOW/DESCRIBE/EXPLAIN/PRAGMA).
+    /// Stacked statements (an inner ';') are rejected so a SELECT can't smuggle a write.</summary>
+    private static bool IsReadOnlyStatement(string sql)
+    {
+        var trimmed = sql.Trim();
+        if (trimmed.EndsWith(";")) trimmed = trimmed[..^1].TrimEnd();
+        if (trimmed.Contains(';')) return false;
+
+        var firstWord = new string(trimmed.TakeWhile(ch => !char.IsWhiteSpace(ch)).ToArray()).ToUpperInvariant();
+        return firstWord is "SELECT" or "WITH" or "SHOW" or "DESCRIBE" or "DESC" or "EXPLAIN" or "PRAGMA";
+    }
+
+    private async Task ExecuteAdoGridAsync(DatabaseConnection c, string sql, int cap, SqlQueryResult result, CancellationToken ct)
+    {
+        await using var connection = CreateAdoConnection(c);
+        await connection.OpenAsync(ct);
+
+        var readOnlySetup = ReadOnlySetupFor(c.DatabaseType);
+        if (!string.IsNullOrEmpty(readOnlySetup))
+        {
+            await using var setup = connection.CreateCommand();
+            setup.CommandText = readOnlySetup;
+            await setup.ExecuteNonQueryAsync(ct);
+        }
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        await using var reader = await command.ExecuteReaderAsync(ct);
+
+        var fieldCount = reader.FieldCount;
+        for (int i = 0; i < fieldCount; i++)
+            result.Columns.Add(new Column { Name = reader.GetName(i), DataType = SafeTypeName(reader, i) });
+
+        while (await reader.ReadAsync(ct))
+        {
+            // Read one row past the cap so we can flag truncation accurately.
+            if (result.Rows.Count >= cap) { result.Truncated = true; break; }
+            var row = new Dictionary<string, object?>(fieldCount);
+            for (int i = 0; i < fieldCount; i++)
+                row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+            result.Rows.Add(row);
+        }
+    }
+
+    private static string SafeTypeName(System.Data.Common.DbDataReader reader, int i)
+    {
+        try { return reader.GetDataTypeName(i); }
+        catch { return "VARCHAR"; }
+    }
+
+    private async Task ExecuteClickHouseGridAsync(DatabaseConnection c, string sql, int cap, SqlQueryResult result, CancellationToken ct)
+    {
+        // FORMAT JSON returns {meta:[{name,type}], data:[{col:val}]}. Cap rows server-side and stop cleanly.
+        var query = $"{sql.TrimEnd().TrimEnd(';')} FORMAT JSON";
+        var protocol = c.UseSsl ? "https" : "http";
+        var url = $"{protocol}://{c.Host}:{c.Port}/?readonly=1&max_result_rows={cap + 1}&result_overflow_mode=break";
+
+        var client = _httpClientFactory.CreateClient();
+        var request = new HttpRequestMessage(HttpMethod.Post, url);
+        if (!string.IsNullOrEmpty(c.Username))
+        {
+            var auth = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{c.Username}:{c.SecretEncrypted}"));
+            request.Headers.Authorization = new AuthenticationHeaderValue("Basic", auth);
+        }
+        request.Content = new StringContent(query, Encoding.UTF8, "text/plain");
+
+        var response = await client.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"ClickHouse query failed ({(int)response.StatusCode}): {body}");
+
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+
+        if (root.TryGetProperty("meta", out var meta) && meta.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var col in meta.EnumerateArray())
+                result.Columns.Add(new Column
+                {
+                    Name = col.TryGetProperty("name", out var n) ? n.GetString() ?? string.Empty : string.Empty,
+                    DataType = col.TryGetProperty("type", out var t) ? t.GetString() ?? "VARCHAR" : "VARCHAR"
+                });
+        }
+
+        if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var rowEl in data.EnumerateArray())
+            {
+                if (result.Rows.Count >= cap) { result.Truncated = true; break; }
+                var row = new Dictionary<string, object?>();
+                foreach (var prop in rowEl.EnumerateObject())
+                    row[prop.Name] = ConvertJsonElement(prop.Value);
+                result.Rows.Add(row);
+            }
+        }
+    }
+
+    private static object? ConvertJsonElement(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.String => element.GetString(),
+        JsonValueKind.Number => element.TryGetInt64(out var l) ? l : element.GetDouble(),
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        JsonValueKind.Null => null,
+        JsonValueKind.Array => element.EnumerateArray().Select(ConvertJsonElement).ToList(),
+        JsonValueKind.Object => element.EnumerateObject().ToDictionary(p => p.Name, p => ConvertJsonElement(p.Value)),
+        _ => element.ToString()
+    };
 
     // ---- Commit (mirrors PowerBiService.CommitLineageAsync) ----
 

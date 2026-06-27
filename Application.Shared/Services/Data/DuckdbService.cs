@@ -966,7 +966,9 @@ public class DuckdbService : IDuckdbService
         var duckdbFilePath = $"{_option.DuckdbFilePath}/{datasetId}.duckdb";
         if (!File.Exists(duckdbFilePath))
         {
-            result.Error = "Dataset database not found.";
+            // Include the resolved path: an empty/leading-slash path means the process's Duckdb:DuckdbFilePath
+            // config is missing (a common web-app vs scheduler mismatch).
+            result.Error = $"Dataset database not found at '{duckdbFilePath}'.";
             return result;
         }
 

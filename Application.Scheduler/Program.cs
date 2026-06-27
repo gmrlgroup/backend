@@ -84,6 +84,9 @@ builder.Services.AddHttpClient();
 var duckdbOption = new DuckdbOption();
 builder.Configuration.Bind("Duckdb", duckdbOption);
 builder.Services.AddSingleton(duckdbOption);
+// Surfaces config drift immediately: this must match the web app's Duckdb:DuckdbFilePath, or ingestion
+// imports fail with "Dataset database not found".
+Console.WriteLine($"[Scheduler] DuckDB file path: '{duckdbOption.DuckdbFilePath ?? "(null — Duckdb config missing!)"}'");
 builder.Services.AddScoped<Application.Shared.Services.Data.IDuckdbService,
     Application.Shared.Services.Data.DuckdbService>();
 builder.Services.AddScoped<Application.Shared.Services.Data.IIngestionService,

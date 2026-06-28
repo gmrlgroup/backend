@@ -202,41 +202,40 @@ int offset = 0;
 var minuteOffset = 0;
 
 
-/// TODO: REMOVE THE COMMENTS
 // NOTE: when re-enabling these sales recurring jobs, wrap them in `if (ownsSalesQueue) { ... }` so only
 // the local server registers them (they're already [Queue("sales")]-tagged, so only it will execute them).
-// foreach (var db in databases)
-// {
+foreach (var db in databases)
+{
 
-//     minuteOffset = offset % 5; // ensure it’s within 0-9
-//     //#pragma warning restore CS0618 // Type or member is obsolete
-//     RecurringJob.AddOrUpdate<SalesJob>(
-//         recurringJobId: $"sales-grouped-by-store-hour-{db.Name}",
-//         methodCall: job => job.RunAsync(db, null, CancellationToken.None), // context and ct are not used in this example
-//         cronExpression: $"{minuteOffset}/5 * * * *",
-//         timeZone: tz
-//     );
+    minuteOffset = offset % 5; // ensure it’s within 0-9
+    //#pragma warning restore CS0618 // Type or member is obsolete
+    RecurringJob.AddOrUpdate<SalesJob>(
+        recurringJobId: $"sales-grouped-by-store-hour-{db.Name}",
+        methodCall: job => job.RunAsync(db, null, CancellationToken.None), // context and ct are not used in this example
+        cronExpression: $"{minuteOffset}/5 * * * *",
+        timeZone: tz
+    );
 
-//     offset++;
-// }
+    offset++;
+}
 
 
 
-// minuteOffset = 0; // ensure it’s within 0-9
-// //#pragma warning restore CS0618 // Type or member is obsolete
-// RecurringJob.AddOrUpdate<SalesJob>(
-//     recurringJobId: $"sales-grouped-by-store-hour_FO", //{db.Name}
-//     methodCall: job => job.RunNokNokFoAsync(null, CancellationToken.None), // context and ct are not used in this example
-//     cronExpression: $"{minuteOffset}/15 * * * *",
-//     timeZone: tz
-// );
+minuteOffset = 0; // ensure it’s within 0-9
+//#pragma warning restore CS0618 // Type or member is obsolete
+RecurringJob.AddOrUpdate<SalesJob>(
+    recurringJobId: $"sales-grouped-by-store-hour_FO", //{db.Name}
+    methodCall: job => job.RunNokNokFoAsync(null, CancellationToken.None), // context and ct are not used in this example
+    cronExpression: $"{minuteOffset}/15 * * * *",
+    timeZone: tz
+);
 
-// RecurringJob.AddOrUpdate<SalesSnapshotEmailJob>(
-//     recurringJobId: "sales-snapshot-email",
-//     methodCall: job => job.RunAsync(CancellationToken.None),
-//     cronExpression: "5 0 * * *",
-//     timeZone: tz
-// );
+RecurringJob.AddOrUpdate<SalesSnapshotEmailJob>(
+    recurringJobId: "sales-snapshot-email",
+    methodCall: job => job.RunAsync(CancellationToken.None),
+    cronExpression: "5 0 * * *",
+    timeZone: tz
+);
 
 
 

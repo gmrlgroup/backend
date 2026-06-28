@@ -141,7 +141,29 @@ builder.Services.AddHttpClient("SalesSnapshotEmailApi", (sp, client) =>
 });
 
 
-builder.Services.AddHangfireServer();
+// Queue routing (deployment split). Each machine runs THIS SAME binary but processes only the queues
+// listed in its appsettings "Hangfire:Queues":
+//   • Local server  → ["sales"]    : SalesJob / SalesSnapshotEmailJob (need on-prem RBO/store DBs).
+//   • Cloud server  → ["default"]  : asset-ping, ingestion (DuckDB), stale-run sweep, and the batch
+//                                    runs the web app enqueues.
+// Jobs are tagged with [Queue("sales")]; everything else defaults to "default". A server never runs a
+// job on a queue it doesn't list, so the split is enforced by storage, not by which process registered it.
+var hangfireQueues = (builder.Configuration.GetSection("Hangfire:Queues").Get<string[]>() ?? new[] { "default" })
+    .Select(q => q.Trim().ToLowerInvariant())
+    .Where(q => q.Length > 0)
+    .Distinct()
+    .ToArray();
+if (hangfireQueues.Length == 0) hangfireQueues = new[] { "default" };
+
+var ownsDefaultQueue = hangfireQueues.Contains("default");
+var ownsSalesQueue = hangfireQueues.Contains("sales");
+
+Console.WriteLine($"[Scheduler] Hangfire queues for this server: {string.Join(", ", hangfireQueues)}");
+
+builder.Services.AddHangfireServer(options =>
+{
+    options.Queues = hangfireQueues;
+});
 
 IConfiguration cfg = builder.Configuration;
 var _salesUri = cfg.GetValue<string>("SalesApiUri");
@@ -163,8 +185,11 @@ var tz = GetTimeZone("Asia/Beirut"); // or null for server time
 List<Database> databases = new List<Database>();
 List<Database> noknokDatabases = new List<Database>();
 
-using (var scope = app.Services.CreateScope())
+// Only the local "sales" server talks to the on-prem RBO/store databases. On the cloud server this load
+// is unnecessary (and would fail to reach the on-prem network), so skip it.
+if (ownsSalesQueue)
 {
+    using var scope = app.Services.CreateScope();
     var databaseRepository = scope.ServiceProvider.GetRequiredService<IDatabaseRepository>();
     databases = await databaseRepository.GetDatabaseDetails();
     Console.WriteLine($"Loaded {databases.Count} records at startup from RBO");
@@ -178,6 +203,8 @@ var minuteOffset = 0;
 
 
 /// TODO: REMOVE THE COMMENTS
+// NOTE: when re-enabling these sales recurring jobs, wrap them in `if (ownsSalesQueue) { ... }` so only
+// the local server registers them (they're already [Queue("sales")]-tagged, so only it will execute them).
 // foreach (var db in databases)
 // {
 
@@ -213,35 +240,39 @@ var minuteOffset = 0;
 
 
 
-// Status ping monitoring — every 15 minutes
-RecurringJob.AddOrUpdate<AssetPingJob>(
-    recurringJobId: "asset-ping-monitoring",
-    methodCall: job => job.RunAsync(null, CancellationToken.None),
-    cronExpression: "*/15 * * * *",
-    timeZone: tz
-);
-
-// Scheduled ingestion: a registrar reconciles per-source recurring jobs against the ingestion_source
-// table every 5 minutes, so UI changes take effect without a scheduler restart.
-RecurringJob.AddOrUpdate<IngestionRegistrarJob>(
-    recurringJobId: "ingestion-registrar",
-    methodCall: job => job.RunAsync(null, CancellationToken.None),
-    cronExpression: "*/5 * * * *",
-    timeZone: tz
-);
-
-// Reconcile orphaned ingestion runs (stuck at "Running" after a process restart) on a recurring basis,
-// so stale rows are cleaned up even without a restart of either process.
-RecurringJob.AddOrUpdate<Application.Shared.Services.Data.IIngestionService>(
-    recurringJobId: "ingestion-stale-run-sweep",
-    methodCall: svc => svc.FailStaleRunsAsync(TimeSpan.FromHours(6), CancellationToken.None),
-    cronExpression: "*/30 * * * *",
-    timeZone: tz
-);
-
-// Reconcile once at startup so existing sources are scheduled immediately.
-using (var scope = app.Services.CreateScope())
+// Recurring jobs below run on the "default" queue, so only the cloud server should register and execute
+// them. Gating registration too (not just execution) keeps the local sales box from touching the app DB /
+// DuckDB / on-prem probes it has no business running. If a single server owns both queues, it runs all.
+if (ownsDefaultQueue)
 {
+    // Status ping monitoring — every 15 minutes
+    RecurringJob.AddOrUpdate<AssetPingJob>(
+        recurringJobId: "asset-ping-monitoring",
+        methodCall: job => job.RunAsync(null, CancellationToken.None),
+        cronExpression: "*/15 * * * *",
+        timeZone: tz
+    );
+
+    // Scheduled ingestion: a registrar reconciles per-source recurring jobs against the ingestion_source
+    // table every 5 minutes, so UI changes take effect without a scheduler restart.
+    RecurringJob.AddOrUpdate<IngestionRegistrarJob>(
+        recurringJobId: "ingestion-registrar",
+        methodCall: job => job.RunAsync(null, CancellationToken.None),
+        cronExpression: "*/5 * * * *",
+        timeZone: tz
+    );
+
+    // Reconcile orphaned ingestion runs (stuck at "Running" after a process restart) on a recurring basis,
+    // so stale rows are cleaned up even without a restart of either process.
+    RecurringJob.AddOrUpdate<Application.Shared.Services.Data.IIngestionService>(
+        recurringJobId: "ingestion-stale-run-sweep",
+        methodCall: svc => svc.FailStaleRunsAsync(TimeSpan.FromHours(6), CancellationToken.None),
+        cronExpression: "*/30 * * * *",
+        timeZone: tz
+    );
+
+    // Reconcile once at startup so existing sources are scheduled immediately.
+    using var scope = app.Services.CreateScope();
     try
     {
         var registrar = scope.ServiceProvider.GetRequiredService<IngestionRegistrarJob>();

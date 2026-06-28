@@ -2,6 +2,7 @@
 
 using Application.Scheduler.Repositories;
 using Application.Shared.Models.Data;
+using Hangfire;
 using Hangfire.Console;
 using Hangfire.Server;
 
@@ -9,6 +10,9 @@ using Hangfire.Server;
 namespace Application.Scheduler.Jobs;
 
 
+// [Queue("sales")] routes every method here to the "sales" queue, which only the local server processes
+// (it owns the on-prem RBO/store databases). The cloud server never picks these up. See Program.cs.
+[Queue("sales")]
 public class SalesJob
 {
     private readonly ISalesRepository _repo;

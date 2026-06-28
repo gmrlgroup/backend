@@ -91,19 +91,82 @@
                     <div class="space-y-6">
                         <!-- Entity Selection -->
                         <div>
-                            <label for="entity" class="block text-sm font-medium text-gray-700">Affected Entity *</label>
-                            <select @bind="incident.EntityId"
-                                    class="mt-1 block w-full pl-3 pr-10 py-2 text-base border border-gray-300 focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm rounded-md"
-                                    required>
-                                <option value="">Select an entity...</option>
-                                @if (entities != null)
-                                {
-                                    @foreach (var entity in entities)
+                            <label class="block text-sm font-medium text-gray-700 mb-1.5">Affected Entity *</label>
+                            <div class="relative">
+                                <!-- Trigger -->
+                                <button type="button" @onclick="ToggleEntityDropdown"
+                                        class="flex w-full items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-left text-sm shadow-sm outline-none transition-colors hover:border-gray-400 focus:border-red-500 focus:ring-1 focus:ring-red-500">
+                                    @if (SelectedEntity is { } sel)
                                     {
-                                        <option value="@entity.Id">@entity.Name (@entity.EntityType)</option>
+                                        <span class="text-base leading-none">@sel.GetEntityTypeIcon()</span>
+                                        <span class="min-w-0 flex-1 truncate font-medium text-gray-900">@sel.Name</span>
+                                        <span class="hidden sm:inline-flex shrink-0 items-center rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">@sel.EntityType</span>
                                     }
+                                    else
+                                    {
+                                        <span class="flex-1 text-gray-400">Select an entity…</span>
+                                    }
+                                    <svg class="h-4 w-4 shrink-0 text-gray-400 transition-transform @(entityDropdownOpen ? "rotate-180" : "")" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                    </svg>
+                                </button>
+
+                                @if (entityDropdownOpen)
+                                {
+                                    <div class="fixed inset-0 z-10" @onclick="CloseEntityDropdown"></div>
+                                    <div class="absolute z-20 mt-1.5 w-full overflow-hidden rounded-xl border border-gray-200/80 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
+                                        <div class="p-2">
+                                            <div class="relative">
+                                                <svg class="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"></path>
+                                                </svg>
+                                                <input @bind="entitySearch" @bind:event="oninput" placeholder="Search entities…"
+                                                       class="w-full rounded-lg border-0 bg-gray-100 py-2 pl-8 pr-3 text-sm text-gray-900 outline-none ring-1 ring-transparent transition focus:bg-white focus:ring-red-500" />
+                                            </div>
+                                        </div>
+                                        <ul class="max-h-64 overflow-y-auto px-1.5 pb-1.5">
+                                            @if (!SearchedEntities.Any())
+                                            {
+                                                <li class="px-3 py-6 text-center text-sm text-gray-400">No matching entities</li>
+                                            }
+                                            else
+                                            {
+                                                @foreach (var entity in SearchedEntities)
+                                                {
+                                                    var isSelected = entity.Id == incident.EntityId;
+                                                    <li>
+                                                        <button type="button" @onclick="() => SelectEntity(entity.Id)"
+                                                                style="border:none;"
+                                                                class="flex w-full items-center gap-3 rounded-lg bg-transparent px-2.5 py-2 text-left outline-none transition-colors hover:bg-gray-100 @(isSelected ? "bg-red-50" : "")">
+                                                            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-base">@entity.GetEntityTypeIcon()</span>
+                                                            <span class="min-w-0 flex-1">
+                                                                <span class="flex items-center gap-1.5">
+                                                                    <span class="truncate text-sm font-medium text-gray-900">@entity.Name</span>
+                                                                    <span class="inline-flex shrink-0 items-center rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">@entity.EntityType</span>
+                                                                    @if (entity.IsCritical)
+                                                                    {
+                                                                        <span class="inline-flex shrink-0 items-center rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700">Critical</span>
+                                                                    }
+                                                                </span>
+                                                                @if (!string.IsNullOrWhiteSpace(EntitySubtitle(entity)))
+                                                                {
+                                                                    <span class="block truncate text-xs text-gray-400">@EntitySubtitle(entity)</span>
+                                                                }
+                                                            </span>
+                                                            @if (isSelected)
+                                                            {
+                                                                <svg class="h-4 w-4 shrink-0 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                                                </svg>
+                                                            }
+                                                        </button>
+                                                    </li>
+                                                }
+                                            }
+                                        </ul>
+                                    </div>
                                 }
-                            </select>
+                            </div>
                             <ValidationMessage For="@(() => incident.EntityId)" class="mt-1 text-sm text-red-600" />
                         </div>
 
@@ -251,8 +314,55 @@
     private bool isSubmitting = false;
     private string? errorMessage;
 
+    private bool entityDropdownOpen = false;
+    private string entitySearch = string.Empty;
+
     private string queryParam => StateContainer.Company is null ? "" : $"?c={StateContainer.Company.Id}";
     private bool IsEditMode => !string.IsNullOrEmpty(IncidentId);
+
+    private IEnumerable<MonitoredAsset> SearchedEntities
+    {
+        get
+        {
+            var all = entities ?? Enumerable.Empty<MonitoredAsset>();
+            var q = entitySearch?.Trim();
+            if (string.IsNullOrEmpty(q)) return all;
+            return all.Where(e =>
+                (e.Name?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.Owner?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.Location?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.EntityType.ToString().Contains(q, StringComparison.OrdinalIgnoreCase)));
+        }
+    }
+
+    private MonitoredAsset? SelectedEntity =>
+        entities?.FirstOrDefault(e => e.Id == incident.EntityId);
+
+    // Muted secondary line for an entity row/trigger: owner · location · version · url.
+    private static string EntitySubtitle(MonitoredAsset e)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(e.Owner)) parts.Add(e.Owner!);
+        if (!string.IsNullOrWhiteSpace(e.Location)) parts.Add(e.Location!);
+        if (!string.IsNullOrWhiteSpace(e.Version)) parts.Add($"v{e.Version}");
+        if (!string.IsNullOrWhiteSpace(e.Url)) parts.Add(e.Url!);
+        return string.Join(" · ", parts);
+    }
+
+    private void ToggleEntityDropdown()
+    {
+        entityDropdownOpen = !entityDropdownOpen;
+        if (entityDropdownOpen) entitySearch = string.Empty;
+    }
+
+    private void CloseEntityDropdown() => entityDropdownOpen = false;
+
+    private void SelectEntity(string id)
+    {
+        incident.EntityId = id;
+        entityDropdownOpen = false;
+        entitySearch = string.Empty;
+    }
 
     protected override async Task OnInitializedAsync()
     {

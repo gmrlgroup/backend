@@ -31,6 +31,36 @@ public class DatasetService : IDatasetService
         return dataset;
     }
 
+    public async Task<HashSet<string>?> GetAccessibleTablesAsync(string datasetId, string userId)
+    {
+        var dataset = await _context.Dataset.AsNoTracking().FirstOrDefaultAsync(d => d.Id == datasetId);
+        // No dataset, or not shared with this user → no tables. (Dataset-level access is gated elsewhere;
+        // this empty set is a safe default so a missing share never widens access.)
+        if (dataset == null)
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Dataset owner always sees everything.
+        if (dataset.CreatedBy == userId)
+            return null;
+
+        var datasetUser = await _context.DatasetUser.AsNoTracking()
+            .FirstOrDefaultAsync(du => du.DatasetId == datasetId && du.UserId == userId);
+        if (datasetUser == null)
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // A dataset-Admin share is never table-restricted.
+        if (datasetUser.Type == DatasetUserType.Admin)
+            return null;
+
+        var tables = await _context.DatasetUserTable.AsNoTracking()
+            .Where(t => t.DatasetId == datasetId && t.UserId == userId)
+            .Select(t => t.TableName)
+            .ToListAsync();
+
+        // No restriction rows = full access to all tables.
+        return tables.Count == 0 ? null : new HashSet<string>(tables, StringComparer.OrdinalIgnoreCase);
+    }
+
     public async Task<List<Dataset>> GetDatasetsAsync(string userId)
     {
         return await _context.Dataset

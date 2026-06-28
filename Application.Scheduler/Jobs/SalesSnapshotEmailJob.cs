@@ -6,11 +6,14 @@ using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Application.Scheduler.Options;
 using Application.Shared.Data;
+using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace Application.Scheduler.Jobs;
 
+// Runs on the local "sales" server alongside SalesJob (reads the same sales data). See Program.cs.
+[Queue("sales")]
 public class SalesSnapshotEmailJob
 {
     private readonly ApplicationDbContext _context;

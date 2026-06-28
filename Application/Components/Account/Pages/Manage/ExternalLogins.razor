@@ -12,56 +12,54 @@
 
 <PageTitle>Manage your external logins</PageTitle>
 
-<StatusMessage />
-@if (currentLogins?.Count > 0)
-{
-    <h3>Registered Logins</h3>
-    <table class="table">
-        <tbody>
+<div class="ds-card">
+    <div class="acct-section-pad">
+        <h2 class="acct-card-title">External logins</h2>
+        <p class="acct-card-desc">Manage the third-party services you use to sign in.</p>
+
+        <StatusMessage />
+
+        @if (currentLogins?.Count > 0)
+        {
+            <h3 class="acct-card-title" style="font-size:0.9375rem; margin-bottom:0.75rem;">Registered logins</h3>
             @foreach (var login in currentLogins)
             {
-                <tr>
-                    <td>@login.ProviderDisplayName</td>
-                    <td>
-                        @if (showRemoveButton)
-                        {
-                            <form @formname="@($"remove-login-{login.LoginProvider}")" @onsubmit="OnSubmitAsync" method="post">
-                                <AntiforgeryToken />
-                                <div>
-                                    <input type="hidden" name="@nameof(LoginProvider)" value="@login.LoginProvider" />
-                                    <input type="hidden" name="@nameof(ProviderKey)" value="@login.ProviderKey" />
-                                    <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent" Title="@($"Remove this {login.ProviderDisplayName} login from your account")">Remove</FluentButton>
-                                </div>
-                            </form>
-                        }
-                        else
-                        {
-                            @: &nbsp;
-                        }
-                    </td>
-                </tr>
+                <div class="ds-user-row" style="margin-bottom:0.625rem;">
+                    <span class="ds-user-email">@login.ProviderDisplayName</span>
+                    @if (showRemoveButton)
+                    {
+                        <form @formname="@($"remove-login-{login.LoginProvider}")" @onsubmit="OnSubmitAsync" method="post">
+                            <AntiforgeryToken />
+                            <input type="hidden" name="@nameof(LoginProvider)" value="@login.LoginProvider" />
+                            <input type="hidden" name="@nameof(ProviderKey)" value="@login.ProviderKey" />
+                            <button type="submit" class="btn btn-outline" title="@($"Remove this {login.ProviderDisplayName} login from your account")">Remove</button>
+                        </form>
+                    }
+                </div>
             }
-        </tbody>
-    </table>
-}
-@if (otherLogins?.Count > 0)
-{
-    <h4>Add another service to log in.</h4>
-    <hr />
-    <form class="form-horizontal" action="Account/Manage/LinkExternalLogin" method="post">
-        <AntiforgeryToken />
-        <div>
-            <p>
-                @foreach (var provider in otherLogins)
-                {
-                    <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent" Name="Provider" Value="@provider.Name" Title="@($"Log in using your {provider.DisplayName} account")">
-                        @provider.DisplayName
-                    </FluentButton>
-                }
-            </p>
-        </div>
-    </form>
-}
+        }
+
+        @if (otherLogins?.Count > 0)
+        {
+            @if (currentLogins?.Count > 0)
+            {
+                <hr class="acct-divider" />
+            }
+            <h3 class="acct-card-title" style="font-size:0.9375rem; margin-bottom:0.75rem;">Add another service to log in</h3>
+            <form action="Account/Manage/LinkExternalLogin" method="post">
+                <AntiforgeryToken />
+                <div class="acct-btn-row">
+                    @foreach (var provider in otherLogins)
+                    {
+                        <button type="submit" class="btn btn-outline" name="Provider" value="@provider.Name" title="@($"Log in using your {provider.DisplayName} account")">
+                            @provider.DisplayName
+                        </button>
+                    }
+                </div>
+            </form>
+        }
+    </div>
+</div>
 
 @code {
     public const string LinkLoginCallbackAction = "LinkLoginCallback";

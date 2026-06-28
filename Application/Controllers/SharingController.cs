@@ -67,6 +67,38 @@ public class SharingController : ControllerBase
         }
     }
 
+    // POST: api/datasets/{datasetId}/sharing/grant-table — additively share a single table with a user.
+    [HttpPost("grant-table")]
+    public async Task<ActionResult> GrantTable(string datasetId, [FromBody] GrantTableShareRequest request, [FromHeader(Name = "X-Company-Id")] string companyId = "")
+    {
+        var userId = Request.Headers["UserId"].ToString();
+        if (string.IsNullOrWhiteSpace(userId))
+            return BadRequest("User ID is required in headers");
+
+        if (!User.HasCompanyRole(companyId, "EDIT_DATA"))
+            return Forbid();
+
+        if (request == null || string.IsNullOrWhiteSpace(request.Email))
+            return BadRequest("Email is required");
+        if (string.IsNullOrWhiteSpace(request.TableName))
+            return BadRequest("Table name is required");
+        if (datasetId != request.DatasetId)
+            return BadRequest("Dataset ID mismatch");
+
+        try
+        {
+            var success = await _datasetSharingService.GrantTableAccessAsync(request, userId);
+            if (!success)
+                return BadRequest("Failed to share table. User may not exist or dataset not found.");
+
+            return Ok(new { message = "Table shared successfully" });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest($"Error sharing table: {ex.Message}");
+        }
+    }
+
     // PUT: api/datasets/{datasetId}/sharing/{userId}
     [HttpPut("{userId}")]
     public async Task<ActionResult> UpdateUserAccess(string datasetId, string userId, [FromBody] DatasetUserType userType, [FromHeader(Name = "X-Company-Id")] string companyId = "")

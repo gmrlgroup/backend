@@ -29,6 +29,17 @@ public interface IDuckdbService
     Task<TableDataResult> QueryTableDataAsync(TableDataQuery query);
     Task<int> GetTableRowCountAsync(string datasetId, string tableName, List<FilterCondition>? filters = null);
 
+    // Row-level editing for the data viewer. Rows are identified by the DuckDB rowid (returned in the
+    // page when TableDataQuery.IncludeRowId is set). Each value is the raw string form of a column and is
+    // CAST to the column's type. Errors are returned via RowMutationResult.Error, never thrown.
+    Task<RowMutationResult> UpdateRowAsync(string datasetId, string tableName, long rowId, Dictionary<string, string?> values, System.Threading.CancellationToken ct = default);
+    Task<RowMutationResult> InsertRowAsync(string datasetId, string tableName, Dictionary<string, string?> values, System.Threading.CancellationToken ct = default);
+    Task<RowMutationResult> DeleteRowAsync(string datasetId, string tableName, long rowId, System.Threading.CancellationToken ct = default);
+
+    // Applies a batch of inserts/updates/deletes (from the spreadsheet editor) atomically in one
+    // transaction. Errors are returned via BulkRowEditResult.Error, never thrown.
+    Task<BulkRowEditResult> ApplyRowChangesAsync(string datasetId, string tableName, BulkRowEditRequest changes, System.Threading.CancellationToken ct = default);
+
     // Ad-hoc SQL workbench. Reads open a read-only DuckDB handle; writes (allowWrite) open a
     // read-write handle. SQL errors are returned via SqlQueryResult.Error, never thrown.
     Task<SqlQueryResult> ExecuteSqlAsync(string datasetId, string sql, bool allowWrite, int maxRows, System.Threading.CancellationToken ct = default);

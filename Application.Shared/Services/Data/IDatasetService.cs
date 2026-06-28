@@ -7,6 +7,14 @@ namespace Application.Shared.Services.Data;
 public interface IDatasetService
 {
     Task<Dataset?> GetDatasetAsync(string id, string userId);
+
+    /// <summary>
+    /// Resolves which tables a user may access within a dataset. Returns <c>null</c> when the user has
+    /// access to ALL tables (dataset owner, a dataset-Admin share, or a share with no table restriction).
+    /// Returns a (case-insensitive) set when the user is restricted to specific tables, or an empty set
+    /// when the user has no access at all.
+    /// </summary>
+    Task<HashSet<string>?> GetAccessibleTablesAsync(string datasetId, string userId);
     Task<List<Dataset>> GetDatasetsByCompanyAsync(string companyId, string userId);
     Task<List<Dataset>> GetDatasetsAsync(string userId);
     Task<Dataset?> CreateDatasetAsync(Dataset dataset, string userId);

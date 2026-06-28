@@ -6,7 +6,8 @@ CREATE TABLE [dbo].[ingestion_run] (
     [finished_at]   DATETIME2 (7)  NULL,
     [status]        NVARCHAR (40)  NOT NULL,
     [rows_ingested] INT            NULL,
-    [error_message] NVARCHAR (MAX) NULL
+    [error_message] NVARCHAR (MAX) NULL,
+    [job_id]        NVARCHAR (100) NULL
 );
 GO
 

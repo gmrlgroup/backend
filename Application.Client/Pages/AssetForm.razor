@@ -154,17 +154,6 @@
                             <!-- Add row -->
                             <div class="rounded-lg bg-gray-50 border border-gray-200 p-4 space-y-3">
                                 <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                                    <div class="sm:col-span-5">
-                                        <label class="block text-xs font-medium text-gray-500 mb-1">Depends on</label>
-                                        <select @bind="selectedDependencyEntityId"
-                                                class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
-                                            <option value="">Choose an entity…</option>
-                                            @foreach (var availableEntity in FilteredDependencyEntities)
-                                            {
-                                                <option value="@availableEntity.Id">@availableEntity.Name</option>
-                                            }
-                                        </select>
-                                    </div>
                                     <div class="sm:col-span-3">
                                         <label class="block text-xs font-medium text-gray-500 mb-1">Type</label>
                                         <select @bind="dependencyType" @bind:after="OnDependencyTypeChanged"
@@ -174,6 +163,94 @@
                                                 <option value="@assetType">@assetType.ToString()</option>
                                             }
                                         </select>
+                                    </div>
+                                    <div class="sm:col-span-5">
+                                        <label class="block text-xs font-medium text-gray-500 mb-1">Depends on</label>
+                                        <div class="relative">
+                                            <!-- Trigger -->
+                                            <button type="button" @onclick="ToggleDependencyDropdown"
+                                                    class="flex w-full items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left text-sm shadow-sm outline-none transition-colors hover:border-gray-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+                                                @if (SelectedDependencyEntity is { } sel)
+                                                {
+                                                    <span class="text-base leading-none">@sel.GetEntityTypeIcon()</span>
+                                                    <span class="min-w-0 flex-1 truncate font-medium text-gray-900">@sel.Name</span>
+                                                    @if (!string.IsNullOrWhiteSpace(DependencySubtitle(sel)))
+                                                    {
+                                                        <span class="hidden sm:block max-w-[40%] truncate text-xs text-gray-400">@DependencySubtitle(sel)</span>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <span class="flex-1 text-gray-400">Choose an entity…</span>
+                                                }
+                                                <svg class="h-4 w-4 shrink-0 text-gray-400 transition-transform @(dependencyDropdownOpen ? "rotate-180" : "")" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                                </svg>
+                                            </button>
+
+                                            @if (dependencyDropdownOpen)
+                                            {
+                                                <!-- Outside-click backdrop -->
+                                                <div class="fixed inset-0 z-10" @onclick="CloseDependencyDropdown"></div>
+
+                                                <!-- Panel -->
+                                                <div class="absolute z-20 mt-1.5 w-full overflow-hidden rounded-xl border border-gray-200/80 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
+                                                    <!-- Search -->
+                                                    <div class="p-2">
+                                                        <div class="relative">
+                                                            <svg class="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"></path>
+                                                            </svg>
+                                                            <input @bind="dependencySearch" @bind:event="oninput" placeholder="Search @dependencyType.ToString().ToLower()s…"
+                                                                   class="w-full rounded-lg border-0 bg-gray-100 py-2 pl-8 pr-3 text-sm text-gray-900 outline-none ring-1 ring-transparent transition focus:bg-white focus:ring-indigo-500" />
+                                                        </div>
+                                                    </div>
+
+                                                    <!-- Options -->
+                                                    <ul class="max-h-64 overflow-y-auto px-1.5 pb-1.5">
+                                                        @if (!SearchedDependencyEntities.Any())
+                                                        {
+                                                            <li class="px-3 py-6 text-center text-sm text-gray-400">
+                                                                No matching @dependencyType.ToString().ToLower()s
+                                                            </li>
+                                                        }
+                                                        else
+                                                        {
+                                                            @foreach (var availableEntity in SearchedDependencyEntities)
+                                                            {
+                                                                var isSelected = availableEntity.Id == selectedDependencyEntityId;
+                                                                <li>
+                                                                    <button type="button" @onclick="() => SelectDependencyEntity(availableEntity.Id)"
+                                                                            style="border:none;"
+                                                                            class="flex w-full items-center gap-3 rounded-lg bg-transparent px-2.5 py-2 text-left outline-none transition-colors hover:bg-gray-100 @(isSelected ? "bg-indigo-50" : "")">
+                                                                        <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-base">@availableEntity.GetEntityTypeIcon()</span>
+                                                                        <span class="min-w-0 flex-1">
+                                                                            <span class="flex items-center gap-1.5">
+                                                                                <span class="truncate text-sm font-medium text-gray-900">@availableEntity.Name</span>
+                                                                                @if (availableEntity.IsCritical)
+                                                                                {
+                                                                                    <span class="inline-flex shrink-0 items-center rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700">Critical</span>
+                                                                                }
+                                                                            </span>
+                                                                            @if (!string.IsNullOrWhiteSpace(DependencySubtitle(availableEntity)))
+                                                                            {
+                                                                                <span class="block truncate text-xs text-gray-400">@DependencySubtitle(availableEntity)</span>
+                                                                            }
+                                                                        </span>
+                                                                        @if (isSelected)
+                                                                        {
+                                                                            <svg class="h-4 w-4 shrink-0 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                                                            </svg>
+                                                                        }
+                                                                    </button>
+                                                                </li>
+                                                            }
+                                                        }
+                                                    </ul>
+                                                </div>
+                                            }
+                                        </div>
                                     </div>
                                     <div class="sm:col-span-2">
                                         <label class="block text-xs font-medium text-gray-500 mb-1">Order</label>
@@ -380,15 +457,63 @@
         }
     }
 
+    private bool dependencyDropdownOpen = false;
+    private string dependencySearch = string.Empty;
+
     // Entities selectable as a dependency target, narrowed to the chosen dependency type.
     private IEnumerable<MonitoredAsset> FilteredDependencyEntities =>
         availableEntities.Where(e => e.Id != formModel.Id && e.EntityType == dependencyType);
+
+    // The filtered list further narrowed by the dropdown's search box (name + secondary details).
+    private IEnumerable<MonitoredAsset> SearchedDependencyEntities
+    {
+        get
+        {
+            var q = dependencySearch?.Trim();
+            if (string.IsNullOrEmpty(q)) return FilteredDependencyEntities;
+            return FilteredDependencyEntities.Where(e =>
+                (e.Name?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.Owner?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.Location?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.Url?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+    }
+
+    private MonitoredAsset? SelectedDependencyEntity =>
+        availableEntities.FirstOrDefault(e => e.Id == selectedDependencyEntityId);
+
+    // Muted secondary line for a dependency row/trigger: owner · location · version · url.
+    private static string DependencySubtitle(MonitoredAsset e)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(e.Owner)) parts.Add(e.Owner!);
+        if (!string.IsNullOrWhiteSpace(e.Location)) parts.Add(e.Location!);
+        if (!string.IsNullOrWhiteSpace(e.Version)) parts.Add($"v{e.Version}");
+        if (!string.IsNullOrWhiteSpace(e.Url)) parts.Add(e.Url!);
+        return string.Join(" · ", parts);
+    }
+
+    private void ToggleDependencyDropdown()
+    {
+        dependencyDropdownOpen = !dependencyDropdownOpen;
+        if (dependencyDropdownOpen) dependencySearch = string.Empty;
+    }
+
+    private void CloseDependencyDropdown() => dependencyDropdownOpen = false;
+
+    private void SelectDependencyEntity(string id)
+    {
+        selectedDependencyEntityId = id;
+        dependencyDropdownOpen = false;
+        dependencySearch = string.Empty;
+    }
 
     private void OnDependencyTypeChanged()
     {
         // Clear the selection if the previously chosen entity is no longer in the filtered list.
         if (!FilteredDependencyEntities.Any(e => e.Id == selectedDependencyEntityId))
             selectedDependencyEntityId = string.Empty;
+        dependencySearch = string.Empty;
     }
 
     private async Task AddDependency()

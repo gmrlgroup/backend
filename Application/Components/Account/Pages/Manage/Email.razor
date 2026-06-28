@@ -14,34 +14,51 @@
 
 <PageTitle>Manage email</PageTitle>
 
-<h3>Manage email</h3>
+<div class="ds-card">
+    <div class="acct-section-pad">
+        <h2 class="acct-card-title">Email</h2>
+        <p class="acct-card-desc">Update the email address associated with your account.</p>
 
-<StatusMessage Message="@message"/>
-<FluentGrid>
-    <FluentGridItem xs="12" sm="6">
+        <StatusMessage Message="@message" />
+
         <form @onsubmit="OnSendEmailVerificationAsync" @formname="send-verification" id="send-verification-form" method="post">
             <AntiforgeryToken />
         </form>
+
         <EditForm Model="Input" FormName="change-email" OnValidSubmit="OnValidSubmitAsync" method="post">
             <DataAnnotationsValidator />
-            <FluentValidationSummary class="text-danger" role="alert" />
-            @if (isEmailConfirmed)
-            {
-                <FluentTextField Value="@email" Placeholder="Please enter your email." Disabled Label="Email" Appearance=FluentInputAppearance.Filled Style="width: 100%">
-                    <span slot="end">✓</span>
-                </FluentTextField>
-            }
-            else
-            {
-                <FluentTextField value="@email" Placeholder="Please enter your email." Disabled Label="Email" Appearance=FluentInputAppearance.Filled Style="width: 100%" />
-                <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent" Form="send-verification-form" Style="width: 100%">Send verification email</FluentButton>
-            }
-            <FluentTextField Name="Input.NewEmail" @bind-Value="Input.NewEmail" AutoComplete="email" Required="true" Placeholder="Please enter new email." Label="New email" Style="width: 100%" />
-            <FluentValidationMessage For="() => Input.NewEmail" class="text-danger" />
-            <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent" Style="width: 100%;">Change email</FluentButton>
+            <ValidationSummary role="alert" />
+
+            <div class="ds-field">
+                <label class="ds-label" for="current-email">Current email</label>
+                <div style="position: relative;">
+                    <input id="current-email" class="ds-input acct-input-locked" value="@email" disabled />
+                    @if (isEmailConfirmed)
+                    {
+                        <span class="acct-verified ok" style="position:absolute; right:0.5rem; top:50%; transform:translateY(-50%);">
+                            <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+                            Verified
+                        </span>
+                    }
+                </div>
+                @if (!isEmailConfirmed)
+                {
+                    <button type="submit" form="send-verification-form" class="btn btn-outline" style="margin-top:0.5rem;">Send verification email</button>
+                }
+            </div>
+
+            <div class="ds-field">
+                <label class="ds-label" for="new-email">New email</label>
+                <InputText id="new-email" @bind-Value="Input.NewEmail" class="ds-input" autocomplete="email" placeholder="Enter new email address" />
+                <ValidationMessage For="() => Input.NewEmail" class="ds-error" />
+            </div>
+
+            <div class="acct-form-actions">
+                <button type="submit" class="btn btn-default">Change email</button>
+            </div>
         </EditForm>
-    </FluentGridItem>
-</FluentGrid>
+    </div>
+</div>
 
 @code {
     private string? message;

@@ -29,13 +29,44 @@
                         <ValidationMessage For="() => shareRequest.Email" class="ds-error" />
                     </div>
 
-                    <div class="ds-field" style="margin-bottom:0">
+                    <div class="ds-field">
                         <label class="ds-label">Access Level</label>
                         <select class="ds-select" @bind="selectedUserTypeString">
                             <option value="Viewer">Viewer — Can view and query data</option>
                             <option value="Editor">Editor — Can modify dataset structure</option>
                             <option value="Admin">Admin — Full access including sharing</option>
                         </select>
+                    </div>
+
+                    <div class="ds-field" style="margin-bottom:0">
+                        <label class="ds-label">Tables</label>
+                        <div style="display:flex;gap:1.25rem;margin-bottom:0.5rem">
+                            <label style="display:flex;align-items:center;gap:0.375rem;font-size:0.875rem;cursor:pointer">
+                                <input type="radio" name="tableScope" checked="@shareAllTables" @onchange="@(() => shareAllTables = true)" /> All tables
+                            </label>
+                            <label style="display:flex;align-items:center;gap:0.375rem;font-size:0.875rem;cursor:pointer">
+                                <input type="radio" name="tableScope" checked="@(!shareAllTables)" @onchange="@(() => shareAllTables = false)" disabled="@(datasetTables.Count == 0)" /> Specific tables
+                            </label>
+                        </div>
+                        @if (!shareAllTables)
+                        {
+                            @if (datasetTables.Count == 0)
+                            {
+                                <span class="ds-hint">This dataset has no tables to scope.</span>
+                            }
+                            else
+                            {
+                                <div style="max-height:180px;overflow-y:auto;border:1px solid #e4e4e7;border-radius:6px;padding:0.5rem;display:flex;flex-direction:column;gap:0.25rem">
+                                    @foreach (var t in datasetTables)
+                                    {
+                                        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;cursor:pointer">
+                                            <input type="checkbox" checked="@selectedTables.Contains(t)" @onchange="e => ToggleTable(t, (bool)e.Value!)" />
+                                            <span style="font-family:ui-monospace,Consolas,monospace">@t</span>
+                                        </label>
+                                    }
+                                </div>
+                            }
+                        }
                     </div>
 
                     <div class="ds-modal-footer">
@@ -76,6 +107,9 @@
                                     <p class="ds-user-meta">
                                         <span class="ds-badge @GetBadgeClass(user.Type)">@GetAccessLevelText(user.Type)</span>
                                         <span style="margin-left:0.375rem">· @user.CreatedAt.ToString("MMM dd, yyyy")</span>
+                                        <span style="margin-left:0.375rem" title="@(user.Tables.Count == 0 ? "All tables" : string.Join(", ", user.Tables))">
+                                            · @(user.Tables.Count == 0 ? "All tables" : $"{user.Tables.Count} table{(user.Tables.Count == 1 ? "" : "s")}")
+                                        </span>
                                     </p>
                                 </div>
                                 <button class="btn-icon btn-icon-delete" title="Remove access" @onclick="() => RemoveUserAccess(user.UserId)">
@@ -103,6 +137,16 @@
     private bool isLoadingShares = false;
     private string selectedUserTypeString = "Viewer";
 
+    private bool shareAllTables = true;
+    private List<string> datasetTables = new();
+    private HashSet<string> selectedTables = new(StringComparer.OrdinalIgnoreCase);
+
+    private void ToggleTable(string table, bool on)
+    {
+        if (on) selectedTables.Add(table);
+        else selectedTables.Remove(table);
+    }
+
     protected override async Task OnParametersSetAsync()
     {
         if (IsVisible && !string.IsNullOrEmpty(DatasetId))
@@ -113,8 +157,39 @@
                 UserType = DatasetUserType.Viewer
             };
             selectedUserTypeString = "Viewer";
+            shareAllTables = true;
+            selectedTables.Clear();
+            await LoadDatasetTables();
             await LoadSharedUsers();
         }
+    }
+
+    private async Task LoadDatasetTables()
+    {
+        datasetTables = new();
+        try
+        {
+            var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    _httpClient.DefaultRequestHeaders.Remove("UserId");
+                    _httpClient.DefaultRequestHeaders.Add("UserId", userId);
+                }
+            }
+
+            // Try the dataset's own tables first; fall back to external source tables.
+            var response = await _httpClient.GetAsync($"api/datasets/{DatasetId}/tables");
+            if (!response.IsSuccessStatusCode)
+                response = await _httpClient.GetAsync($"api/datasets/{DatasetId}/source-tables");
+
+            if (response.IsSuccessStatusCode)
+                datasetTables = await response.Content.ReadFromJsonAsync<List<string>>() ?? new();
+        }
+        catch { /* no tables (404) or external not configured — leave empty, "All tables" stays selected */ }
     }
 
     private async Task LoadSharedUsers()
@@ -167,6 +242,21 @@
                 _ => DatasetUserType.Viewer
             };
 
+            if (shareAllTables)
+            {
+                shareRequest.Tables = null;
+            }
+            else
+            {
+                if (selectedTables.Count == 0)
+                {
+                    _toastService.ShowWarning("Select at least one table, or choose 'All tables'.");
+                    isSharing = false;
+                    return;
+                }
+                shareRequest.Tables = selectedTables.ToList();
+            }
+
             var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
             var user = authState.User;
             if (user.Identity?.IsAuthenticated == true)
@@ -185,7 +275,10 @@
                 _toastService.ShowSuccess($"Dataset shared with {shareRequest.Email}");
                 shareRequest.Email = string.Empty;
                 shareRequest.UserType = DatasetUserType.Viewer;
+                shareRequest.Tables = null;
                 selectedUserTypeString = "Viewer";
+                shareAllTables = true;
+                selectedTables.Clear();
                 await LoadSharedUsers();
             }
             else

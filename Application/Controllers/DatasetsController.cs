@@ -11,6 +11,7 @@ using System.Data;
 using System.IO;
 using System.Security.Claims;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 
@@ -24,12 +25,18 @@ public class DatasetsController : ControllerBase
     private readonly IDatasetService _datasetService;
     private readonly IDuckdbService _duckdbService;
     private readonly ISchemaInferenceService _schemaInferenceService;
+    private readonly Application.Shared.Services.IDatabaseTableService _databaseTableService;
 
-    public DatasetsController(IDatasetService datasetService, IDuckdbService duckdbService, ISchemaInferenceService schemaInferenceService)
+    public DatasetsController(
+        IDatasetService datasetService,
+        IDuckdbService duckdbService,
+        ISchemaInferenceService schemaInferenceService,
+        Application.Shared.Services.IDatabaseTableService databaseTableService)
     {
         _datasetService = datasetService;
         _duckdbService = duckdbService;
         _schemaInferenceService = schemaInferenceService;
+        _databaseTableService = databaseTableService;
     }
 
     // GET: api/Datasets/{companyId}
@@ -220,9 +227,63 @@ public class DatasetsController : ControllerBase
         if (tables == null || !tables.Any())
             return NotFound("No tables found in the dataset.");
 
+        // Restrict to the tables this user is scoped to (null = all).
+        var allowed = await _datasetService.GetAccessibleTablesAsync(datasetId, userId);
+        if (allowed != null)
+            tables = tables.Where(t => allowed.Contains(t)).ToList();
+
+        if (!tables.Any())
+            return NotFound("No tables found in the dataset.");
+
         return Ok(tables);
     }
 
+
+    // GET: api/datasets/source-databases — Database-type entities (with a saved connection) a dataset can be backed by.
+    [HttpGet("source-databases")]
+    public async Task<ActionResult<IEnumerable<DatabaseEntityOptionDto>>> GetSourceDatabases(CancellationToken ct)
+    {
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (string.IsNullOrWhiteSpace(companyId))
+            return BadRequest("Company ID is required");
+        if (!User.HasCompanyRole(companyId, "VIEW_DATA") && !User.HasCompanyRole(companyId, "EDIT_DATA"))
+            return Forbid();
+
+        return Ok(await _databaseTableService.GetConnectedDatabasesAsync(companyId, ct));
+    }
+
+    // GET: api/datasets/{datasetId}/source-tables — the live tables of an External dataset's source database.
+    [HttpGet("{datasetId}/source-tables")]
+    public async Task<ActionResult<IEnumerable<string>>> GetSourceTables(string datasetId, CancellationToken ct)
+    {
+        var userId = Request.Headers["UserId"].ToString();
+        if (string.IsNullOrWhiteSpace(userId))
+            return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.HasCompanyRole(companyId, "VIEW_DATA"))
+            return Forbid();
+
+        var dataset = await _datasetService.GetDatasetAsync(datasetId, userId);
+        if (dataset == null)
+            return NotFound($"Dataset with ID '{datasetId}' not found.");
+        if (dataset.SourceType != Application.Shared.Enums.DatasetSourceType.External || string.IsNullOrWhiteSpace(dataset.SourceEntityId))
+            return BadRequest("This dataset is not backed by an external database.");
+
+        var discovery = await _databaseTableService.DiscoverTablesAsync(dataset.SourceEntityId, companyId, ct);
+        // Surface listing failures as a 400 so the workbench can show why no tables appeared.
+        if (!string.IsNullOrEmpty(discovery.Error))
+            return BadRequest(discovery.Error);
+
+        var names = discovery.Tables.Select(t => t.FullName);
+
+        // Restrict to the tables this user is scoped to (null = all).
+        var allowed = await _datasetService.GetAccessibleTablesAsync(datasetId, userId);
+        if (allowed != null)
+            names = names.Where(n => allowed.Contains(n));
+
+        return Ok(names.ToList());
+    }
 
     // GET: api/Datasets/{datasetId}/tables
     [HttpGet("{datasetId}/tables/{tableName}")]
@@ -243,6 +304,8 @@ public class DatasetsController : ControllerBase
         if (!await DatasetExists(datasetId, userId))
             return NotFound($"Dataset with ID '{datasetId}' not found.");
 
+        if (!await IsTableAllowedAsync(datasetId, userId, tableName))
+            return Forbid();
 
         return await _duckdbService.GetTableAsync(datasetId, tableName);
 
@@ -264,6 +327,10 @@ public class DatasetsController : ControllerBase
         {
             var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
             if (!User.HasCompanyRole(companyId, "VIEW_DATA"))
+                return Forbid();
+
+            var userId = Request.Headers["UserId"].ToString();
+            if (!string.IsNullOrWhiteSpace(userId) && !await IsTableAllowedAsync(datasetId, userId, tableName))
                 return Forbid();
 
             return await _duckdbService.GetTableColumnsAsync(datasetId, tableName);
@@ -297,6 +364,9 @@ public class DatasetsController : ControllerBase
             return NotFound($"Dataset with ID '{datasetId}' not found.");
 
 
+        if (!await IsTableAllowedAsync(datasetId, userId, tableName))
+            return Forbid();
+
         var response = await _duckdbService.DeleteTableAsync(datasetId, tableName);
 
         if (!response)
@@ -329,6 +399,9 @@ public class DatasetsController : ControllerBase
 
         try
         {
+            if (!await IsTableAllowedAsync(datasetId, userId, tableName))
+                return Forbid();
+
             // Create a query to get all table data (no pagination for download)
             var query = new TableDataQuery
             {
@@ -400,6 +473,9 @@ public class DatasetsController : ControllerBase
 
         try
         {
+            if (!await IsTableAllowedAsync(datasetId, userId, tableName))
+                return Forbid();
+
             // Ensure the query has the correct dataset and table information
             query.DatasetId = datasetId;
             query.TableName = tableName;
@@ -686,6 +762,9 @@ public class DatasetsController : ControllerBase
 
         var format = ParseFormat(form);
         using var stream = form.Files[0].OpenReadStream();
+        if (!await IsTableAllowedAsync(datasetId, userId, tableName))
+            return Forbid();
+
         var result = await _duckdbService.ValidateImportAsync(datasetId, tableName, stream, format, HttpContext.RequestAborted);
         return Ok(result);
     }
@@ -776,6 +855,9 @@ public class DatasetsController : ControllerBase
         var skipInvalidRows = form.TryGetValue("skipInvalidRows", out var skipValues)
             && bool.TryParse(skipValues.FirstOrDefault(), out var skip) && skip;
 
+        if (!await IsTableAllowedAsync(datasetId, userId, tableName))
+            return Forbid();
+
         using var stream = form.Files[0].OpenReadStream();
         // The wizard creates the table before importing, so the table already exists here.
         var result = await _duckdbService.ImportFileAsync(datasetId, tableName, stream, format, mode, keyColumns, skipInvalidRows, createIfMissing: false, HttpContext.RequestAborted);
@@ -814,9 +896,12 @@ public class DatasetsController : ControllerBase
 
         try
         {
+            if (!await IsTableAllowedAsync(datasetId, userId, tableName))
+                return Forbid();
+
             query.DatasetId = datasetId;
             query.TableName = tableName;
-            
+
             var result = await _duckdbService.QueryTableDataAsync(query);
             return Ok(result);
         }
@@ -849,6 +934,9 @@ public class DatasetsController : ControllerBase
 
         try
         {
+            if (!await IsTableAllowedAsync(datasetId, userId, tableName))
+                return Forbid();
+
             var count = await _duckdbService.GetTableRowCountAsync(datasetId, tableName, filters);
             return Ok(count);
         }
@@ -858,9 +946,96 @@ public class DatasetsController : ControllerBase
         }
     }
 
+    // PUT: api/Datasets/{datasetId}/tables/{tableName}/rows — update one row (addressed by its rowid).
+    [HttpPut("{datasetId}/tables/{tableName}/rows")]
+    public async Task<ActionResult<RowMutationResult>> UpdateRow(string datasetId, string tableName, [FromBody] RowEditModel request)
+    {
+        var (error, _) = await EnsureRowEditAsync(datasetId, tableName);
+        if (error != null) return error;
+        if (request?.RowId == null)
+            return BadRequest("Row identifier is required to update a row.");
+
+        var result = await _duckdbService.UpdateRowAsync(datasetId, tableName, request.RowId.Value, request.Values ?? new(), HttpContext.RequestAborted);
+        return Ok(result);
+    }
+
+    // POST: api/Datasets/{datasetId}/tables/{tableName}/rows — insert a new row.
+    [HttpPost("{datasetId}/tables/{tableName}/rows")]
+    public async Task<ActionResult<RowMutationResult>> InsertRow(string datasetId, string tableName, [FromBody] RowEditModel request)
+    {
+        var (error, _) = await EnsureRowEditAsync(datasetId, tableName);
+        if (error != null) return error;
+        if (request?.Values == null || request.Values.Count == 0)
+            return BadRequest("At least one column value is required to insert a row.");
+
+        var result = await _duckdbService.InsertRowAsync(datasetId, tableName, request.Values, HttpContext.RequestAborted);
+        return Ok(result);
+    }
+
+    // DELETE: api/Datasets/{datasetId}/tables/{tableName}/rows/{rowId} — delete one row (by rowid).
+    [HttpDelete("{datasetId}/tables/{tableName}/rows/{rowId:long}")]
+    public async Task<ActionResult<RowMutationResult>> DeleteRow(string datasetId, string tableName, long rowId)
+    {
+        var (error, _) = await EnsureRowEditAsync(datasetId, tableName);
+        if (error != null) return error;
+
+        var result = await _duckdbService.DeleteRowAsync(datasetId, tableName, rowId, HttpContext.RequestAborted);
+        return Ok(result);
+    }
+
+    // POST: api/Datasets/{datasetId}/tables/{tableName}/rows/bulk — apply a batch of edits atomically.
+    [HttpPost("{datasetId}/tables/{tableName}/rows/bulk")]
+    public async Task<ActionResult<BulkRowEditResult>> BulkEditRows(string datasetId, string tableName, [FromBody] BulkRowEditRequest request)
+    {
+        var (error, _) = await EnsureRowEditAsync(datasetId, tableName);
+        if (error != null) return error;
+        if (request == null)
+            return BadRequest("No changes provided.");
+
+        var result = await _duckdbService.ApplyRowChangesAsync(datasetId, tableName, request, HttpContext.RequestAborted);
+        return Ok(result);
+    }
+
+    // Shared guard for row edits: requires EDIT_DATA, a local (non-external) dataset the user can reach,
+    // and table-share access. Returns a non-null error result to short-circuit, otherwise the dataset.
+    private async Task<(ActionResult? error, Dataset? dataset)> EnsureRowEditAsync(string datasetId, string tableName)
+    {
+        var userId = Request.Headers["UserId"].ToString();
+        if (string.IsNullOrWhiteSpace(userId))
+            return (BadRequest("User ID is required in headers"), null);
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.HasCompanyRole(companyId, "EDIT_DATA"))
+            return (Forbid(), null);
+
+        if (string.IsNullOrWhiteSpace(tableName))
+            return (BadRequest("Table name is required"), null);
+
+        var dataset = await _datasetService.GetDatasetAsync(datasetId, userId);
+        if (dataset == null)
+            return (NotFound($"Dataset with ID '{datasetId}' not found."), null);
+
+        // External datasets are read-only snapshots of a source database — editing them is not supported.
+        if (dataset.SourceType == Application.Shared.Enums.DatasetSourceType.External)
+            return (BadRequest("This dataset is backed by an external database and is read-only."), null);
+
+        if (!await IsTableAllowedAsync(datasetId, userId, tableName))
+            return (Forbid(), null);
+
+        return (null, dataset);
+    }
+
     private async Task<bool> DatasetExists(string id, string userId)
     {
         return await _datasetService.GetDatasetAsync(id, userId) != null;
+    }
+
+    /// <summary>True when the user may access this specific table (table-level share scope).
+    /// A null accessible-set means full access to all tables.</summary>
+    private async Task<bool> IsTableAllowedAsync(string datasetId, string userId, string tableName)
+    {
+        var allowed = await _datasetService.GetAccessibleTablesAsync(datasetId, userId);
+        return allowed == null || allowed.Contains(tableName);
     }
 
 }

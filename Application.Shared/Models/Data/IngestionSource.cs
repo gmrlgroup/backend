@@ -106,4 +106,9 @@ public class IngestionRun
 
     public int? RowsIngested { get; set; }
     public string? ErrorMessage { get; set; }
+
+    // The Hangfire background-job id when this run was executed via Hangfire (batch / scheduled). Null for
+    // inline "Run now". Lets the UI deep-link to the Hangfire dashboard job details.
+    [StringLength(100)]
+    public string? JobId { get; set; }
 }

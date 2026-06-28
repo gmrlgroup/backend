@@ -207,101 +207,161 @@
                                 <EditForm Model="@dependencyForm" OnValidSubmit="@HandleDependencySubmit">
                                     <DataAnnotationsValidator />
 
-                                    <div class="space-y-4">
-                                        <!-- Entity Selection -->
+                                    <div class="space-y-5">
+                                        <!-- Dependency Type (filters the list below) -->
                                         <div>
-                                            <label for="dependsOnEntityId" class="block text-sm font-medium text-gray-700">
+                                            <label for="dependencyType" class="block text-sm font-medium text-gray-700 mb-1.5">
+                                                Type
+                                            </label>
+                                            <select @bind="dependencyForm.DependencyType" @bind:after="OnDependencyTypeChanged" id="dependencyType"
+                                                    class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm outline-none transition-colors focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+                                                <option value="">All types</option>
+                                                @foreach (var assetType in Enum.GetValues<AssetType>())
+                                                {
+                                                    <option value="@assetType">@assetType.ToString()</option>
+                                                }
+                                            </select>
+                                            <p class="mt-1 text-xs text-gray-500">Filters the entities you can depend on.</p>
+                                        </div>
+
+                                        <!-- Depends On Entity (searchable dropdown) -->
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1.5">
                                                 Depends On Entity <span class="text-red-500">*</span>
                                             </label>
-                                            <div class="mt-1">
-                                                <InputSelect @bind-Value="dependencyForm.DependsOnEntityId" id="dependsOnEntityId"
-                                                             class="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
-                                                    <option value="">Select entity...</option>
-                                                    @foreach (var availableEntity in availableEntities)
+                                            <div class="relative">
+                                                <!-- Trigger -->
+                                                <button type="button" @onclick="ToggleDependsOnDropdown"
+                                                        class="flex w-full items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left text-sm shadow-sm outline-none transition-colors hover:border-gray-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+                                                    @if (SelectedDependsOnEntity is { } sel)
                                                     {
-                                                        <option value="@availableEntity.Id">@availableEntity.Name (@availableEntity.EntityType)</option>
+                                                        <span class="text-base leading-none">@sel.GetEntityTypeIcon()</span>
+                                                        <span class="min-w-0 flex-1 truncate font-medium text-gray-900">@sel.Name</span>
                                                     }
-                                                </InputSelect>
-                                                <ValidationMessage For="@(() => dependencyForm.DependsOnEntityId)" class="mt-2 text-sm text-red-600" />
+                                                    else
+                                                    {
+                                                        <span class="flex-1 text-gray-400">Select entity…</span>
+                                                    }
+                                                    <svg class="h-4 w-4 shrink-0 text-gray-400 transition-transform @(dependsOnDropdownOpen ? "rotate-180" : "")" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                                    </svg>
+                                                </button>
+
+                                                @if (dependsOnDropdownOpen)
+                                                {
+                                                    <div class="fixed inset-0 z-10" @onclick="CloseDependsOnDropdown"></div>
+                                                    <div class="absolute z-20 mt-1.5 w-full overflow-hidden rounded-xl border border-gray-200/80 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
+                                                        <div class="p-2">
+                                                            <div class="relative">
+                                                                <svg class="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"></path>
+                                                                </svg>
+                                                                <input @bind="dependsOnSearch" @bind:event="oninput" placeholder="Search entities…"
+                                                                       class="w-full rounded-lg border-0 bg-gray-100 py-2 pl-8 pr-3 text-sm text-gray-900 outline-none ring-1 ring-transparent transition focus:bg-white focus:ring-indigo-500" />
+                                                            </div>
+                                                        </div>
+                                                        <ul class="max-h-64 overflow-y-auto px-1.5 pb-1.5">
+                                                            @if (!SearchedDependsOnEntities.Any())
+                                                            {
+                                                                <li class="px-3 py-6 text-center text-sm text-gray-400">No matching entities</li>
+                                                            }
+                                                            else
+                                                            {
+                                                                @foreach (var availableEntity in SearchedDependsOnEntities)
+                                                                {
+                                                                    var isSelected = availableEntity.Id == dependencyForm.DependsOnEntityId;
+                                                                    <li>
+                                                                        <button type="button" @onclick="() => SelectDependsOnEntity(availableEntity.Id)"
+                                                                                style="border:none;"
+                                                                                class="flex w-full items-center gap-3 rounded-lg bg-transparent px-2.5 py-2 text-left outline-none transition-colors hover:bg-gray-100 @(isSelected ? "bg-indigo-50" : "")">
+                                                                            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-base">@availableEntity.GetEntityTypeIcon()</span>
+                                                                            <span class="min-w-0 flex-1">
+                                                                                <span class="flex items-center gap-1.5">
+                                                                                    <span class="truncate text-sm font-medium text-gray-900">@availableEntity.Name</span>
+                                                                                    <span class="inline-flex shrink-0 items-center rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">@availableEntity.EntityType</span>
+                                                                                    @if (availableEntity.IsCritical)
+                                                                                    {
+                                                                                        <span class="inline-flex shrink-0 items-center rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700">Critical</span>
+                                                                                    }
+                                                                                </span>
+                                                                                @if (!string.IsNullOrWhiteSpace(DependencySubtitle(availableEntity)))
+                                                                                {
+                                                                                    <span class="block truncate text-xs text-gray-400">@DependencySubtitle(availableEntity)</span>
+                                                                                }
+                                                                            </span>
+                                                                            @if (isSelected)
+                                                                            {
+                                                                                <svg class="h-4 w-4 shrink-0 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                                                                </svg>
+                                                                            }
+                                                                        </button>
+                                                                    </li>
+                                                                }
+                                                            }
+                                                        </ul>
+                                                    </div>
+                                                }
                                             </div>
+                                            <ValidationMessage For="@(() => dependencyForm.DependsOnEntityId)" class="mt-1.5 text-sm text-red-600" />
                                         </div>
 
                                         <!-- Description -->
                                         <div>
-                                            <label for="dependencyDescription" class="block text-sm font-medium text-gray-700">
+                                            <label for="dependencyDescription" class="block text-sm font-medium text-gray-700 mb-1.5">
                                                 Description
                                             </label>
-                                            <div class="mt-1">
-                                                <InputTextArea @bind-Value="dependencyForm.Description" id="dependencyDescription" rows="2"
-                                                               class="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                                                               placeholder="Describe this dependency..." />
-                                            </div>
-                                        </div>
-
-                                        <!-- Dependency Type -->
-                                        <div>
-                                            <label for="dependencyType" class="block text-sm font-medium text-gray-700">
-                                                Type
-                                            </label>
-                                            <div class="mt-1">
-                                                <select @bind="dependencyForm.DependencyType" id="entityType"
-                                                        class="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
-                                                    <option value="">Select type...</option>
-                                                    @foreach (var assetType in Enum.GetValues<AssetType>())
-                                                    {
-                                                        <option value="@assetType">@assetType.ToString()</option>
-                                                    }
-                                                </select>
-                                            </div>
+                                            <InputTextArea @bind-Value="dependencyForm.Description" id="dependencyDescription" rows="2"
+                                                           class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm outline-none transition-colors focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                                                           placeholder="Describe this dependency…" />
                                         </div>
 
                                         <!-- Order -->
                                         <div>
-                                            <label for="dependencyOrder" class="block text-sm font-medium text-gray-700">
+                                            <label for="dependencyOrder" class="block text-sm font-medium text-gray-700 mb-1.5">
                                                 Check Order
                                             </label>
-                                            <div class="mt-1">
-                                                <InputNumber @bind-Value="dependencyForm.Order" id="dependencyOrder"
-                                                             class="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
-                                                <p class="mt-1 text-xs text-gray-500">Lower numbers are checked first</p>
-                                            </div>
+                                            <InputNumber @bind-Value="dependencyForm.Order" id="dependencyOrder" min="0"
+                                                         class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm outline-none transition-colors focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+                                            <p class="mt-1 text-xs text-gray-500">Lower numbers are checked first.</p>
                                         </div>
 
                                         <!-- Flags -->
                                         <div class="space-y-3">
-                                            <div class="flex items-center">
+                                            <label class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50 transition-colors">
                                                 <InputCheckbox @bind-Value="dependencyForm.IsActive" id="dependencyIsActive"
-                                                               class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-                                                <label for="dependencyIsActive" class="ml-3 text-sm text-gray-700">
-                                                    Active
-                                                </label>
-                                            </div>
-                                            <div class="flex items-center">
+                                                               class="mt-0.5 h-4 w-4 rounded text-indigo-600 border-gray-300 focus:ring-indigo-500" />
+                                                <span class="text-sm">
+                                                    <span class="block font-medium text-gray-800">Active</span>
+                                                    <span class="text-gray-500">Dependency is currently being monitored</span>
+                                                </span>
+                                            </label>
+                                            <label class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50 transition-colors">
                                                 <InputCheckbox @bind-Value="dependencyForm.IsCritical" id="dependencyIsCritical"
-                                                               class="h-4 w-4 text-red-600 border-gray-300 rounded focus:ring-red-500" />
-                                                <label for="dependencyIsCritical" class="ml-3 text-sm text-gray-700">
-                                                    Critical
-                                                    <span class="text-gray-500">(Failure will impact entity)</span>
-                                                </label>
-                                            </div>
+                                                               class="mt-0.5 h-4 w-4 rounded text-red-600 border-gray-300 focus:ring-red-500" />
+                                                <span class="text-sm">
+                                                    <span class="block font-medium text-gray-800">Critical</span>
+                                                    <span class="text-gray-500">Failure will impact this entity</span>
+                                                </span>
+                                            </label>
                                         </div>
                                     </div>
 
                                     <!-- Form Actions -->
-                                    <div class="mt-6 flex justify-end space-x-3">
+                                    <div class="mt-6 flex justify-end gap-3">
                                         <button type="button" @onclick="CancelDependencyForm"
-                                                class="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50">
+                                                class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50">
                                             Cancel
                                         </button>
                                         <button type="submit" disabled="@isSubmittingDependency"
-                                                class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300">
+                                                class="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:bg-indigo-300">
                                             @if (isSubmittingDependency)
                                             {
                                                 <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
                                                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                                 </svg>
-                                                @(editingDependency != null ? "Updating..." : "Adding...")
+                                                @(editingDependency != null ? "Updating…" : "Adding…")
                                             }
                                             else
                                             {
@@ -349,7 +409,66 @@
     private AssetDependency dependencyForm = new();
     private AssetDependency? editingDependency = null;
 
+    private bool dependsOnDropdownOpen = false;
+    private string dependsOnSearch = string.Empty;
+
     private string queryParam => StateContainer.Company is null ? "" : $"?c={StateContainer.Company.Id}";
+
+    // Available entities narrowed by the chosen dependency type (all types when none is selected).
+    private IEnumerable<MonitoredAsset> FilteredDependsOnEntities =>
+        availableEntities.Where(e => dependencyForm.DependencyType == null || e.EntityType == dependencyForm.DependencyType);
+
+    // The filtered list further narrowed by the dropdown's search box.
+    private IEnumerable<MonitoredAsset> SearchedDependsOnEntities
+    {
+        get
+        {
+            var q = dependsOnSearch?.Trim();
+            if (string.IsNullOrEmpty(q)) return FilteredDependsOnEntities;
+            return FilteredDependsOnEntities.Where(e =>
+                (e.Name?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.Owner?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.Location?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.Url?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+    }
+
+    private MonitoredAsset? SelectedDependsOnEntity =>
+        availableEntities.FirstOrDefault(e => e.Id == dependencyForm.DependsOnEntityId);
+
+    // Muted secondary line for a dependency row/trigger: owner · location · version · url.
+    private static string DependencySubtitle(MonitoredAsset e)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(e.Owner)) parts.Add(e.Owner!);
+        if (!string.IsNullOrWhiteSpace(e.Location)) parts.Add(e.Location!);
+        if (!string.IsNullOrWhiteSpace(e.Version)) parts.Add($"v{e.Version}");
+        if (!string.IsNullOrWhiteSpace(e.Url)) parts.Add(e.Url!);
+        return string.Join(" · ", parts);
+    }
+
+    private void ToggleDependsOnDropdown()
+    {
+        dependsOnDropdownOpen = !dependsOnDropdownOpen;
+        if (dependsOnDropdownOpen) dependsOnSearch = string.Empty;
+    }
+
+    private void CloseDependsOnDropdown() => dependsOnDropdownOpen = false;
+
+    private void SelectDependsOnEntity(string id)
+    {
+        dependencyForm.DependsOnEntityId = id;
+        dependsOnDropdownOpen = false;
+        dependsOnSearch = string.Empty;
+    }
+
+    // When the type filter changes, drop a selection that no longer matches the narrowed list.
+    private void OnDependencyTypeChanged()
+    {
+        if (!FilteredDependsOnEntities.Any(e => e.Id == dependencyForm.DependsOnEntityId))
+            dependencyForm.DependsOnEntityId = string.Empty;
+        dependsOnSearch = string.Empty;
+    }
 
     protected override async Task OnInitializedAsync()
     {

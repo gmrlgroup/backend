@@ -1,6 +1,8 @@
 using Application.Authorization;
 using Application.Client.Pages;
 using Application.DailyInventory;
+using Hangfire;
+using Hangfire.SqlServer;
 using Application.Components;
 using Application.Components.Account;
 using Application.Helpers;
@@ -166,8 +168,14 @@ builder.Services.AddDbContext<StatusDbContext>(options =>
 
 
 var userManagementConnectionString = builder.Configuration.GetConnectionString("UserManagementDbContext") ?? throw new InvalidOperationException("Connection string 'ApplicationDbContext' not found.");
-builder.Services.AddDbContext<UserManagementDbContext>(options =>
+// Register a factory so services (e.g. CompanyService) can create short-lived, non-shared
+// contexts. This prevents "A second operation was started on this context instance" when a
+// layout and a page issue concurrent queries during Blazor SSR rendering. Identity still needs
+// a scoped UserManagementDbContext, so also expose one that is created from the factory.
+builder.Services.AddDbContextFactory<UserManagementDbContext>(options =>
     options.UseSqlServer(userManagementConnectionString, b => b.MigrationsAssembly("Application")));
+builder.Services.AddScoped<UserManagementDbContext>(sp =>
+    sp.GetRequiredService<IDbContextFactory<UserManagementDbContext>>().CreateDbContext());
 
 
 // Add Data Warehouse DbContext
@@ -257,6 +265,17 @@ builder.Services.AddHttpClient(IncidentNotificationService.HttpClientName, (sp, 
     client.Timeout = TimeSpan.FromSeconds(60);
 });
 
+// Dataset-shared notification emails (same Resend microservice).
+builder.Services.Configure<Application.Shared.Options.DatasetSharedEmailOptions>(
+    builder.Configuration.GetSection("DatasetSharedEmail"));
+builder.Services.AddHttpClient(Application.Services.Data.EmailNotificationService.HttpClientName, (sp, client) =>
+{
+    var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Application.Shared.Options.DatasetSharedEmailOptions>>().Value;
+    if (string.IsNullOrWhiteSpace(opts.ApiBaseUri)) return;
+    client.BaseAddress = new Uri(opts.ApiBaseUri);
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
+
 // Server Management (credentials + remote service start/stop)
 // Keys must persist OUTSIDE the app folder so redeploys don't wipe them — losing the key ring
 // makes every stored credential undecryptable. Configurable via DataProtection:KeysPath
@@ -305,6 +324,24 @@ builder.Services.AddScoped<ISavedQueryService, SavedQueryService>();
 
 // Scheduled/automated ingestion — executor shared with the scheduler ("Run now" runs it inline here).
 builder.Services.AddScoped<IIngestionService, IngestionService>();
+
+// Hangfire CLIENT only (no server): lets "Run as batch" enqueue an ingestion job into the same storage
+// the Application.Scheduler process reads from, so it runs there instead of inline in this web request.
+// Requires the 'SchedulerDbContext' connection string; without it, batch mode stays disabled and "Run
+// now" (inline) still works. Serializer settings mirror the scheduler so jobs deserialize cleanly.
+var hangfireConnectionString = builder.Configuration.GetConnectionString("SchedulerDbContext");
+if (!string.IsNullOrWhiteSpace(hangfireConnectionString))
+{
+    builder.Services.AddHangfire(cfg => cfg
+        .UseSimpleAssemblyNameTypeSerializer()
+        .UseRecommendedSerializerSettings()
+        .UseSqlServerStorage(hangfireConnectionString, new SqlServerStorageOptions
+        {
+            SchemaName = "HangFire",
+            PrepareSchemaIfNecessary = true,
+        }));
+    // No AddHangfireServer() here — the scheduler process is the only worker.
+}
 
 // Configure Azure OpenAI settings
 builder.Services.Configure<AzureOpenAIConfiguration>(builder.Configuration.GetSection("AzureOpenAI"));
@@ -387,5 +424,21 @@ app.MapRazorComponents<App>()
 
 // Add additional endpoints required by the Identity /Account Razor components.
 app.MapAdditionalIdentityEndpoints();
+
+// A "Run now" ingestion executes inline in the web request, so a restart mid-run can leave its run
+// record stuck at "Running". Reconcile any such orphaned runs once at startup.
+using (var startupScope = app.Services.CreateScope())
+{
+    try
+    {
+        var ingestion = startupScope.ServiceProvider.GetRequiredService<IIngestionService>();
+        var staleHours = builder.Configuration.GetValue<double?>("Ingestion:StaleRunTimeoutHours") ?? 6;
+        await ingestion.FailStaleRunsAsync(TimeSpan.FromHours(staleHours));
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Stale ingestion run reconciliation at startup failed.");
+    }
+}
 
 app.Run();

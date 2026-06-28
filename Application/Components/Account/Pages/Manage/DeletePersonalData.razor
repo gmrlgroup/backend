@@ -12,29 +12,37 @@
 
 <PageTitle>Delete Personal Data</PageTitle>
 
-<StatusMessage Message="@message" />
+<div class="ds-card">
+    <div class="acct-section-pad">
+        <h2 class="acct-card-title">Delete personal data</h2>
+        <p class="acct-card-desc">Download or permanently remove the data associated with your account.</p>
 
-<h3>Delete Personal Data</h3>
+        <StatusMessage Message="@message" />
 
-<FluentGrid>
-    <FluentGridItem sm="6">
-        <div class="alert alert-warning" role="alert">
-            <p>
-                <strong>Deleting this data will permanently remove your account, and this cannot be recovered.</strong>
-            </p>
+        <div class="acct-alert danger" role="alert">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <span><strong>Deleting this data will permanently remove your account, and this cannot be recovered.</strong></span>
         </div>
+
         <EditForm Model="Input" FormName="delete-user" OnValidSubmit="OnValidSubmitAsync" method="post">
             <DataAnnotationsValidator />
-            <FluentValidationSummary class="text-danger" role="alert" />
+            <ValidationSummary role="alert" />
             @if (requirePassword)
             {
-                <FluentTextField type="password" Name="Input.Password" @bind-Value="Input.Password" AutoComplete="new-password" Required="true" Placeholder="Please enter your password." Label="Password" Style="width: 100%" />
-                <FluentValidationMessage For="() => Input.Password" class="text-danger" />
+                <div class="ds-field">
+                    <label class="ds-label" for="delete-password">Password</label>
+                    <InputText type="password" id="delete-password" @bind-Value="Input.Password" class="ds-input" autocomplete="current-password" placeholder="Enter your password to confirm" />
+                    <ValidationMessage For="() => Input.Password" class="ds-error" />
+                </div>
             }
-            <FluentButton Type="ButtonType.Submit" Appearance="Appearance.Accent" Style="width: 100%;">Delete data and close my account</FluentButton>
+            <div class="acct-form-actions">
+                <button type="submit" class="btn btn-destructive">Delete data and close my account</button>
+            </div>
         </EditForm>
-    </FluentGridItem>
-</FluentGrid>
+    </div>
+</div>
 @code {
     private string? message;
     private ApplicationUser user = default!;

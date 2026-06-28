@@ -1,5 +1,8 @@
 @page "/data/datasets/create"
 @using System.ComponentModel.DataAnnotations
+@using System.Net.Http.Json
+@using Application.Shared.Enums
+@using Application.Shared.Models
 @inject HttpClient _httpClient
 @inject NavigationManager _navigationManager
 @inject IToastService _toastService
@@ -50,6 +53,43 @@ else
                     <span class="ds-hint">Include data structure, format, and business context</span>
                 </div>
 
+                <div class="ds-field">
+                    <label class="ds-label">Data Source <span style="color:#ef4444">*</span></label>
+                    <div style="display:flex;gap:1.25rem;margin-top:0.25rem">
+                        <label style="display:flex;align-items:center;gap:0.375rem;font-size:0.875rem;cursor:pointer">
+                            <input type="radio" name="srcType" checked="@(!isExternal)" @onchange="@(() => isExternal = false)" />
+                            Local (DuckDB)
+                        </label>
+                        <label style="display:flex;align-items:center;gap:0.375rem;font-size:0.875rem;cursor:pointer">
+                            <input type="radio" name="srcType" checked="@isExternal" @onchange="@(() => isExternal = true)" />
+                            External database
+                        </label>
+                    </div>
+                    <span class="ds-hint">Local datasets hold imported/ingested tables; external datasets query a connected database live.</span>
+                </div>
+
+                @if (isExternal)
+                {
+                    <div class="ds-field">
+                        <label class="ds-label" for="ds-src">Source database <span style="color:#ef4444">*</span></label>
+                        <select id="ds-src" class="ds-input" @bind="selectedSourceEntityId">
+                            <option value="">Select a database…</option>
+                            @foreach (var db in sourceDatabases)
+                            {
+                                <option value="@db.Id">@db.Name (@db.DatabaseType)</option>
+                            }
+                        </select>
+                        @if (!sourceDatabases.Any())
+                        {
+                            <span class="ds-hint" style="color:#b45309">No connected databases found. Add a Database entity with a saved connection first.</span>
+                        }
+                        else
+                        {
+                            <span class="ds-hint">Tables come from this database's saved connection; queries run live and read-only.</span>
+                        }
+                    </div>
+                }
+
                 <div class="ds-form-actions">
                     <button type="submit" class="btn btn-default" disabled="@isSubmitting">
                         @if (isSubmitting)
@@ -92,6 +132,10 @@ else
     private bool canEdit;
     private string? companyId;
 
+    private bool isExternal;
+    private string selectedSourceEntityId = string.Empty;
+    private List<DatabaseEntityOptionDto> sourceDatabases = new();
+
     [SupplyParameterFromQuery]
     public string? c { get; set; }
 
@@ -109,6 +153,9 @@ else
         var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
         var user = authState.User;
         canEdit = user.HasCompanyRole(companyId, "EDIT_DATA");
+
+        _httpClient.DefaultRequestHeaders.Remove("X-Company-Id");
+        _httpClient.DefaultRequestHeaders.Add("X-Company-Id", companyId);
         if (user.Identity?.IsAuthenticated == true)
         {
             var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
@@ -118,10 +165,33 @@ else
                 _httpClient.DefaultRequestHeaders.Add("UserId", userId);
             }
         }
+
+        if (canEdit)
+            await LoadSourceDatabases();
+    }
+
+    private async Task LoadSourceDatabases()
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync("api/datasets/source-databases");
+            if (response.IsSuccessStatusCode)
+                sourceDatabases = await response.Content.ReadFromJsonAsync<List<DatabaseEntityOptionDto>>() ?? new();
+        }
+        catch { /* leave empty; the form shows a hint when none are available */ }
     }
 
     private async Task HandleValidSubmit()
     {
+        if (isExternal && string.IsNullOrWhiteSpace(selectedSourceEntityId))
+        {
+            _toastService.ShowWarning("Select a source database for the external dataset.");
+            return;
+        }
+
+        datasetModel.SourceType = isExternal ? DatasetSourceType.External : DatasetSourceType.Local;
+        datasetModel.SourceEntityId = isExternal ? selectedSourceEntityId : null;
+
         isSubmitting = true;
         try
         {

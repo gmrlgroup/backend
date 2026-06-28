@@ -24,18 +24,24 @@ public class MonitoredAssetService : IMonitoredAssetService
             .Include(e => e.DependentOn)
             .Include(e => e.Jobs)
             .Include(e => e.StatusHistory.OrderByDescending(sh => sh.CheckedAt).Take(1))
+            .AsSplitQuery()
             .OrderBy(e => e.Name)
             .ToListAsync();
     }
 
     public async Task<MonitoredAsset?> GetEntityAsync(string id)
     {
+        // AsSplitQuery: load each collection in its own SQL round-trip instead of one big LEFT JOIN.
+        // Without it, Dependencies × DependentOn × Jobs × StatusHistory form a cartesian product that
+        // explodes (status history grows with every ping) and times out. The detail page only needs
+        // the latest status here — the full history is loaded separately via AssetStatusHistoryService.
         return await _context.MonitoredAssets
             .Where(e => !e.IsDeleted)
             .Include(e => e.Dependencies)
             .Include(e => e.DependentOn)
             .Include(e => e.Jobs)
-            .Include(e => e.StatusHistory.OrderByDescending(sh => sh.CheckedAt))
+            .Include(e => e.StatusHistory.OrderByDescending(sh => sh.CheckedAt).Take(1))
+            .AsSplitQuery()
             .FirstOrDefaultAsync(e => e.Id == id);
     }
 

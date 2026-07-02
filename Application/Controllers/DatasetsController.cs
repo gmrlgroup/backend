@@ -238,6 +238,56 @@ public class DatasetsController : ControllerBase
         return Ok(tables);
     }
 
+    // GET: api/Datasets/{datasetId}/database-exists — does the dataset's DuckDB file exist on disk?
+    [HttpGet("{datasetId}/database-exists")]
+    public async Task<ActionResult<bool>> DatabaseExists(string datasetId)
+    {
+        var userId = Request.Headers["UserId"].ToString();
+        if (string.IsNullOrWhiteSpace(userId))
+            return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.HasCompanyRole(companyId, "VIEW_DATA"))
+            return Forbid();
+
+        if (string.IsNullOrWhiteSpace(datasetId))
+            return BadRequest("Dataset ID is required");
+
+        if (!await DatasetExists(datasetId, userId))
+            return NotFound($"Dataset with ID '{datasetId}' not found.");
+
+        return Ok(_duckdbService.DatabaseExists(datasetId));
+    }
+
+    // POST: api/Datasets/{datasetId}/database — create the dataset's DuckDB file if it is missing.
+    [HttpPost("{datasetId}/database")]
+    public async Task<IActionResult> CreateDatabase(string datasetId)
+    {
+        var userId = Request.Headers["UserId"].ToString();
+        if (string.IsNullOrWhiteSpace(userId))
+            return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.HasCompanyRole(companyId, "EDIT_DATA"))
+            return Forbid();
+
+        if (string.IsNullOrWhiteSpace(datasetId))
+            return BadRequest("Dataset ID is required");
+
+        if (!await DatasetExists(datasetId, userId))
+            return NotFound($"Dataset with ID '{datasetId}' not found.");
+
+        try
+        {
+            await _duckdbService.EnsureDatabaseAsync(datasetId);
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            return BadRequest($"Error creating database: {ex.Message}");
+        }
+    }
+
 
     // GET: api/datasets/source-databases — Database-type entities (with a saved connection) a dataset can be backed by.
     [HttpGet("source-databases")]

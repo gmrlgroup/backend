@@ -1,4 +1,5 @@
 using Application.Shared.Models;
+using Application.Shared.Models.Dashboards;
 using Application.Shared.Models.Data;
 using Application.Shared.Models.User;
 using Microsoft.AspNetCore.Connections;
@@ -94,6 +95,9 @@ namespace Application.Shared.Data
         // Scheduled/automated ingestion sources and their run history.
         public DbSet<IngestionSource> IngestionSource { get; set; }
         public DbSet<IngestionRun> IngestionRun { get; set; }
+
+        // Links a dashboard page to an ingested dataset table (for "view details" deep-links).
+        public DbSet<DashboardDataLink> DashboardDataLink { get; set; }
 
         // METRICS
         public DbSet<Metric> Metrics { get; set; }

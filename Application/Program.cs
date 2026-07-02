@@ -230,6 +230,9 @@ builder.Services.AddScoped<IClickHouseService, ClickHouseService>();
 // Daily Inventory (ClickHouse reporting)
 builder.Services.AddDailyInventory(builder.Configuration);
 
+// Dashboards (OOS dashboard + dashboard/table links) — Application.Dashboard feature project.
+Application.Dashboard.DashboardServiceExtensions.AddDashboard(builder.Services);
+
 // Add Data Warehouse Service
 builder.Services.AddScoped<DataWarehouseService>();
 

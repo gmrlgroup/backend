@@ -14,4 +14,5 @@ public static class PolicyNames
     public const string StatusRead = "StatusRead";
     public const string StatusWrite = "StatusWrite";
     public const string InventoryRead = "InventoryRead";
+    public const string DashboardsRead = "DashboardsRead";
 }

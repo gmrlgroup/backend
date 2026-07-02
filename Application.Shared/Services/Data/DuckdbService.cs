@@ -52,6 +52,23 @@ public class DuckdbService : IDuckdbService
 
     }
 
+    public bool DatabaseExists(string datasetId)
+        => File.Exists($"{_option.DuckdbFilePath}/{datasetId}.duckdb");
+
+    public async Task EnsureDatabaseAsync(string datasetId)
+    {
+        var duckdbFilePath = $"{_option.DuckdbFilePath}/{datasetId}.duckdb";
+
+        if (File.Exists(duckdbFilePath))
+            return;
+
+        // Make sure the configured folder exists, then open a connection — that creates the file.
+        Directory.CreateDirectory(_option.DuckdbFilePath);
+        using var duckDBConnection = new DuckDBConnection($"Data Source={duckdbFilePath}");
+        await duckDBConnection.OpenAsync();
+        await duckDBConnection.CloseAsync();
+    }
+
     public async Task DeleteDatabaseAsync(Dataset dataset)
     {
         var duckdbFilePath = $"{_option.DuckdbFilePath}/{dataset.Id}.duckdb";

@@ -111,4 +111,6 @@ public class IngestionRunDto
     // server fills in when a Hangfire dashboard URL is configured.
     public string? JobId { get; set; }
     public string? JobUrl { get; set; }
+    // Captured processing log for in-app viewing (null for older runs predating log capture).
+    public string? Log { get; set; }
 }

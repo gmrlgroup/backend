@@ -557,8 +557,8 @@ public class DatabaseTableService : IDatabaseTableService
         if (batchSize <= 0)
             return await ReadToTempCsvAsync(c, baseQuery, destCsvPath, ct, commandTimeoutSeconds, rowProgress);
         if (c.DatabaseType == DataSourceType.ClickHouse)
-            // ClickHouse streams CSV over HTTP in one shot; keyset paging isn't wired for it.
-            return await ReadToTempCsvAsync(c, baseQuery, destCsvPath, ct, commandTimeoutSeconds, rowProgress);
+            // ClickHouse has no ADO reader here; page it over the HTTP CSV endpoint with ORDER BY + LIMIT/OFFSET.
+            return await ReadClickHouseBatchedAsync(c, baseQuery, keyColumn, batchSize, destCsvPath, ct, commandTimeoutSeconds, rowProgress);
 
         await using var connection = CreateAdoConnection(c);
         await connection.OpenAsync(ct);
@@ -615,6 +615,92 @@ public class DatabaseTableService : IDatabaseTableService
         }
 
         return totalRows;
+    }
+
+    // Writes all ClickHouse pages into a single CSV file (used by the fetch-to-temp-then-import path).
+    private async Task<int> ReadClickHouseBatchedAsync(DatabaseConnection c, string baseQuery, string keyColumn, int batchSize, string destCsvPath, CancellationToken ct, int? commandTimeoutSeconds, IProgress<long>? rowProgress)
+    {
+        await using var writer = new StreamWriter(destCsvPath, false, new UTF8Encoding(false));
+        var headerWritten = false;
+        var total = 0;
+
+        return await PageClickHouseCsvAsync(c, baseQuery, keyColumn, batchSize, async (pageCsv, pageRows) =>
+        {
+            var firstNl = pageCsv.IndexOf('\n');
+            if (!headerWritten)
+            {
+                await writer.WriteAsync(pageCsv.Substring(0, firstNl + 1));
+                headerWritten = true;
+            }
+            var rowsPart = pageCsv.Substring(firstNl + 1);
+            if (rowsPart.Length > 0) await writer.WriteAsync(rowsPart);
+            total += pageRows;
+            rowProgress?.Report(total);
+        }, ct, commandTimeoutSeconds);
+    }
+
+    /// <summary>
+    /// Pages a ClickHouse query over the read-only HTTP CSV endpoint and invokes <paramref name="onPage"/> for
+    /// each page as it arrives (each call receives the full page CSV <b>including the header line</b>, and the
+    /// page's row count). Lets callers import batch-by-batch instead of buffering the whole result. Returns the
+    /// total row count. See <see cref="PageClickHouseCsvAsync"/> for the ordering caveat.
+    /// </summary>
+    public Task<int> ReadClickHouseBatchesAsync(DatabaseConnection c, string baseQuery, string keyColumn, int batchSize, Func<string, int, Task> onPage, CancellationToken ct = default, int? commandTimeoutSeconds = null)
+        => PageClickHouseCsvAsync(c, baseQuery, keyColumn, batchSize, onPage, ct, commandTimeoutSeconds);
+
+    // ClickHouse paging over the read-only HTTP CSV endpoint. Keyset paging isn't practical here (we can't
+    // read the last key back out of the CSV stream cheaply), so we page with a stable ORDER BY + LIMIT/OFFSET.
+    // The batch key should therefore be as unique/stable as possible (a composite of columns that together are
+    // unique is ideal) — ties on the ordering columns can shift rows across page boundaries. Each page's CSV
+    // (with header) is handed to onPage(pageCsv, pageRows).
+    private async Task<int> PageClickHouseCsvAsync(DatabaseConnection c, string baseQuery, string keyColumn, int batchSize, Func<string, int, Task> onPage, CancellationToken ct, int? commandTimeoutSeconds)
+    {
+        var trimmed = baseQuery.TrimEnd().TrimEnd(';');
+        // The batch key may be a single column or a comma-separated combination (e.g. a composite id).
+        // Ordering by the full combination gives a deterministic total order, which is all LIMIT/OFFSET
+        // paging needs to avoid overlapping/missing rows across pages.
+        var orderBy = string.Join(", ", keyColumn
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(k => $"_src.`{k.Replace("`", "")}`"));
+
+        var total = 0;
+        var offset = 0;
+
+        while (true)
+        {
+            var pageSql = $"SELECT * FROM ({trimmed}) AS _src ORDER BY {orderBy} LIMIT {batchSize} OFFSET {offset} FORMAT CSVWithNames";
+            var body = await QueryClickHouseAsync(c, pageSql, ct);
+            if (string.IsNullOrEmpty(body)) break;
+
+            // First line is the CSV header (plain column names — no quotes/embedded newlines).
+            var firstNl = body.IndexOf('\n');
+            if (firstNl < 0) break; // header-only / malformed page
+
+            var pageRows = CountCsvRecords(body.Substring(firstNl + 1));
+            if (pageRows > 0) await onPage(body, pageRows);
+            total += pageRows;
+
+            if (pageRows < batchSize) break; // short (final) page
+            offset += batchSize;
+        }
+
+        return total;
+    }
+
+    // Counts CSV records (newline-terminated), ignoring newlines inside quoted fields. Doubled quotes ("")
+    // toggle twice → net no change, which is fine since we only care about record-terminating newlines.
+    private static int CountCsvRecords(string csv)
+    {
+        if (string.IsNullOrEmpty(csv)) return 0;
+        var count = 0;
+        var inQuotes = false;
+        foreach (var ch in csv)
+        {
+            if (ch == '"') inQuotes = !inQuotes;
+            else if (ch == '\n' && !inQuotes) count++;
+        }
+        if (csv[^1] != '\n') count++; // trailing record without a final newline
+        return count;
     }
 
     private async Task ApplyReadOnlySetupAsync(DbConnection connection, DatabaseConnection c, CancellationToken ct)
@@ -897,6 +983,9 @@ public class DatabaseTableService : IDatabaseTableService
         var url = $"{protocol}://{c.Host}:{c.Port}/?readonly=1";
 
         var client = _httpClientFactory.CreateClient();
+        // Ingestion reads can run for minutes on large ClickHouse queries; the default 100s HttpClient
+        // timeout aborts them mid-flight. Allow up to 30 minutes (the caller's CancellationToken still applies).
+        client.Timeout = TimeSpan.FromMinutes(30);
         var request = new HttpRequestMessage(HttpMethod.Post, url);
         if (!string.IsNullOrEmpty(c.Username))
         {

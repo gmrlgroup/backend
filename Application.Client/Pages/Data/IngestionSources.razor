@@ -298,7 +298,7 @@ else
                                                     </div>
                                                 }
                                                 <table style="width:100%;font-size:0.8125rem;border-collapse:collapse">
-                                                    <thead><tr style="text-align:left;color:#71717a"><th style="padding:0.25rem 0.5rem">Started</th><th style="padding:0.25rem 0.5rem">Status</th><th style="padding:0.25rem 0.5rem">Rows</th><th style="padding:0.25rem 0.5rem">Run ID</th><th style="padding:0.25rem 0.5rem">Job</th><th style="padding:0.25rem 0.5rem">Message</th></tr></thead>
+                                                    <thead><tr style="text-align:left;color:#71717a"><th style="padding:0.25rem 0.5rem">Started</th><th style="padding:0.25rem 0.5rem">Status</th><th style="padding:0.25rem 0.5rem">Rows</th><th style="padding:0.25rem 0.5rem">Run ID</th><th style="padding:0.25rem 0.5rem">Job</th><th style="padding:0.25rem 0.5rem">Message</th><th style="padding:0.25rem 0.5rem">Log</th></tr></thead>
                                                     <tbody>
                                                         @foreach (var r in runs)
                                                         {
@@ -310,7 +310,14 @@ else
                                                                 <td style="padding:0.25rem 0.5rem;white-space:nowrap">
                                                                     @if (!string.IsNullOrEmpty(r.JobId))
                                                                     {
-                                                                        <span style="font-family:ui-monospace,Consolas,monospace" title="@r.JobId">@Short(r.JobId)</span>
+                                                                        @if (!string.IsNullOrEmpty(r.JobUrl))
+                                                                        {
+                                                                            <a href="@r.JobUrl" target="_blank" rel="noopener" title="Open job in Hangfire dashboard" style="font-family:ui-monospace,Consolas,monospace;color:#2563eb;text-decoration:underline">@Short(r.JobId)</a>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <span style="font-family:ui-monospace,Consolas,monospace" title="@r.JobId — set Hangfire:DashboardUrl to enable the dashboard link">@Short(r.JobId)</span>
+                                                                        }
                                                                         @if (!string.IsNullOrEmpty(r.JobUrl))
                                                                         {
                                                                             <a href="@r.JobUrl" target="_blank" rel="noopener" title="Open in Hangfire dashboard" style="margin-left:0.35rem;color:#2563eb;vertical-align:middle">
@@ -324,6 +331,18 @@ else
                                                                     }
                                                                 </td>
                                                                 <td style="padding:0.25rem 0.5rem;color:#71717a">@(r.ErrorMessage ?? "")</td>
+                                                                <td style="padding:0.25rem 0.5rem;white-space:nowrap">
+                                                                    @if (!string.IsNullOrEmpty(r.Log))
+                                                                    {
+                                                                        <button class="btn-icon" title="View processing log" @onclick="() => ViewLog(r)" style="color:#2563eb">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                                        </button>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <span style="color:#a1a1aa">—</span>
+                                                                    }
+                                                                </td>
                                                             </tr>
                                                         }
                                                     </tbody>
@@ -356,11 +375,35 @@ else
 </div>
 }
 
+@if (showLogModal)
+{
+    <div @onclick="() => showLogModal = false" style="position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;display:flex;align-items:center;justify-content:center">
+        <div @onclick:stopPropagation="true" style="background:#fff;border-radius:10px;width:min(820px,92vw);max-height:82vh;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,0.2)">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:0.9rem 1.1rem;border-bottom:1px solid #e4e4e7">
+                <h2 style="margin:0;font-size:1rem;font-weight:600;color:#18181b">Processing log</h2>
+                <button class="btn-icon" @onclick="() => showLogModal = false" aria-label="Close">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+            </div>
+            <pre style="margin:0;padding:1rem 1.1rem;overflow:auto;font-family:ui-monospace,Consolas,monospace;font-size:0.8rem;line-height:1.5;white-space:pre-wrap;color:#27272a">@logModalText</pre>
+        </div>
+    </div>
+}
+
 @code {
     private List<Dataset> datasets = new();
     private List<string> datasetTables = new();
     private List<IngestionSourceDto>? sources;
     private List<IngestionRunDto>? runs;
+
+    private bool showLogModal = false;
+    private string? logModalText;
+
+    private void ViewLog(IngestionRunDto r)
+    {
+        logModalText = string.IsNullOrWhiteSpace(r.Log) ? "(no log captured for this run)" : r.Log;
+        showLogModal = true;
+    }
 
     private bool isLoading = true;
     private bool isLoadingSources = false;

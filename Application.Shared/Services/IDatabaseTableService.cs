@@ -68,4 +68,11 @@ public interface IDatabaseTableService
     /// Each page is a short, bounded query — avoids a single multi-million-row statement timing out.
     /// <paramref name="keyColumn"/> must be sortable and ideally unique. ADO providers only.</summary>
     Task<int> ReadToTempCsvBatchedAsync(DatabaseConnection decryptedConnection, string baseQuery, string keyColumn, int batchSize, string destCsvPath, CancellationToken ct = default, int? commandTimeoutSeconds = null, IProgress<long>? rowProgress = null);
+
+    /// <summary>Pages a ClickHouse query (ORDER BY key + LIMIT/OFFSET) over the read-only HTTP CSV endpoint,
+    /// invoking <paramref name="onPage"/> for each page as it is fetched. Each call receives the full page CSV
+    /// (header + rows) and the page's row count, so callers can import batch-by-batch instead of buffering the
+    /// whole result. <paramref name="keyColumn"/> may be a comma-separated combination that is collectively
+    /// unique. Returns the total row count. ClickHouse only.</summary>
+    Task<int> ReadClickHouseBatchesAsync(DatabaseConnection decryptedConnection, string baseQuery, string keyColumn, int batchSize, Func<string, int, Task> onPage, CancellationToken ct = default, int? commandTimeoutSeconds = null);
 }

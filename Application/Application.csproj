@@ -36,5 +36,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Application.DailyInventory\Application.DailyInventory.csproj" />
+    <ProjectReference Include="..\Application.Dashboard\Application.Dashboard.csproj" />
   </ItemGroup>
 </Project>

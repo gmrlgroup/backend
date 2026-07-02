@@ -16,6 +16,7 @@ public static class RoleSuffixes
     public const string StatusRead = "STATUS_READ";
     public const string Incidents = "INCIDENTS";
     public const string InventoryRead = "INVENTORY_READ";
+    public const string DashboardsRead = "DASHBOARDS_READ";
 
     /// <summary>Builds the full, company-prefixed role name (e.g. <c>ACME_METRICS_READ</c>).</summary>
     public static string Role(string companyId, string suffix) => $"{companyId}_{suffix}";

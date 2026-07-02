@@ -82,6 +82,17 @@ public class SalesSnapshotEmailJob
             .OrderByDescending(s => s.Scheme).ThenByDescending(s => s.TotalSales)
             .ToListAsync();
 
+        // No sales rows in the window → nothing to summarize. Bail out cleanly instead of letting the
+        // aggregates below (storeSummaries.Max(...)) throw "Sequence contains no elements". This guards
+        // against feed gaps and against received_at being stored as local time while the window is in UTC.
+        if (storeSummaries.Count == 0)
+        {
+            _logger.LogWarning(
+                "Sales snapshot email skipped: no SalesData for company {CompanyId} between {StartUtc:o} and {EndUtc:o} (snapshot date {SnapshotDate:yyyy-MM-dd}).",
+                _options.CompanyId, startUtc, endUtc, snapshotDateLocal);
+            return;
+        }
+
         var culture = GetCulture(_options.CurrencyCulture);
         var totalSales = storeSummaries.Sum(s => s.TotalSales);
         var totalTransactions = storeSummaries.Sum(s => s.TotalTransactions);

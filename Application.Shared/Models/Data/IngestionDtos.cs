@@ -76,6 +76,7 @@ public class IngestionSourceDto
     public string? LastRunMessage { get; set; }
     public int? LastRunRows { get; set; }
     public DateTime CreatedAt { get; set; }
+    public string? CreatedBy { get; set; }
 }
 
 /// <summary>Create/update payload for an ingestion source. Secret is write-only (plaintext in, encrypted at rest).</summary>

@@ -309,4 +309,54 @@ public class DatasetSharingService : IDatasetSharingService
         // Admin (0) > Editor (1) > Viewer (2)
         return (int)datasetUser.Type <= (int)requiredType.Value;
     }
+
+    public async Task<Dictionary<string, int>> GetDatasetShareCountsAsync(IEnumerable<string> datasetIds, CancellationToken ct = default)
+    {
+        var ids = datasetIds.Distinct().ToList();
+        if (ids.Count == 0)
+            return new Dictionary<string, int>();
+
+        var counts = await _context.DatasetUser
+            .Where(du => ids.Contains(du.DatasetId))
+            .GroupBy(du => du.DatasetId)
+            .Select(g => new { DatasetId = g.Key, Count = g.Count() })
+            .ToListAsync(ct);
+
+        return counts.ToDictionary(x => x.DatasetId, x => x.Count);
+    }
+
+    public async Task<Dictionary<string, int>> GetTableShareCountsAsync(string datasetId, IEnumerable<string> tableNames, CancellationToken ct = default)
+    {
+        var tables = tableNames.Distinct().ToList();
+        var result = tables.ToDictionary(t => t, _ => 0);
+        if (tables.Count == 0)
+            return result;
+
+        // All users the dataset is shared with, and each user's table scope (if any).
+        var sharedUsers = await _context.DatasetUser
+            .Where(du => du.DatasetId == datasetId)
+            .Select(du => du.UserId)
+            .ToListAsync(ct);
+        if (sharedUsers.Count == 0)
+            return result;
+
+        var scopeRows = await _context.DatasetUserTable
+            .Where(t => t.DatasetId == datasetId)
+            .Select(t => new { t.UserId, t.TableName })
+            .ToListAsync(ct);
+        var scopedByUser = scopeRows
+            .GroupBy(r => r.UserId)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.TableName).ToHashSet());
+
+        // A shared user with no scope rows has full access → counts for every table. Scoped users count
+        // only for the tables in their scope.
+        var fullAccessCount = sharedUsers.Count(u => !scopedByUser.ContainsKey(u));
+        foreach (var table in tables)
+        {
+            var scopedCount = scopedByUser.Count(kv => kv.Value.Contains(table));
+            result[table] = fullAccessCount + scopedCount;
+        }
+
+        return result;
+    }
 }

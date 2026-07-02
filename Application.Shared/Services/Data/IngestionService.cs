@@ -219,7 +219,8 @@ public class IngestionService : IIngestionService
         LastRunStatus = s.LastRunStatus,
         LastRunMessage = s.LastRunMessage,
         LastRunRows = s.LastRunRows,
-        CreatedAt = s.CreatedAt
+        CreatedAt = s.CreatedAt,
+        CreatedBy = s.CreatedBy
     };
 
     // ---- Execution ----

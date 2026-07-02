@@ -206,6 +206,150 @@ public class DuckdbService : IDuckdbService
         }
     }
 
+    // ----- Storage stats (datasets list + tables list) --------------------------------------------
+
+    public long GetDatabaseFileSize(string datasetId)
+    {
+        var path = $"{_option.DuckdbFilePath}/{datasetId}.duckdb";
+        return File.Exists(path) ? new FileInfo(path).Length : 0;
+    }
+
+    public async Task<(int TableCount, long TotalRows)> GetDatasetTableSummaryAsync(string datasetId, CancellationToken ct = default)
+    {
+        var duckdbFilePath = $"{_option.DuckdbFilePath}/{datasetId}.duckdb";
+        if (!File.Exists(duckdbFilePath))
+            return (0, 0);
+
+        try
+        {
+            using var connection = new DuckDBConnection($"DataSource={duckdbFilePath};ACCESS_MODE=READ_ONLY");
+            await connection.OpenAsync(ct);
+
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = @"SELECT COUNT(*), COALESCE(SUM(estimated_size), 0)
+                                FROM duckdb_tables()
+                                WHERE schema_name NOT IN ('information_schema', 'pg_catalog')";
+            using var reader = await cmd.ExecuteReaderAsync(ct);
+            if (await reader.ReadAsync(ct))
+            {
+                var count = reader.IsDBNull(0) ? 0 : Convert.ToInt32(NormalizeValue(reader.GetValue(0)));
+                var rows = reader.IsDBNull(1) ? 0L : Convert.ToInt64(NormalizeValue(reader.GetValue(1)));
+                await connection.CloseAsync();
+                return (count, rows);
+            }
+            await connection.CloseAsync();
+        }
+        catch { /* unreadable/locked db → report no stats rather than throwing on the list page */ }
+
+        return (0, 0);
+    }
+
+    public async Task<List<TableStats>> GetTableStatsAsync(string datasetId, CancellationToken ct = default)
+    {
+        var result = new List<TableStats>();
+        var duckdbFilePath = $"{_option.DuckdbFilePath}/{datasetId}.duckdb";
+        if (!File.Exists(duckdbFilePath))
+            return result;
+
+        using var connection = new DuckDBConnection($"DataSource={duckdbFilePath};ACCESS_MODE=READ_ONLY");
+        await connection.OpenAsync(ct);
+
+        // One catalog query yields name + row estimate + column count + PK flag for every user table.
+        var tables = new List<(string Name, long Rows, int Cols, bool HasPk)>();
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = @"SELECT table_name, estimated_size, column_count, has_primary_key
+                                FROM duckdb_tables()
+                                WHERE schema_name NOT IN ('information_schema', 'pg_catalog')
+                                ORDER BY table_name";
+            using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                var name = reader.GetString(0);
+                var rows = reader.IsDBNull(1) ? 0L : Convert.ToInt64(NormalizeValue(reader.GetValue(1)));
+                var cols = reader.IsDBNull(2) ? 0 : Convert.ToInt32(NormalizeValue(reader.GetValue(2)));
+                var hasPk = !reader.IsDBNull(3) && Convert.ToBoolean(NormalizeValue(reader.GetValue(3)));
+                tables.Add((name, rows, cols, hasPk));
+            }
+        }
+
+        // Column-type mix per table (text/num/date/bool/other) from one information_schema sweep.
+        var typeSummaries = await ReadColumnTypeBucketsAsync(connection, ct);
+
+        // Per-table on-disk size: sum the compressed segment sizes from the storage catalog. This is a
+        // best-effort estimate — if pragma_storage_info is unavailable for a table, its size stays 0.
+        foreach (var t in tables)
+        {
+            long sizeBytes = 0;
+            try
+            {
+                using var sizeCmd = connection.CreateCommand();
+                sizeCmd.CommandText = $"SELECT COALESCE(SUM(compressed_size), 0) FROM pragma_storage_info('{t.Name.Replace("'", "''")}')";
+                var scalar = await sizeCmd.ExecuteScalarAsync(ct);
+                var normalized = NormalizeValue(scalar);
+                sizeBytes = normalized is null ? 0 : Convert.ToInt64(normalized);
+            }
+            catch { /* storage_info unavailable for this table → leave size at 0 */ }
+
+            result.Add(new TableStats
+            {
+                TableName = t.Name,
+                RowCount = t.Rows,
+                ColumnCount = t.Cols,
+                SizeBytes = sizeBytes,
+                HasPrimaryKey = t.HasPk,
+                TypeSummary = typeSummaries.TryGetValue(t.Name, out var summary) ? summary : string.Empty
+            });
+        }
+
+        await connection.CloseAsync();
+        return result;
+    }
+
+    // Reads information_schema.columns once and returns, per table, a compact type-mix label like
+    // "5 text · 3 num · 1 date" (buckets with a zero count are omitted).
+    private static async Task<Dictionary<string, string>> ReadColumnTypeBucketsAsync(DuckDBConnection connection, CancellationToken ct)
+    {
+        var counts = new Dictionary<string, int[]>(); // table → [text, num, date, bool, other]
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = @"SELECT table_name, data_type
+                                FROM information_schema.columns
+                                WHERE table_schema NOT IN ('information_schema', 'pg_catalog')";
+            using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                var table = reader.GetString(0);
+                var type = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
+                if (!counts.TryGetValue(table, out var arr)) { arr = new int[5]; counts[table] = arr; }
+                arr[TypeBucket(type)]++;
+            }
+        }
+
+        var labels = new[] { "text", "num", "date", "bool", "other" };
+        var result = new Dictionary<string, string>();
+        foreach (var kv in counts)
+        {
+            var parts = new List<string>();
+            for (int i = 0; i < kv.Value.Length; i++)
+                if (kv.Value[i] > 0) parts.Add($"{kv.Value[i]} {labels[i]}");
+            result[kv.Key] = string.Join(" · ", parts);
+        }
+        return result;
+    }
+
+    // Buckets a DuckDB column type into 0=text 1=num 2=date 3=bool 4=other.
+    private static int TypeBucket(string dataType)
+    {
+        var t = (dataType ?? string.Empty).ToUpperInvariant();
+        if (t.StartsWith("BOOL")) return 3;
+        if (t.StartsWith("DATE") || t.StartsWith("TIME")) return 2;  // DATE, TIME, TIMESTAMP...
+        if (t.Contains("CHAR") || t.Contains("TEXT") || t == "STRING" || t == "UUID" || t == "JSON") return 0;
+        if (t.Contains("INT") || t.StartsWith("DEC") || t.StartsWith("NUMERIC") || t.StartsWith("DOUBLE")
+            || t.StartsWith("FLOAT") || t.StartsWith("REAL") || t.StartsWith("HUGE")) return 1;
+        return 4;
+    }
+
     public async Task<Table> GetTableAsync(string datasetId, string tableName)
     {
 

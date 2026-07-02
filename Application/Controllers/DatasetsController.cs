@@ -26,17 +26,26 @@ public class DatasetsController : ControllerBase
     private readonly IDuckdbService _duckdbService;
     private readonly ISchemaInferenceService _schemaInferenceService;
     private readonly Application.Shared.Services.IDatabaseTableService _databaseTableService;
+    private readonly IIngestionService _ingestionService;
+    private readonly Application.Shared.Services.Org.IUserService _userService;
+    private readonly IDatasetSharingService _sharingService;
 
     public DatasetsController(
         IDatasetService datasetService,
         IDuckdbService duckdbService,
         ISchemaInferenceService schemaInferenceService,
-        Application.Shared.Services.IDatabaseTableService databaseTableService)
+        Application.Shared.Services.IDatabaseTableService databaseTableService,
+        IIngestionService ingestionService,
+        Application.Shared.Services.Org.IUserService userService,
+        IDatasetSharingService sharingService)
     {
         _datasetService = datasetService;
         _duckdbService = duckdbService;
         _schemaInferenceService = schemaInferenceService;
         _databaseTableService = databaseTableService;
+        _ingestionService = ingestionService;
+        _userService = userService;
+        _sharingService = sharingService;
     }
 
     // GET: api/Datasets/{companyId}
@@ -236,6 +245,142 @@ public class DatasetsController : ControllerBase
             return NotFound("No tables found in the dataset.");
 
         return Ok(tables);
+    }
+
+    // GET: api/Datasets/stats — per-dataset annotations (table count, file size, row estimate, status)
+    // for the datasets list page. One entry per dataset the user can see.
+    [HttpGet("stats")]
+    public async Task<ActionResult<IEnumerable<DatasetStats>>> GetDatasetsStats()
+    {
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault();
+        var userId = Request.Headers["UserId"].ToString();
+
+        if (string.IsNullOrWhiteSpace(companyId))
+            return BadRequest("Company ID is required");
+        if (!User.HasCompanyRole(companyId, "VIEW_DATA"))
+            return Forbid();
+        if (string.IsNullOrWhiteSpace(userId))
+            return BadRequest("User ID is required in headers");
+
+        var datasets = await _datasetService.GetDatasetsByCompanyAsync(companyId, userId);
+
+        var shareCounts = await _sharingService.GetDatasetShareCountsAsync(
+            datasets.Where(d => !string.IsNullOrEmpty(d.Id)).Select(d => d.Id!), HttpContext.RequestAborted);
+
+        var stats = new List<DatasetStats>();
+        foreach (var ds in datasets)
+        {
+            if (string.IsNullOrEmpty(ds.Id))
+                continue;
+
+            var exists = _duckdbService.DatabaseExists(ds.Id);
+            var size = _duckdbService.GetDatabaseFileSize(ds.Id);
+            var (tableCount, totalRows) = exists
+                ? await _duckdbService.GetDatasetTableSummaryAsync(ds.Id, HttpContext.RequestAborted)
+                : (0, 0L);
+
+            var status = ds.SourceType == Application.Shared.Enums.DatasetSourceType.External ? "External"
+                : !exists ? "No database"
+                : tableCount == 0 ? "Empty"
+                : "In use";
+
+            stats.Add(new DatasetStats
+            {
+                DatasetId = ds.Id,
+                DatabaseExists = exists,
+                TableCount = tableCount,
+                SizeBytes = size,
+                TotalRows = totalRows,
+                Status = status,
+                SharedWith = shareCounts.TryGetValue(ds.Id, out var sc) ? sc : 0
+            });
+        }
+
+        return Ok(stats);
+    }
+
+    // GET: api/Datasets/{datasetId}/tables/stats — row count, column count and estimated size per table.
+    [HttpGet("{datasetId}/tables/stats")]
+    public async Task<ActionResult<IEnumerable<TableStats>>> GetTableStats(string datasetId)
+    {
+        var userId = Request.Headers["UserId"].ToString();
+        if (string.IsNullOrWhiteSpace(userId))
+            return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        if (!User.HasCompanyRole(companyId, "VIEW_DATA"))
+            return Forbid();
+
+        if (string.IsNullOrWhiteSpace(datasetId))
+            return BadRequest("Dataset ID is required");
+
+        if (!await DatasetExists(datasetId, userId))
+            return NotFound($"Dataset with ID '{datasetId}' not found.");
+
+        var stats = await _duckdbService.GetTableStatsAsync(datasetId, HttpContext.RequestAborted);
+
+        // Respect table-level share scope (a null accessible-set means all tables).
+        var allowed = await _datasetService.GetAccessibleTablesAsync(datasetId, userId);
+        if (allowed != null)
+            stats = stats.Where(s => allowed.Contains(s.TableName)).ToList();
+
+        // Enrich with ingestion + owner metadata. A table fed by a scheduled ingestion source takes its
+        // owner/created + last-sync info from that source; otherwise the owner falls back to the dataset
+        // creator (DuckDB itself tracks no per-table owner or creation date).
+        var sources = await _ingestionService.GetSourcesAsync(companyId, datasetId, HttpContext.RequestAborted);
+        var byTable = new Dictionary<string, IngestionSourceDto>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in sources)
+            byTable[s.TargetTable] = s; // typically one source per target table
+
+        var dataset = await _datasetService.GetDatasetAsync(datasetId, userId);
+        foreach (var st in stats)
+        {
+            if (byTable.TryGetValue(st.TableName, out var src))
+            {
+                st.IsIngested = true;
+                st.IngestionEnabled = src.IsEnabled;
+                st.LastSyncedAt = src.LastRunAt;
+                st.LastRunStatus = src.LastRunStatus;
+                st.LastRunRows = src.LastRunRows;
+                st.Owner = src.CreatedBy;
+                st.CreatedAt = src.CreatedAt;
+            }
+            else
+            {
+                st.Owner = dataset?.CreatedBy;
+            }
+        }
+
+        // Resolve owner user-ids (Azure AD object ids) to emails, so the UI shows a person, not a guid.
+        // Same resolution path used by dataset sharing (IUserService.GetUser). Unknown ids keep their raw
+        // value as a fallback.
+        var ownerIds = stats.Select(s => s.Owner)
+            .Where(o => !string.IsNullOrWhiteSpace(o))
+            .Distinct()
+            .ToList();
+        var emailById = new Dictionary<string, string>();
+        foreach (var id in ownerIds)
+        {
+            try
+            {
+                var user = await _userService.GetUser(id!);
+                if (!string.IsNullOrWhiteSpace(user?.Email))
+                    emailById[id!] = user!.Email!;
+            }
+            catch { /* leave unresolved ids as-is */ }
+        }
+        foreach (var st in stats)
+            if (!string.IsNullOrWhiteSpace(st.Owner) && emailById.TryGetValue(st.Owner!, out var email))
+                st.Owner = email;
+
+        // How many users each table is shared with (full-dataset + table-scoped shares).
+        var shareCounts = await _sharingService.GetTableShareCountsAsync(
+            datasetId, stats.Select(s => s.TableName), HttpContext.RequestAborted);
+        foreach (var st in stats)
+            if (shareCounts.TryGetValue(st.TableName, out var sc))
+                st.SharedWith = sc;
+
+        return Ok(stats);
     }
 
     // GET: api/Datasets/{datasetId}/database-exists — does the dataset's DuckDB file exist on disk?

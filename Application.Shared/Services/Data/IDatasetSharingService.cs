@@ -14,4 +14,12 @@ public interface IDatasetSharingService
     Task<bool> RemoveDatasetUserAsync(string datasetId, string userId);
     Task<List<Dataset>> GetSharedDatasetsAsync(string userId, string companyId);
     Task<bool> HasDatasetAccessAsync(string datasetId, string userId, DatasetUserType? requiredType = null);
+
+    /// <summary>Number of users each dataset is shared with (count of dataset-level share rows), keyed by
+    /// dataset id. Datasets shared with nobody are omitted.</summary>
+    Task<Dictionary<string, int>> GetDatasetShareCountsAsync(IEnumerable<string> datasetIds, CancellationToken ct = default);
+
+    /// <summary>Number of users who can access each of the given tables, keyed by table name. A user with
+    /// full dataset access counts for every table; a table-scoped user counts only for their scoped tables.</summary>
+    Task<Dictionary<string, int>> GetTableShareCountsAsync(string datasetId, IEnumerable<string> tableNames, CancellationToken ct = default);
 }

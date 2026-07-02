@@ -23,6 +23,14 @@ public interface IDuckdbService
     Task<string> ExecuteQueryAsync(Dataset dataset, string query);
     Task<List<Column>> GetTableColumnsAsync(string datasetId, string tableName);
     Task<IEnumerable<string>> GetTablesAsync(string datasetId);
+
+    // Storage stats for the datasets/tables list pages (computed on demand, never persisted).
+    /// <summary>On-disk size of the dataset's DuckDB file in bytes; 0 if the file doesn't exist.</summary>
+    long GetDatabaseFileSize(string datasetId);
+    /// <summary>Table count + total estimated row count across all user tables (one cheap catalog query).</summary>
+    Task<(int TableCount, long TotalRows)> GetDatasetTableSummaryAsync(string datasetId, System.Threading.CancellationToken ct = default);
+    /// <summary>Per-table row count, column count and estimated on-disk (compressed) size in bytes.</summary>
+    Task<List<TableStats>> GetTableStatsAsync(string datasetId, System.Threading.CancellationToken ct = default);
     Task<Table> GetTableAsync(string datasetId, string tableName);
     Task<Table> CreateTableAsync(Table table);
     Task<bool> DeleteTableAsync(string datasetId, string tableName);

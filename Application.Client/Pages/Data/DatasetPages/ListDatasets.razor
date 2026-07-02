@@ -2,6 +2,7 @@
 @using System.Net.Http.Json
 @using Application.Shared.Enums
 @using Application.Shared.Models
+@using Application.Shared.Models.Data
 @inject HttpClient _httpClient
 @inject IToastService _toastService
 @inject NavigationManager _navigationManager
@@ -70,6 +71,11 @@ else
                             </th>
                             <th class="ds-th">Source Type</th>
                             <th class="ds-th">Source Entity</th>
+                            <th class="ds-th">Tables</th>
+                            <th class="ds-th">Size</th>
+                            <th class="ds-th">Rows</th>
+                            <th class="ds-th">Status</th>
+                            <th class="ds-th">Shared</th>
                             <th class="ds-th ds-th-sortable" @onclick='() => SetSort("created")'>
                                 <span>Created</span> @SortIcon("created")
                             </th>
@@ -113,6 +119,25 @@ else
                                         <span style="font-size:0.75rem;color:#a1a1aa">—</span>
                                     }
                                 </td>
+                                <td class="ds-td">
+                                    @{ var st = StatsFor(dataset.Id); }
+                                    @if (st != null) { <span>@st.TableCount</span> } else { <span style="color:#a1a1aa">—</span> }
+                                </td>
+                                <td class="ds-td">
+                                    @if (st != null && st.DatabaseExists) { <span>@FormatBytes(st.SizeBytes)</span> } else { <span style="color:#a1a1aa">—</span> }
+                                </td>
+                                <td class="ds-td">
+                                    @if (st != null) { <span>@st.TotalRows.ToString("N0")</span> } else { <span style="color:#a1a1aa">—</span> }
+                                </td>
+                                <td class="ds-td">
+                                    @if (st != null)
+                                    {
+                                        var (bg, fg) = StatusColors(st.Status);
+                                        <span style="display:inline-flex;align-items:center;font-size:0.6875rem;font-weight:600;padding:0.125rem 0.5rem;border-radius:9999px;background:@bg;color:@fg;text-transform:uppercase;letter-spacing:0.03em">@st.Status</span>
+                                    }
+                                    else { <span style="color:#a1a1aa">—</span> }
+                                </td>
+                                <td class="ds-td">@SharedBadge(st?.SharedWith ?? 0)</td>
                                 <td class="ds-td ds-td-date">@dataset.CreatedAt.ToString("MMM dd, yyyy")</td>
                                 <td class="ds-td ds-td-actions-cell">
                                     <div class="ds-actions">
@@ -221,6 +246,45 @@ else
     private DatabaseEntityOptionDto? SourceInfo(string? id) =>
         !string.IsNullOrEmpty(id) && sourceDbLookup.TryGetValue(id, out var v) ? v : null;
 
+    // Per-dataset stats (table count, size, rows, status) fetched separately so the base list stays fast.
+    private Dictionary<string, DatasetStats> statsLookup = new();
+    private DatasetStats? StatsFor(string? id) =>
+        !string.IsNullOrEmpty(id) && statsLookup.TryGetValue(id, out var v) ? v : null;
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes <= 0) return "0 B";
+        string[] units = { "B", "KB", "MB", "GB", "TB" };
+        double size = bytes;
+        int u = 0;
+        while (size >= 1024 && u < units.Length - 1) { size /= 1024; u++; }
+        return $"{size:0.#} {units[u]}";
+    }
+
+    private static (string bg, string fg) StatusColors(string status) => status switch
+    {
+        "In use" => ("#dcfce7", "#15803d"),
+        "External" => ("#eef2ff", "#4f46e5"),
+        "Empty" => ("#fef9c3", "#a16207"),
+        "No database" => ("#fee2e2", "#b91c1c"),
+        _ => ("#f4f4f5", "#71717a"),
+    };
+
+    private RenderFragment SharedBadge(int count) => __builder =>
+    {
+        if (count > 0)
+        {
+            <span title="@($"Shared with {count} {(count == 1 ? "person" : "people")}")" style="display:inline-flex;align-items:center;gap:0.25rem;font-size:0.75rem;font-weight:500;color:#4f46e5">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                <span>@count</span>
+            </span>
+        }
+        else
+        {
+            <span style="font-size:0.75rem;color:#a1a1aa">Private</span>
+        }
+    };
+
     [SupplyParameterFromQuery]
     public string? c { get; set; }
 
@@ -275,6 +339,8 @@ else
                 // Only fetch the database lookup when at least one dataset is external.
                 if (allItems?.Any(d => d.SourceType == DatasetSourceType.External) == true)
                     await LoadSourceDatabases();
+
+                await LoadStats();
             }
             else
             {
@@ -311,6 +377,21 @@ else
             }
         }
         catch { /* labels just fall back to the entity id / "External" */ }
+    }
+
+    private async Task LoadStats()
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync("api/datasets/stats");
+            if (response.IsSuccessStatusCode)
+            {
+                var stats = await response.Content.ReadFromJsonAsync<List<DatasetStats>>() ?? new();
+                statsLookup = stats.ToDictionary(s => s.DatasetId, s => s);
+                StateHasChanged();
+            }
+        }
+        catch { /* stats are supplementary — the list still renders without them */ }
     }
 
     private void HandleSearch()

@@ -160,7 +160,8 @@ public class IngestionService : IIngestionService
                 Status = r.Status,
                 RowsIngested = r.RowsIngested,
                 ErrorMessage = r.ErrorMessage,
-                JobId = r.JobId
+                JobId = r.JobId,
+                Log = r.Log
             })
             .ToListAsync(ct);
     }
@@ -225,10 +226,14 @@ public class IngestionService : IIngestionService
 
     public async Task<ImportResult> RunSourceAsync(string sourceId, string? runId = null, string? jobId = null, IJobProgress? progress = null, CancellationToken ct = default)
     {
+        // Capture every log line onto the run (for in-app viewing) while still forwarding to the
+        // Hangfire console when running via the scheduler.
+        var log = new RunLogProgress(progress);
+
         var source = await _db.IngestionSource.FirstOrDefaultAsync(s => s.Id == sourceId, ct);
         if (source == null)
         {
-            progress?.WriteLine("Ingestion source not found.");
+            log.WriteLine("Ingestion source not found.");
             return new ImportResult { Error = "Ingestion source not found." };
         }
 
@@ -254,8 +259,8 @@ public class IngestionService : IIngestionService
         if (!string.IsNullOrEmpty(jobId)) run.JobId = jobId;
         await _db.SaveChangesAsync(ct);
 
-        progress?.WriteLine($"Ingestion '{source.Name}' → {source.DatasetId}/{source.TargetTable} (run {run.Id}).");
-        progress?.SetProgress(5);
+        log.WriteLine($"Ingestion '{source.Name}' → {source.DatasetId}/{source.TargetTable} (run {run.Id}).");
+        log.SetProgress(5);
 
         string? tempPath = null;
         ImportResult result;
@@ -263,25 +268,23 @@ public class IngestionService : IIngestionService
         {
             var config = ParseConfig(source.SourceConfig);
 
-            // Live row count from the source fetch (throttled by the reader) → dashboard log.
-            var fetchProgress = progress == null ? null : new Progress<long>(rows =>
-                progress.WriteLine($"Fetched {rows:N0} rows from source…"));
-
-            progress?.WriteLine($"Fetching from {source.SourceKind}…");
-            (tempPath, var format) = await FetchToTempAsync(source, config, fetchProgress, ct);
-            progress?.WriteLine("Fetch complete; loading into the dataset…");
-            progress?.SetProgress(60);
+            // Live row count from the source fetch (throttled by the reader) → log.
+            var fetchProgress = new Progress<long>(rows =>
+                log.WriteLine($"Fetched {rows:N0} rows from source…"));
 
             var mode = Enum.TryParse<ImportMode>(source.ImportMode, ignoreCase: true, out var m) ? m : ImportMode.Append;
             var keys = string.IsNullOrWhiteSpace(source.KeyColumns)
                 ? new List<string>()
                 : source.KeyColumns.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
 
-            await using (var stream = File.OpenRead(tempPath))
-            {
-                result = await _duckdb.ImportFileAsync(source.DatasetId, source.TargetTable, stream, format, mode, keys,
-                    skipInvalidRows: true, createIfMissing: source.CreateIfNotExists, ct);
-            }
+            log.WriteLine($"Fetching from {source.SourceKind}…");
+
+            // Preferred path for a batched ClickHouse source: import each fetched page straight into the dataset,
+            // so we never buffer the whole result. Returns null when it doesn't apply (then fall back to the
+            // fetch-to-temp-file-then-import path used by all other sources / non-batched fetches).
+            result = await TryRunBatchedDatabaseImportAsync(source, config, mode, keys, log, ct)
+                     ?? await FetchToTempThenImportAsync(source, config, mode, keys, fetchProgress, log, p => tempPath = p, ct);
+
             progress?.SetProgress(90);
 
             // Advance the watermark to the highest value now present in the target table.
@@ -297,14 +300,14 @@ public class IngestionService : IIngestionService
             run.RowsIngested = result.RowsInserted + result.RowsUpdated;
 
             if (result.Success)
-                progress?.WriteLine($"Done: {result.RowsInserted:N0} inserted, {result.RowsUpdated:N0} updated, {result.RowsSkipped:N0} skipped.");
+                log.WriteLine($"Done: {result.RowsInserted:N0} inserted, {result.RowsUpdated:N0} updated, {result.RowsSkipped:N0} skipped.");
             else
-                progress?.WriteLine($"Failed: {result.Error}");
+                log.WriteLine($"Failed: {result.Error}");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Ingestion source {SourceId} failed.", sourceId);
-            progress?.WriteLine($"Error: {ex.Message}");
+            log.WriteLine($"Error: {ex.Message}");
             result = new ImportResult { Error = ex.Message };
             run.Status = "Failed";
             run.ErrorMessage = ex.Message;
@@ -312,16 +315,118 @@ public class IngestionService : IIngestionService
         finally
         {
             run.FinishedAt = DateTime.UtcNow;
+            run.Log = log.Text;
             source.LastRunAt = run.FinishedAt;
             source.LastRunStatus = run.Status;
             source.LastRunMessage = run.ErrorMessage;
             source.LastRunRows = run.RowsIngested;
             await _db.SaveChangesAsync(ct);
             TryDelete(tempPath);
-            progress?.SetProgress(100);
+            log.SetProgress(100);
         }
 
         return result;
+    }
+
+    /// <summary>Forwards progress to the (optional) Hangfire console while capturing all lines as text,
+    /// so the run's processing log can be persisted and viewed in-app.</summary>
+    private sealed class RunLogProgress : IJobProgress
+    {
+        private readonly IJobProgress? _inner;
+        private readonly System.Text.StringBuilder _sb = new();
+
+        public RunLogProgress(IJobProgress? inner) => _inner = inner;
+
+        public void WriteLine(string message)
+        {
+            _sb.Append(DateTime.UtcNow.ToString("HH:mm:ss")).Append("  ").AppendLine(message);
+            _inner?.WriteLine(message);
+        }
+
+        public void SetProgress(int percent) => _inner?.SetProgress(percent);
+
+        public string Text => _sb.ToString();
+    }
+
+    /// <summary>Fallback ingestion path: fetch the whole source result into a temp file, then import it in one
+    /// call. <paramref name="setTempPath"/> hands the temp path back to the caller so it can be cleaned up.</summary>
+    private async Task<ImportResult> FetchToTempThenImportAsync(IngestionSource source, IngestionSourceConfig config, ImportMode mode, List<string> keys, IProgress<long>? fetchProgress, RunLogProgress log, Action<string> setTempPath, CancellationToken ct)
+    {
+        var (tempPath, format) = await FetchToTempAsync(source, config, fetchProgress, log, ct);
+        setTempPath(tempPath);
+        log.WriteLine("Fetch complete; loading into the dataset…");
+        log.SetProgress(60);
+
+        await using var stream = File.OpenRead(tempPath);
+        return await _duckdb.ImportFileAsync(source.DatasetId, source.TargetTable, stream, format, mode, keys,
+            skipInvalidRows: true, createIfMissing: source.CreateIfNotExists, ct);
+    }
+
+    /// <summary>Per-batch streaming import for a batched ClickHouse ExternalDatabase source: pages the query and
+    /// imports each page into the dataset as it arrives, so the whole result is never buffered. Returns null when
+    /// it doesn't apply (wrong source kind / engine, or no batch size + key configured) so the caller falls back
+    /// to <see cref="FetchToTempThenImportAsync"/>.</summary>
+    private async Task<ImportResult?> TryRunBatchedDatabaseImportAsync(IngestionSource source, IngestionSourceConfig config, ImportMode mode, List<string> keys, RunLogProgress log, CancellationToken ct)
+    {
+        var kind = Enum.TryParse<IngestionSourceKind>(source.SourceKind, ignoreCase: true, out var k) ? k : IngestionSourceKind.ExternalDatabase;
+        if (kind != IngestionSourceKind.ExternalDatabase) return null;
+        if (!(config.BatchSize is int batchSize && batchSize > 0)) return null;
+
+        var batchKey = !string.IsNullOrWhiteSpace(config.BatchKeyColumn) ? config.BatchKeyColumn : source.IncrementalColumn;
+        if (string.IsNullOrWhiteSpace(batchKey) || string.IsNullOrWhiteSpace(source.SourceEntityId)) return null;
+
+        var conn = await _dbTables.GetDecryptedConnectionAsync(source.SourceEntityId!, source.CompanyId, ct);
+        // Per-batch import is wired for ClickHouse (paged over the HTTP CSV endpoint); other engines fall back.
+        if (conn == null || conn.DatabaseType != Application.Shared.Enums.DataSourceType.ClickHouse) return null;
+
+        // Build the effective query (same as the single-shot database fetch, including the incremental watermark).
+        var baseQuery = !string.IsNullOrWhiteSpace(config.Query)
+            ? config.Query!.TrimEnd().TrimEnd(';')
+            : $"SELECT * FROM {QualifyTable(config.Schema, config.Table)}";
+        var query = baseQuery;
+        if (!string.IsNullOrWhiteSpace(source.IncrementalColumn) && !string.IsNullOrWhiteSpace(source.IncrementalLastValue))
+            query = $"SELECT * FROM ({baseQuery}) _src WHERE _src.{source.IncrementalColumn} > {IncrementalLiteral(source.IncrementalLastValue!)}";
+
+        log.WriteLine("Executing query against the source database (importing each batch as it is fetched):");
+        log.WriteLine(query);
+        log.WriteLine($"Batch size {batchSize:N0} rows, ordered by '{batchKey}'.");
+        log.SetProgress(15);
+
+        var agg = new ImportResult { Success = true };
+        var pageIndex = 0;
+        var runningRows = 0;
+        var enc = new UTF8Encoding(false);
+
+        await _dbTables.ReadClickHouseBatchesAsync(conn, query, batchKey!, batchSize, async (pageCsv, pageRows) =>
+        {
+            // First batch honors the configured mode (e.g. Replace clears the table first); later batches append
+            // so they don't wipe the rows already loaded this run. Append/Upsert apply uniformly to every page.
+            var pageMode = pageIndex == 0 ? mode : (mode == ImportMode.Replace ? ImportMode.Append : mode);
+
+            using var stream = new MemoryStream(enc.GetBytes(pageCsv));
+            var r = await _duckdb.ImportFileAsync(source.DatasetId, source.TargetTable, stream, ImportFileFormat.Csv,
+                pageMode, keys, skipInvalidRows: true, createIfMissing: source.CreateIfNotExists, ct);
+
+            if (!r.Success)
+            {
+                agg.Success = false;
+                agg.Error = r.Error;
+                throw new InvalidOperationException(r.Error ?? "Batch import failed.");
+            }
+
+            agg.RowsInserted += r.RowsInserted;
+            agg.RowsUpdated += r.RowsUpdated;
+            agg.RowsSkipped += r.RowsSkipped;
+
+            pageIndex++;
+            runningRows += pageRows;
+            log.WriteLine($"Batch {pageIndex}: imported {pageRows:N0} rows (running total {runningRows:N0}).");
+        }, ct, config.CommandTimeoutSeconds);
+
+        if (pageIndex == 0)
+            log.WriteLine("No rows returned from the source.");
+
+        return agg;
     }
 
     public async Task<string> CreateQueuedRunAsync(string companyId, string sourceId, CancellationToken ct = default)
@@ -449,12 +554,12 @@ public class IngestionService : IIngestionService
 
     // Fetches the source's data to a temp file and reports its format. rowProgress (optional) receives a
     // running row count from the DB fetch.
-    private async Task<(string path, ImportFileFormat format)> FetchToTempAsync(IngestionSource source, IngestionSourceConfig config, IProgress<long>? rowProgress, CancellationToken ct)
+    private async Task<(string path, ImportFileFormat format)> FetchToTempAsync(IngestionSource source, IngestionSourceConfig config, IProgress<long>? rowProgress, IJobProgress? log, CancellationToken ct)
     {
         var kind = Enum.TryParse<IngestionSourceKind>(source.SourceKind, ignoreCase: true, out var k) ? k : IngestionSourceKind.ExternalDatabase;
         return kind switch
         {
-            IngestionSourceKind.ExternalDatabase => await FetchFromDatabaseAsync(source, config, rowProgress, ct),
+            IngestionSourceKind.ExternalDatabase => await FetchFromDatabaseAsync(source, config, rowProgress, log, ct),
             IngestionSourceKind.Rest => await FetchFromRestAsync(source, config, ct),
             IngestionSourceKind.Blob => await FetchFromBlobAsync(source, config, ct),
             IngestionSourceKind.Sftp => await FetchFromSftpAsync(source, config, ct),
@@ -462,7 +567,7 @@ public class IngestionService : IIngestionService
         };
     }
 
-    private async Task<(string, ImportFileFormat)> FetchFromDatabaseAsync(IngestionSource source, IngestionSourceConfig config, IProgress<long>? rowProgress, CancellationToken ct)
+    private async Task<(string, ImportFileFormat)> FetchFromDatabaseAsync(IngestionSource source, IngestionSourceConfig config, IProgress<long>? rowProgress, IJobProgress? log, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(source.SourceEntityId))
             throw new InvalidOperationException("This database source has no linked database entity.");
@@ -480,12 +585,23 @@ public class IngestionService : IIngestionService
         if (!string.IsNullOrWhiteSpace(source.IncrementalColumn) && !string.IsNullOrWhiteSpace(source.IncrementalLastValue))
             query = $"SELECT * FROM ({baseQuery}) _src WHERE _src.{source.IncrementalColumn} > {IncrementalLiteral(source.IncrementalLastValue!)}";
 
+        // Surface the exact SQL that's about to run, so the run log shows the query before the (often long) fetch.
+        log?.WriteLine("Executing query against the source database:");
+        log?.WriteLine(query);
+
         var path = TempPath(".csv");
 
         // Optional keyset batching for very large tables: read in ordered pages so no single query has to
         // return millions of rows at once. Falls back to a single streaming read otherwise. Either way a
         // generous (configurable) command timeout is applied so long pulls don't time out.
         var batchKey = !string.IsNullOrWhiteSpace(config.BatchKeyColumn) ? config.BatchKeyColumn : source.IncrementalColumn;
+        if (config.BatchSize is int bs && bs > 0 && !string.IsNullOrWhiteSpace(batchKey))
+            log?.WriteLine($"Batching the fetch in pages of {bs:N0} rows, ordered by '{batchKey}'.");
+        else if (config.BatchSize is int bs2 && bs2 > 0)
+            log?.WriteLine($"Batch size {bs2:N0} is set but no batch key column is configured — a batch key is required to page, so streaming the full result in a single request.");
+        else
+            log?.WriteLine("Streaming the full result in a single request (no batch size configured).");
+
         if (config.BatchSize is int batchSize && batchSize > 0 && !string.IsNullOrWhiteSpace(batchKey))
             await _dbTables.ReadToTempCsvBatchedAsync(conn, query, batchKey!, batchSize, path, ct, config.CommandTimeoutSeconds, rowProgress);
         else

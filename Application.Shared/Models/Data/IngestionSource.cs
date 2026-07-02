@@ -111,4 +111,8 @@ public class IngestionRun
     // inline "Run now". Lets the UI deep-link to the Hangfire dashboard job details.
     [StringLength(100)]
     public string? JobId { get; set; }
+
+    // Captured processing log (the progress/console lines), so the run's log can be viewed in-app
+    // without opening the Hangfire dashboard.
+    public string? Log { get; set; }
 }

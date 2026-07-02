@@ -12,6 +12,10 @@ namespace Application.Shared.Services.Data;
 public interface IDuckdbService
 {
     Task CreateDatabaseAsync(Dataset dataset);
+    /// <summary>True if the dataset's DuckDB file exists on disk.</summary>
+    bool DatabaseExists(string datasetId);
+    /// <summary>Creates the dataset's DuckDB file if it is missing (no-op if it already exists).</summary>
+    Task EnsureDatabaseAsync(string datasetId);
     Task DeleteDatabaseAsync(Dataset dataset);
     Task UpdateDatabaseAsync(string datasetId, string updateQuery);
     Task<List<T>> ExecuteQueryAsync<T>(string databasePath, string query, Func<IDataReader, T> mapFunction);

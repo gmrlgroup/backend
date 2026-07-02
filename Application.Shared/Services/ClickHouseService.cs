@@ -23,6 +23,9 @@ public class ClickHouseService : IClickHouseService
         }
 
         var client = _httpClientFactory.CreateClient();
+        // Analytical queries can run well past the default 100s HttpClient timeout; allow up to 5 minutes
+        // so dashboard/metric queries aren't cut off mid-flight.
+        client.Timeout = TimeSpan.FromMinutes(5);
         var baseUrl = BuildConnectionUrl(dataSource);
 
         var request = new HttpRequestMessage(HttpMethod.Post, baseUrl);

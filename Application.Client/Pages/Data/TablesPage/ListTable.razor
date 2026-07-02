@@ -1,6 +1,8 @@
 @page "/data/tables"
 @using Application.Shared.Models
 @using Application.Shared.Models.Data
+@using Application.Shared.Models.Dashboards
+@using System.Net.Http.Json
 @inject HttpClient _httpClient
 @inject IToastService _toastService
 @inject NavigationManager _navigationManager
@@ -39,10 +41,28 @@ else
         </div>
         @if (canEdit)
         {
-        <button class="btn btn-default" @onclick="CreateTable">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-            New Table
-        </button>
+        <div style="display:flex;align-items:center;gap:0.5rem">
+            @if (!dbExists && !isLoading)
+            {
+                <button class="btn btn-outline" style="color:#b45309;border-color:#fcd34d" @onclick="CreateDatabase" disabled="@isCreatingDb"
+                        title="This dataset has no database file on disk yet. Create it so ingestion and tables can run.">
+                    @if (isCreatingDb)
+                    {
+                        <span class="ds-spinner" style="width:14px;height:14px;border-width:1.5px"></span>
+                        <span>Creating…</span>
+                    }
+                    else
+                    {
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
+                        <span>Create Database</span>
+                    }
+                </button>
+            }
+            <button class="btn btn-default" @onclick="CreateTable">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                New Table
+            </button>
+        </div>
         }
     </div>
 
@@ -109,6 +129,12 @@ else
                                         {
                                         <button class="btn-icon btn-icon-share" title="Share this table" @onclick="() => OpenShareTable(tableName)">
                                             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></svg>
+                                        </button>
+                                        }
+                                        @if (canEdit)
+                                        {
+                                        <button class="btn-icon" title="Connect this table to a dashboard" @onclick="() => OpenConnect(tableName)" style="color:#7c3aed">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                                         </button>
                                         }
                                         <button class="btn-icon btn-icon-edit" title="Edit table structure" @onclick="() => EditTable(tableName)">
@@ -224,9 +250,128 @@ else
     </div>
 }
 
+@if (showConnectModal)
+{
+    <div class="ds-modal-backdrop" @onclick="() => showConnectModal = false">
+        <div class="ds-modal" @onclick:stopPropagation="true">
+            <div class="ds-modal-header">
+                <h2 class="ds-modal-title">Connect to Dashboard <span style="color:#71717a;font-weight:400">— @connectTableName</span></h2>
+                <button class="ds-modal-close" @onclick="() => showConnectModal = false" aria-label="Close">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+            </div>
+            <div class="ds-modal-body">
+                @if (isLoadingLinks)
+                {
+                    <div class="ds-loading"><div class="ds-spinner"></div><span>Loading…</span></div>
+                }
+                else if (!availableDashboards.Any())
+                {
+                    <span class="ds-dataset-desc">No dashboards available to connect.</span>
+                }
+                else
+                {
+                    <p class="ds-hint" style="margin-top:0">Choose which dashboards open this table for their item-level details. Each dashboard links to one table — connecting reassigns it.</p>
+                    @foreach (var dash in availableDashboards)
+                    {
+                        var connected = connectedPageUrls.Contains(dash.PageUrl);
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;padding:0.65rem 0;border-top:1px solid #f4f4f5">
+                            <div>
+                                <div style="font-weight:500;color:#18181b">@dash.Label @if (connected) { <span style="color:#15803d;font-size:0.75rem;font-weight:600">· connected</span> }</div>
+                                <div style="font-size:0.75rem;color:#a1a1aa;font-family:ui-monospace,Consolas,monospace">@dash.PageUrl</div>
+                            </div>
+                            @if (connected)
+                            {
+                                <button class="btn btn-outline" style="color:#b91c1c;border-color:#fecaca" @onclick="() => DisconnectDashboard(dash.PageUrl)" disabled="@isSavingLink">Disconnect</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-default" @onclick="() => ConnectDashboard(dash.PageUrl)" disabled="@isSavingLink">Connect</button>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [SupplyParameterFromQuery] public string? c { get; set; }
     [SupplyParameterFromQuery] public string? d { get; set; }
+
+    private bool showConnectModal = false;
+    private string connectTableName = string.Empty;
+    private List<DashboardPageInfo> availableDashboards = new();
+    private HashSet<string> connectedPageUrls = new();
+    private bool isLoadingLinks = false;
+    private bool isSavingLink = false;
+
+    private async Task OpenConnect(string tableName)
+    {
+        connectTableName = tableName;
+        connectedPageUrls = new();
+        showConnectModal = true;
+        isLoadingLinks = true;
+        StateHasChanged();
+        try
+        {
+            await SetUserHeaderAsync();
+            if (availableDashboards.Count == 0)
+                availableDashboards = await _httpClient.GetFromJsonAsync<List<DashboardPageInfo>>("api/dashboard-links/dashboards") ?? new();
+
+            var links = await _httpClient.GetFromJsonAsync<List<DashboardDataLink>>(
+                $"api/dashboard-links?datasetId={Uri.EscapeDataString(datasetId!)}&tableName={Uri.EscapeDataString(tableName)}") ?? new();
+            connectedPageUrls = links.Select(l => l.PageUrl).ToHashSet();
+        }
+        catch (Exception ex) { _toastService.ShowError($"Error loading dashboards: {ex.Message}"); }
+        finally { isLoadingLinks = false; StateHasChanged(); }
+    }
+
+    private async Task ConnectDashboard(string pageUrl)
+    {
+        try
+        {
+            isSavingLink = true;
+            StateHasChanged();
+            await SetUserHeaderAsync();
+            var req = new DashboardLinkRequest { PageUrl = pageUrl, DatasetId = datasetId!, TableName = connectTableName };
+            var resp = await _httpClient.PostAsJsonAsync("api/dashboard-links", req);
+            if (resp.IsSuccessStatusCode)
+            {
+                connectedPageUrls.Add(pageUrl);
+                _toastService.ShowSuccess("Table connected to dashboard.");
+            }
+            else
+            {
+                _toastService.ShowError($"Failed to connect: {await resp.Content.ReadAsStringAsync()}");
+            }
+        }
+        catch (Exception ex) { _toastService.ShowError($"Error: {ex.Message}"); }
+        finally { isSavingLink = false; StateHasChanged(); }
+    }
+
+    private async Task DisconnectDashboard(string pageUrl)
+    {
+        try
+        {
+            isSavingLink = true;
+            StateHasChanged();
+            await SetUserHeaderAsync();
+            var resp = await _httpClient.DeleteAsync($"api/dashboard-links?pageUrl={Uri.EscapeDataString(pageUrl)}");
+            if (resp.IsSuccessStatusCode || resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                connectedPageUrls.Remove(pageUrl);
+                _toastService.ShowSuccess("Disconnected.");
+            }
+            else
+            {
+                _toastService.ShowError($"Failed to disconnect: {await resp.Content.ReadAsStringAsync()}");
+            }
+        }
+        catch (Exception ex) { _toastService.ShowError($"Error: {ex.Message}"); }
+        finally { isSavingLink = false; StateHasChanged(); }
+    }
 
     private bool showApiDocs = false;
     private string? apiDocsTable;
@@ -325,6 +470,8 @@ else
     private string? companyId;
     private string? datasetId;
     private string? datasetName;
+    private bool dbExists = true;       // assume present until checked, so the button doesn't flash
+    private bool isCreatingDb = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -348,7 +495,66 @@ else
         canView = user.HasCompanyRole(companyId, "VIEW_DATA");
         canEdit = user.HasCompanyRole(companyId, "EDIT_DATA");
         if (!canView) { isLoading = false; return; }
+        await CheckDatabaseAsync();
         await LoadTables();
+    }
+
+    private async Task SetUserHeaderAsync()
+    {
+        var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (!string.IsNullOrEmpty(userId))
+            {
+                _httpClient.DefaultRequestHeaders.Remove("UserId");
+                _httpClient.DefaultRequestHeaders.Add("UserId", userId);
+            }
+        }
+    }
+
+    private async Task CheckDatabaseAsync()
+    {
+        try
+        {
+            await SetUserHeaderAsync();
+            var resp = await _httpClient.GetAsync($"api/Datasets/{datasetId}/database-exists");
+            if (resp.IsSuccessStatusCode)
+                dbExists = await resp.Content.ReadFromJsonAsync<bool>();
+        }
+        catch { /* on error, leave dbExists as-is (assume present) */ }
+    }
+
+    private async Task CreateDatabase()
+    {
+        try
+        {
+            isCreatingDb = true;
+            StateHasChanged();
+
+            await SetUserHeaderAsync();
+            var resp = await _httpClient.PostAsync($"api/Datasets/{datasetId}/database", null);
+            if (resp.IsSuccessStatusCode)
+            {
+                dbExists = true;
+                _toastService.ShowSuccess("Dataset database created.");
+                await LoadTables();
+            }
+            else
+            {
+                _toastService.ShowError($"Failed to create database: {await resp.Content.ReadAsStringAsync()}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Error creating database: {ex.Message}");
+        }
+        finally
+        {
+            isCreatingDb = false;
+            StateHasChanged();
+        }
     }
 
     private async Task LoadTables()
@@ -370,7 +576,7 @@ else
                 }
             }
 
-            var datasetResponse = await _httpClient.GetAsync($"api/Datasets/item/{datasetId}");
+            var datasetResponse = await _httpClient.GetAsync($"api/Datasets/{datasetId}");
             if (datasetResponse.IsSuccessStatusCode)
             {
                 var dataset = await datasetResponse.Content.ReadFromJsonAsync<Dataset>();
@@ -381,6 +587,12 @@ else
             if (response.IsSuccessStatusCode)
             {
                 tables = await response.Content.ReadFromJsonAsync<List<string>>();
+                ApplyFilterAndSort();
+            }
+            else if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                // No tables yet (e.g. empty or not-yet-created database) — show the empty state, not an error.
+                tables = [];
                 ApplyFilterAndSort();
             }
             else

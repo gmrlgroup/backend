@@ -1,0 +1,664 @@
+@page "/metrics/dashboard"
+@using Application.Shared.Models
+@using Application.Shared.Models.Metrics
+@using Application.Shared.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.JSInterop
+@inject HttpClient HttpClient
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@attribute [Authorize(Policy = PolicyNames.MetricsRead)]
+
+<PageTitle>KPI Dashboard</PageTitle>
+
+<style>
+    .kd-scope { --ink:#16233B; --bg:#EDF0F4; --card:#FFFFFF; --muted:#667085; --line:#E4E8EF;
+        --good:#2E7D57; --warn:#A8792F; --bad:#AC5347;
+        --display:'Space Grotesk',sans-serif; --body:'Inter',sans-serif; --mono:'IBM Plex Mono',monospace; }
+    .kd-scope * { box-sizing:border-box; }
+    /* Neutralise the layout's content padding so the dashboard runs edge-to-edge (only while this page is mounted). */
+    .al-main:has(.kd-scope) { padding:0; }
+    /* Paint the layout footer with the dashboard background on this page so it blends in
+       (a bare `footer` rule sets a brown Fluent layer, so `transparent` isn't enough). */
+    .al-root:has(.kd-scope) .al-footer { background:#EDF0F4 !important; border-top-color:transparent; }
+    .kd-scope { background:var(--bg); color:var(--ink); font-family:var(--body);
+        -webkit-font-smoothing:antialiased; padding:0; min-height:100%; }
+    .kd-wrap { max-width:1180px; margin:0 auto; }
+
+    /* Header */
+    .kd-scope header { margin-bottom:22px; padding-top:24px; }
+    .kd-topline { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+    .kd-eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.14em;
+        text-transform:uppercase; color:var(--muted); margin:0 0 8px; }
+    .kd-scope h1 { font-family:var(--display); font-weight:600; font-size:30px;
+        letter-spacing:-.01em; margin:0 0 6px; }
+    .kd-sub { color:var(--muted); font-size:14px; margin:0; }
+    .kd-back { display:inline-flex; align-items:center; gap:7px; height:36px; padding:0 14px;
+        border-radius:999px; border:1px solid var(--line); background:var(--card); color:var(--muted);
+        font-family:var(--body); font-size:13px; cursor:pointer; text-decoration:none; white-space:nowrap; }
+    .kd-back:hover { border-color:#C4CBD6; color:var(--ink); }
+
+    .kd-controls { display:flex; flex-wrap:wrap; gap:14px; align-items:center;
+        justify-content:space-between; margin-top:20px; }
+    .kd-pills { display:flex; flex-wrap:wrap; gap:6px; }
+    .kd-pill { font-family:var(--body); font-size:13px; padding:7px 14px; border-radius:999px;
+        border:1px solid var(--line); background:var(--card); color:var(--muted); cursor:pointer;
+        transition:all .15s ease; }
+    .kd-pill:hover { border-color:#C4CBD6; }
+    .kd-pill.active { background:var(--ink); color:#fff; border-color:var(--ink); }
+
+    .kd-right { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .kd-search-wrap { position:relative; }
+    .kd-search-wrap svg { position:absolute; left:11px; top:50%; transform:translateY(-50%);
+        width:13px; height:13px; color:var(--muted); pointer-events:none; }
+    .kd-search { height:34px; width:190px; padding:0 12px 0 30px; border:1px solid var(--line);
+        border-radius:999px; background:var(--card); color:var(--ink); font-family:var(--body);
+        font-size:13px; outline:none; transition:border-color .15s ease; }
+    .kd-search:focus { border-color:#C4CBD6; }
+    .kd-search::placeholder { color:var(--muted); }
+
+    .kd-toggle { display:inline-flex; background:var(--card); border:1px solid var(--line);
+        border-radius:999px; padding:3px; gap:2px; }
+    .kd-toggle button { font-family:var(--body); font-size:13px; border:0; background:transparent;
+        color:var(--muted); padding:6px 14px; border-radius:999px; cursor:pointer; transition:all .15s ease; }
+    .kd-toggle button.active { background:var(--ink); color:#fff; }
+
+    /* Summary strip */
+    .kd-summary { display:flex; gap:20px; flex-wrap:wrap; margin:22px 0 4px; font-size:13px; color:var(--muted); }
+    .kd-summary b { font-family:var(--display); color:var(--ink); font-weight:600; }
+    .kd-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; vertical-align:1px; }
+    .kd-dot.good { background:var(--good); } .kd-dot.warn { background:var(--warn); } .kd-dot.bad { background:var(--bad); }
+
+    /* Grid */
+    .kd-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px; margin-top:18px; }
+    .kd-card { background:var(--card); border:1px solid var(--line); border-radius:16px;
+        padding:18px 18px 16px; display:flex; flex-direction:column; animation:kd-fade .4s ease both; }
+    @@keyframes kd-fade { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+
+    .kd-ctop { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+    .kd-cat { font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+    .kd-chip { font-size:11.5px; font-weight:500; color:var(--muted); white-space:nowrap;
+        display:inline-flex; align-items:center; gap:6px; }
+    .kd-chip .kd-sdot { width:7px; height:7px; border-radius:50%; display:inline-block; }
+    .kd-chip.good .kd-sdot { background:var(--good); }
+    .kd-chip.warn .kd-sdot { background:var(--warn); }
+    .kd-chip.bad .kd-sdot { background:var(--bad); }
+
+    .kd-name { font-size:14px; font-weight:500; margin:12px 0 0; line-height:1.3; min-height:36px; }
+
+    .kd-cbody { display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-top:10px; }
+    .kd-valwrap { flex:1; min-width:0; }
+    .kd-value { font-family:var(--display); font-weight:600; font-size:30px; letter-spacing:-.02em;
+        line-height:1; font-variant-numeric:tabular-nums; }
+    .kd-delta { font-size:12.5px; margin-top:9px; display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+    .kd-delta .kd-chg { font-weight:600; font-variant-numeric:tabular-nums; display:inline-flex;
+        align-items:center; gap:3px; color:var(--ink); }
+    .kd-delta .kd-was { color:var(--muted); }
+    .kd-arrow { font-size:11px; line-height:1; }
+
+    /* Ring gauge */
+    .kd-ring { width:78px; height:78px; flex:none; position:relative; }
+    .kd-ring svg { transform:rotate(-90deg); }
+    .kd-ring .kd-track { fill:none; stroke:var(--line); stroke-width:7; }
+    .kd-ring .kd-prog { fill:none; stroke-width:7; stroke-linecap:round;
+        transition:stroke-dashoffset 1.1s cubic-bezier(.2,.7,.2,1); }
+    .kd-ring .kd-lbl { position:absolute; inset:0; display:flex; flex-direction:column;
+        align-items:center; justify-content:center; }
+    .kd-ring .kd-pct { font-family:var(--display); font-weight:600; font-size:16px; line-height:1;
+        font-variant-numeric:tabular-nums; }
+    .kd-ring .kd-cap { font-family:var(--mono); font-size:8px; letter-spacing:.06em; color:var(--muted);
+        text-transform:uppercase; margin-top:2px; }
+
+    .kd-foot { margin-top:14px; padding-top:11px; border-top:1px solid var(--line);
+        font-size:12px; color:var(--muted); display:flex; justify-content:space-between; }
+    .kd-foot b { color:var(--ink); font-weight:500; font-variant-numeric:tabular-nums; }
+
+    .kd-scope footer { margin-top:34px; font-size:12px; color:var(--muted); text-align:center; }
+
+    /* Card is clickable → opens the trend popup */
+    .kd-card { cursor:pointer; transition:border-color .15s ease, box-shadow .15s ease, transform .12s ease; }
+    .kd-card:hover { border-color:#C4CBD6; box-shadow:0 6px 18px rgba(22,35,59,.07); transform:translateY(-1px); }
+
+    /* Trend popup — rendered outside .kd-scope, so it carries its own tokens */
+    .kd-backdrop { --ink:#16233B; --card:#FFFFFF; --muted:#667085; --line:#E4E8EF;
+        --good:#2E7D57; --warn:#A8792F; --bad:#AC5347;
+        --display:'Space Grotesk',sans-serif; --body:'Inter',sans-serif; --mono:'IBM Plex Mono',monospace;
+        position:fixed; inset:0; background:rgba(22,35,59,.35); z-index:1000;
+        display:flex; align-items:center; justify-content:center; padding:24px; font-family:var(--body); }
+    .kd-modal { background:var(--card); border-radius:18px; width:100%; max-width:720px;
+        box-shadow:0 20px 60px rgba(22,35,59,.25); display:flex; flex-direction:column; overflow:hidden; }
+    .kd-modal-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px;
+        padding:20px 22px 14px; border-bottom:1px solid var(--line); }
+    .kd-modal-sub { font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+        color:var(--muted); margin:0 0 6px; }
+    .kd-modal-title { margin:0; font-family:var(--display); font-weight:600; font-size:18px; letter-spacing:-.01em; }
+    .kd-close { border:1px solid var(--line); background:var(--card); color:var(--muted); border-radius:10px;
+        width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; flex:none; }
+    .kd-close:hover { border-color:#C4CBD6; color:var(--ink); }
+    .kd-modal-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 22px 0; }
+    .kd-modal-body { padding:12px 22px 22px; }
+    .kd-chart-wrap { height:340px; position:relative; }
+    .kd-modal-note { font-size:12px; color:var(--muted); }
+
+    /* Data view */
+    .kd-dtable-wrap { max-height:340px; overflow:auto; border:1px solid var(--line); border-radius:12px; }
+    .kd-dtable { width:100%; border-collapse:collapse; font-size:13px; }
+    .kd-dtable thead th { position:sticky; top:0; background:#F7F9FC; z-index:1; text-align:left;
+        font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted);
+        padding:10px 14px; border-bottom:1px solid var(--line); white-space:nowrap; }
+    .kd-dtable tbody td { padding:9px 14px; border-bottom:1px solid var(--line); color:var(--ink); }
+    .kd-dtable tbody tr:last-child td { border-bottom:0; }
+    .kd-dtable .kd-num { text-align:right; font-variant-numeric:tabular-nums; }
+
+    .kd-state { padding:60px 24px; text-align:center; color:var(--muted); font-size:14px; }
+    .kd-spinner { width:26px; height:26px; margin:0 auto 12px; border:2px solid var(--line);
+        border-top-color:var(--ink); border-radius:50%; animation:kd-spin .6s linear infinite; }
+    @@keyframes kd-spin { to { transform:rotate(360deg); } }
+
+    @@media (max-width:520px) {
+        .kd-scope { padding:0 16px; }
+        .kd-scope h1 { font-size:24px; }
+        .kd-name { min-height:0; }
+    }
+</style>
+
+<div class="kd-scope">
+    <div class="kd-wrap">
+        <header>
+            <div class="kd-topline">
+                <div>
+                    <p class="kd-eyebrow">Performance monitor@(LatestPeriod is null ? "" : " · " + LatestPeriod)</p>
+                    <h1>Departmental KPIs</h1>
+                    <p class="kd-sub">Current period against target, with change on the selected comparison window.</p>
+                </div>
+                <a class="kd-back" href="@BackUrl">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+                    Metrics
+                </a>
+            </div>
+
+            <div class="kd-controls">
+                <div class="kd-pills">
+                    @foreach (var d in Departments)
+                    {
+                        var dept = d;
+                        <button class="kd-pill @(SelectedDept == dept ? "active" : "")" @onclick="() => SelectDept(dept)">@dept</button>
+                    }
+                </div>
+                <div class="kd-right">
+                    <div class="kd-search-wrap">
+                        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <input class="kd-search" type="search" placeholder="Search KPIs…" value="@SearchText" @oninput="OnSearchInput" />
+                    </div>
+                    <div class="kd-toggle">
+                        <button class="@(Period == "mom" ? "active" : "")" @onclick='() => SetPeriod("mom")'>vs last month</button>
+                        <button class="@(Period == "yoy" ? "active" : "")" @onclick='() => SetPeriod("yoy")'>vs last year</button>
+                    </div>
+                </div>
+            </div>
+
+            @if (!IsLoading && Visible.Any())
+            {
+                <div class="kd-summary">
+                    <span><span class="kd-dot good"></span><b>@CountByStatus("good")</b> on target</span>
+                    <span><span class="kd-dot warn"></span><b>@CountByStatus("warn")</b> at risk</span>
+                    <span><span class="kd-dot bad"></span><b>@CountByStatus("bad")</b> below target</span>
+                </div>
+            }
+        </header>
+
+        @if (IsLoading)
+        {
+            <div class="kd-state"><div class="kd-spinner"></div>Loading KPIs…</div>
+        }
+        else if (LoadError is not null)
+        {
+            <div class="kd-state">@LoadError</div>
+        }
+        else if (!Cards.Any())
+        {
+            <div class="kd-state">No KPI data found for this company.</div>
+        }
+        else if (!Visible.Any())
+        {
+            <div class="kd-state">No KPIs match your filters.</div>
+        }
+        else
+        {
+            <div class="kd-grid">
+                @foreach (var k in Visible)
+                {
+                    var pct = Attain(k);
+                    var st = Status(pct);
+                    var prev = Period == "mom" ? k.PrevMonth : k.PrevYear;
+                    var label = Period == "mom" ? "last month" : "last year";
+                    var frac = Math.Min(pct, 100) / 100.0;
+                    var offset = Circ * (1 - (Animated ? frac : 0));
+
+                    <div class="kd-card @st" @onclick="() => OpenTrend(k)" title="View trend">
+                        <div class="kd-ctop">
+                            <span class="kd-cat">@k.Department</span>
+                            <span class="kd-chip @st"><span class="kd-sdot"></span>@StatusText(st)</span>
+                        </div>
+                        <p class="kd-name">@k.Kpi</p>
+                        <div class="kd-cbody">
+                            <div class="kd-valwrap">
+                                <div class="kd-value">@Fmt(k.Current, k.Unit)</div>
+                                @if (prev is not null && Math.Abs(prev.Value) > 1e-12)
+                                {
+                                    var chgPct = (k.Current - prev.Value) / Math.Abs(prev.Value) * 100.0;
+                                    var same = Math.Abs(k.Current - prev.Value) < 1e-9;
+                                    var arrow = same ? "→" : (k.Current > prev.Value ? "▲" : "▼");
+                                    <div class="kd-delta">
+                                        <span class="kd-chg"><span class="kd-arrow">@arrow</span>@Math.Abs(chgPct).ToString("F1")%</span>
+                                        <span class="kd-was">vs @label (@Fmt(prev.Value, k.Unit))</span>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="kd-delta"><span class="kd-was">no @label data</span></div>
+                                }
+                            </div>
+                            <div class="kd-ring">
+                                <svg width="78" height="78" viewBox="0 0 78 78">
+                                    <circle class="kd-track" cx="39" cy="39" r="@Radius"></circle>
+                                    <circle class="kd-prog" cx="39" cy="39" r="@Radius"
+                                            stroke="@RingColor(st)"
+                                            stroke-dasharray="@Circ.ToString("F2")"
+                                            stroke-dashoffset="@offset.ToString("F2")"></circle>
+                                </svg>
+                                <div class="kd-lbl">
+                                    <span class="kd-pct">@Math.Round(pct)%</span>
+                                    <span class="kd-cap">target</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="kd-foot"><span>Target</span><b>@Fmt(k.Target, k.Unit)</b></div>
+                    </div>
+                }
+            </div>
+
+            <footer>@Cards.Count KPIs across @(Departments.Count(d => d != "All")) departments</footer>
+        }
+    </div>
+</div>
+
+@if (ShowTrend && TrendCard is not null)
+{
+    <div class="kd-backdrop" @onclick="CloseTrend">
+        <div class="kd-modal" @onclick:stopPropagation="true">
+            <div class="kd-modal-head">
+                <div>
+                    <p class="kd-modal-sub">@TrendCard.Department · Trend</p>
+                    <h2 class="kd-modal-title">@TrendCard.Kpi</h2>
+                </div>
+                <button class="kd-close" @onclick="CloseTrend" title="Close">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="kd-modal-toolbar">
+                <div class="kd-toggle">
+                    <button class="@(TrendChartType == "line" ? "active" : "")" @onclick='() => SetTrendType("line")'>Line</button>
+                    <button class="@(TrendChartType == "bar" ? "active" : "")" @onclick='() => SetTrendType("bar")'>Bar</button>
+                    <button class="@(TrendChartType == "data" ? "active" : "")" @onclick='() => SetTrendType("data")'>Data</button>
+                </div>
+                <span class="kd-modal-note">YTD @TrendCard.Year · incl. previous month</span>
+            </div>
+            <div class="kd-modal-body">
+                @if (TrendLoading)
+                {
+                    <div class="kd-state"><div class="kd-spinner"></div>Loading trend…</div>
+                }
+                else if (!TrendPoints.Any())
+                {
+                    <div class="kd-state">No trend data available.</div>
+                }
+                else if (TrendChartType == "data")
+                {
+                    <div class="kd-dtable-wrap">
+                        <table class="kd-dtable">
+                            <thead>
+                                <tr>
+                                    <th>Period</th>
+                                    <th class="kd-num">Value</th>
+                                    <th class="kd-num">Target</th>
+                                    <th class="kd-num">vs Target</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var p in TrendPoints)
+                                {
+                                    var diff = DiffVsTarget(p);
+                                    <tr>
+                                        <td>@p.Label</td>
+                                        <td class="kd-num">@Fmt(p.Value, TrendCard.Unit)</td>
+                                        <td class="kd-num">@Fmt(p.Target, TrendCard.Unit)</td>
+                                        <td class="kd-num" style="color:@DiffColor(p)">@diff</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                <div class="kd-chart-wrap" style="@(TrendLoading || !TrendPoints.Any() || TrendChartType == "data" ? "display:none" : "")">
+                    <canvas id="@TrendCanvasId"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private const double Radius = 32;
+    private static readonly double Circ = 2 * Math.PI * Radius;
+
+    private List<KpiCardDto> Cards = new();
+    private bool IsLoading = true;
+    private bool Animated = false;
+    private string? LoadError;
+    private string? CompanyId;
+
+    private string Period = "mom";
+    private string SelectedDept = "All";
+    private string SearchText = string.Empty;
+
+    // Trend popup
+    private const string TrendCanvasId = "kd-trend-canvas";
+    private bool ShowTrend = false;
+    private bool TrendLoading = false;
+    private KpiCardDto? TrendCard;
+    private List<KpiTrendPointDto> TrendPoints = new();
+    private string TrendChartType = "line";
+    private IJSObjectReference? _chartModule;
+    private string? _chartSig;
+
+    private string BackUrl
+    {
+        get
+        {
+            var c = ReadQueryValue(NavigationManager.Uri, "c");
+            return string.IsNullOrEmpty(c) ? "metrics" : $"metrics?c={Uri.EscapeDataString(c)}";
+        }
+    }
+
+    private static string? ReadQueryValue(string url, string key)
+    {
+        var queryIndex = url.IndexOf('?');
+        if (queryIndex < 0 || queryIndex == url.Length - 1) return null;
+        foreach (var pair in url[(queryIndex + 1)..].Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = pair.IndexOf('=');
+            var name = eq < 0 ? pair : pair[..eq];
+            if (string.Equals(name, key, StringComparison.OrdinalIgnoreCase))
+                return eq < 0 ? string.Empty : Uri.UnescapeDataString(pair[(eq + 1)..]);
+        }
+        return null;
+    }
+
+    private List<string> Departments = new() { "All" };
+    private List<KpiCardDto> Visible
+    {
+        get
+        {
+            var q = SelectedDept == "All" ? Cards.AsEnumerable() : Cards.Where(c => c.Department == SelectedDept);
+            if (!string.IsNullOrWhiteSpace(SearchText))
+                q = q.Where(c => c.Kpi.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+            return q.ToList();
+        }
+    }
+
+    private string? LatestPeriod
+    {
+        get
+        {
+            var latest = Cards.OrderByDescending(c => c.Year).FirstOrDefault();
+            return latest is null ? null : $"{latest.Month} {latest.Year}";
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCompanyId();
+        await LoadCards();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Trigger the ring gauge fill transition once the cards are on screen.
+        if (!Animated && !IsLoading && Cards.Any())
+        {
+            Animated = true;
+            StateHasChanged();
+        }
+
+        // (Re)draw the trend chart when the popup is open and its inputs change.
+        if (ShowTrend && !TrendLoading && TrendPoints.Any())
+        {
+            var sig = $"{TrendCard?.Department}|{TrendCard?.Kpi}|{TrendChartType}|{TrendPoints.Count}";
+            if (sig != _chartSig)
+            {
+                _chartSig = sig;
+                await DrawChart();
+            }
+        }
+    }
+
+    private async Task LoadCompanyId()
+    {
+        try
+        {
+            var companies = await HttpClient.GetFromJsonAsync<List<Company>>("api/companies");
+            if (companies?.Any() == true) CompanyId = companies.First().Id;
+        }
+        catch (Exception ex) { LoadError = $"Error loading company: {ex.Message}"; }
+    }
+
+    private async Task LoadCards()
+    {
+        if (string.IsNullOrEmpty(CompanyId)) { IsLoading = false; return; }
+        IsLoading = true;
+        try
+        {
+            HttpClient.DefaultRequestHeaders.Remove("X-Company-Id");
+            HttpClient.DefaultRequestHeaders.Add("X-Company-Id", CompanyId);
+            var response = await HttpClient.GetFromJsonAsync<List<KpiCardDto>>("api/kpi-dashboard");
+            Cards = response ?? new();
+            Departments = new List<string> { "All" };
+            Departments.AddRange(Cards.Select(c => c.Department)
+                                      .Where(d => !string.IsNullOrWhiteSpace(d))
+                                      .Distinct()
+                                      .OrderBy(d => d));
+            if (!Departments.Contains(SelectedDept)) SelectedDept = "All";
+        }
+        catch (Exception ex) { LoadError = $"Error loading KPIs: {ex.Message}"; }
+        finally { IsLoading = false; }
+    }
+
+    private void SelectDept(string dept) { SelectedDept = dept; }
+    private void SetPeriod(string period) { Period = period; }
+    private void OnSearchInput(ChangeEventArgs e) { SearchText = e.Value?.ToString() ?? string.Empty; }
+
+    // dir "up" = higher is better; "down" = lower is better.
+    private static double Attain(KpiCardDto k)
+    {
+        double raw;
+        if (k.Direction == "up")
+            raw = k.Target == 0 ? (k.Current == 0 ? 1 : 2) : k.Current / k.Target;
+        else
+            raw = k.Current == 0 ? (k.Target == 0 ? 1 : 2) : k.Target / k.Current;
+        return raw * 100.0;
+    }
+
+    private static string Status(double pct) => pct >= 100 ? "good" : pct >= 90 ? "warn" : "bad";
+    private static string StatusText(string st) => st == "good" ? "On target" : st == "warn" ? "At risk" : "Below";
+    private static string RingColor(string st) => st == "good" ? "#2E7D57" : st == "warn" ? "#A8792F" : "#AC5347";
+
+    private int CountByStatus(string st) => Visible.Count(k => Status(Attain(k)) == st);
+
+    private async Task OpenTrend(KpiCardDto card)
+    {
+        TrendCard = card;
+        ShowTrend = true;
+        TrendChartType = "line";
+        TrendPoints = new();
+        TrendLoading = true;
+        _chartSig = null;
+        StateHasChanged();
+        await LoadTrend();
+    }
+
+    private async Task LoadTrend()
+    {
+        if (TrendCard is null || string.IsNullOrEmpty(CompanyId)) { TrendLoading = false; return; }
+        try
+        {
+            HttpClient.DefaultRequestHeaders.Remove("X-Company-Id");
+            HttpClient.DefaultRequestHeaders.Add("X-Company-Id", CompanyId);
+            var url = $"api/kpi-dashboard/trend?department={Uri.EscapeDataString(TrendCard.Department ?? "")}&kpi={Uri.EscapeDataString(TrendCard.Kpi)}";
+            TrendPoints = await HttpClient.GetFromJsonAsync<List<KpiTrendPointDto>>(url) ?? new();
+        }
+        catch { TrendPoints = new(); }
+        finally { TrendLoading = false; _chartSig = null; StateHasChanged(); }
+    }
+
+    private void SetTrendType(string type)
+    {
+        TrendChartType = type;
+        _chartSig = null; // force a redraw on next render
+    }
+
+    private async Task CloseTrend()
+    {
+        ShowTrend = false;
+        _chartSig = null;
+        if (_chartModule is not null)
+        {
+            try { await _chartModule.InvokeVoidAsync("destroy", TrendCanvasId); } catch { }
+        }
+    }
+
+    private async Task DrawChart()
+    {
+        try
+        {
+            _chartModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/result-chart.js");
+            if (TrendCard is null || TrendPoints.Count == 0 || TrendChartType == "data")
+            {
+                await _chartModule.InvokeVoidAsync("destroy", TrendCanvasId);
+                return;
+            }
+            await _chartModule.InvokeVoidAsync("render", TrendCanvasId, BuildTrendConfig());
+        }
+        catch { /* charting unavailable — leave the canvas blank */ }
+    }
+
+    // Signed % difference of value vs target; sign is what happened, colour is whether that's good.
+    private string DiffVsTarget(KpiTrendPointDto p)
+    {
+        if (Math.Abs(p.Target) < 1e-12) return "—";
+        var pct = (p.Value - p.Target) / Math.Abs(p.Target) * 100.0;
+        var sign = pct > 0 ? "+" : "";
+        return $"{sign}{pct.ToString("F1")}%";
+    }
+
+    private string DiffColor(KpiTrendPointDto p)
+    {
+        if (Math.Abs(p.Target) < 1e-12) return "#667085";
+        var over = p.Value >= p.Target;                       // value above target?
+        var favorable = TrendCard!.Direction == "up" ? over : !over;
+        if (Math.Abs(p.Value - p.Target) < 1e-12) return "#667085";
+        return favorable ? "#2E7D57" : "#AC5347";
+    }
+
+    private object BuildTrendConfig()
+    {
+        var unit = TrendCard!.Unit;
+        var factor = unit == "%" ? 100.0 : 1.0;
+        var suffix = unit == "%" ? " (%)" : unit == "days" ? " (days)" : "";
+        var isLine = TrendChartType == "line";
+
+        var labels = TrendPoints.Select(p => p.Label).ToList();
+        var values = TrendPoints.Select(p => Math.Round(p.Value * factor, 4)).ToList();
+        var targets = TrendPoints.Select(p => Math.Round(p.Target * factor, 4)).ToList();
+
+        var datasets = new List<object>
+        {
+            new
+            {
+                label = "Value" + suffix,
+                data = values,
+                borderColor = "#16233B",
+                backgroundColor = isLine ? "rgba(22,35,59,0.08)" : "#16233B",
+                borderWidth = 2,
+                fill = isLine,
+                tension = 0.35,
+                pointRadius = 3,
+                pointBackgroundColor = "#16233B"
+            },
+            new
+            {
+                label = "Target" + suffix,
+                data = targets,
+                borderColor = "#A8792F",
+                backgroundColor = isLine ? "rgba(168,121,47,0)" : "#E0B978",
+                borderWidth = 2,
+                borderDash = isLine ? new[] { 6, 4 } : Array.Empty<int>(),
+                fill = false,
+                tension = 0.35,
+                pointRadius = isLine ? 0 : 3,
+                pointBackgroundColor = "#A8792F"
+            }
+        };
+
+        return new
+        {
+            type = TrendChartType,
+            data = new { labels, datasets },
+            options = new
+            {
+                responsive = true,
+                maintainAspectRatio = false,
+                interaction = new { mode = "index", intersect = false },
+                plugins = new { legend = new { display = true, position = "bottom" } },
+                scales = new
+                {
+                    x = new { grid = new { display = false } },
+                    y = new { beginAtZero = false, grid = new { color = "#EEF1F5" } }
+                }
+            }
+        };
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_chartModule is not null)
+            {
+                await _chartModule.InvokeVoidAsync("destroy", TrendCanvasId);
+                await _chartModule.DisposeAsync();
+            }
+        }
+        catch { /* ignore teardown races */ }
+    }
+
+    private static string Fmt(double v, string unit)
+    {
+        switch (unit)
+        {
+            case "%":
+                return (v * 100).ToString("F1") + "%";
+            case "days":
+                return v.ToString("F1") + " d";
+            default:
+                if (Math.Abs(v) >= 1000)
+                {
+                    var k = v / 1000.0;
+                    return (Math.Abs(k) >= 100 ? Math.Round(k).ToString("F0") : k.ToString("F1")) + "K";
+                }
+                return v.ToString("F2");
+        }
+    }
+}

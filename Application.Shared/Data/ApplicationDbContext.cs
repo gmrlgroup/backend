@@ -99,6 +99,13 @@ namespace Application.Shared.Data
         // Links a dashboard page to an ingested dataset table (for "view details" deep-links).
         public DbSet<DashboardDataLink> DashboardDataLink { get; set; }
 
+        // Conversationally-built dashboards (AI dashboard builder) and their widgets.
+        public DbSet<AiDashboard> AiDashboard { get; set; }
+        public DbSet<AiDashboardWidget> AiDashboardWidget { get; set; }
+
+        // Semantic layer: AI-generated + human-edited per-column documentation for dataset tables.
+        public DbSet<DatasetColumnDoc> DatasetColumnDoc { get; set; }
+
         // METRICS
         public DbSet<Metric> Metrics { get; set; }
 

@@ -83,6 +83,13 @@ namespace Application.Shared.Data
 
         public DbSet<DatasetUserTable> DatasetUserTable { get; set; }
 
+        // Per-user column access, row-level security, personal pins, and default dataset.
+        public DbSet<DatasetUserColumn> DatasetUserColumn { get; set; }
+        public DbSet<UserRlsFilter> UserRlsFilter { get; set; }
+        public DbSet<UserDatasetPin> UserDatasetPin { get; set; }
+        public DbSet<UserTablePin> UserTablePin { get; set; }
+        public DbSet<UserDefaultDataset> UserDefaultDataset { get; set; }
+
         public DbSet<DataTableComment> DataTableComment { get; set; }
 
         public DbSet<SalesData> SalesData { get; set; }
@@ -122,6 +129,9 @@ namespace Application.Shared.Data
         // "What's New" feature-announcement feed + per-user last-seen tracking.
         public DbSet<WhatsNewItem> WhatsNewItem { get; set; }
         public DbSet<WhatsNewSeen> WhatsNewSeen { get; set; }
+
+        // Per-company application settings (e.g. the debug-logging toggle).
+        public DbSet<CompanySettings> CompanySettings { get; set; }
 
         // METRICS
         public DbSet<Metric> Metrics { get; set; }

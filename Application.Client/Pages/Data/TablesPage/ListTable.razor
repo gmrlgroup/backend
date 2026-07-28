@@ -74,6 +74,12 @@ else
                 <svg class="ds-search-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                 <input class="ds-search" type="search" placeholder="Search tables..." @bind="searchTerm" @bind:event="oninput" @bind:after="HandleSearch" />
             </div>
+            <button type="button" class="btn @(docsOnly ? "btn-default" : "btn-outline")" @onclick="ToggleDocsOnly"
+                    title="@(docsOnly ? "Showing only documented tables — click to show all" : "Show only tables that have column documentation")"
+                    style="white-space:nowrap">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+                Docs only
+            </button>
             @if (isExternal && canViewSource)
             {
                 <div style="display:flex;align-items:center;gap:0.4rem;margin-left:auto" title="View the external source's live tables, or the saved local snapshots">
@@ -311,6 +317,10 @@ else
                     {
                         <span>No tables match "<strong>@searchTerm</strong>". Try a different search.</span>
                     }
+                    else if (docsOnly)
+                    {
+                        <span>No documented tables in this view. Turn off <strong>Docs only</strong> to see all tables.</span>
+                    }
                     else if (string.IsNullOrEmpty(companyId) || string.IsNullOrEmpty(datasetId))
                     {
                         <span>Company ID and Dataset ID are required to load tables.</span>
@@ -320,7 +330,7 @@ else
                         <span>Get started by creating your first table in this dataset.</span>
                     }
                 </p>
-                @if (canEdit && !string.IsNullOrEmpty(companyId) && !string.IsNullOrEmpty(datasetId) && string.IsNullOrWhiteSpace(searchTerm))
+                @if (canEdit && !string.IsNullOrEmpty(companyId) && !string.IsNullOrEmpty(datasetId) && string.IsNullOrWhiteSpace(searchTerm) && !docsOnly)
                 {
                     <button class="btn btn-default" @onclick="CreateTable">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
@@ -1075,6 +1085,7 @@ else
     private List<string>? filteredItems;
     private IEnumerable<string>? pagedItems;
     private string searchTerm = string.Empty;
+    private bool docsOnly = false;   // when true, list only tables that have column documentation
     private bool sortAsc = true;
     private int currentPage = 0;
     private const int pageSize = 10;
@@ -1285,6 +1296,8 @@ else
             var names = await _httpClient.GetFromJsonAsync<List<string>>(
                 $"api/Datasets/{datasetId}/documented-tables?snapshot={snap}");
             documentedTables = names?.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? new(StringComparer.OrdinalIgnoreCase);
+            // The set loads after the initial filter pass; if "Docs only" is active, re-filter against it now.
+            if (docsOnly) ApplyFilterAndSort();
             StateHasChanged();
         }
         catch { /* doc badges are supplementary — the table list still renders without them */ }
@@ -1296,6 +1309,15 @@ else
         ApplyFilterAndSort();
         if (!string.IsNullOrWhiteSpace(searchTerm))
             _ = _activityLog.LogAsync(companyId, "table.search", "table", datasetId, route: "/data/tables", details: searchTerm);
+    }
+
+    private void ToggleDocsOnly()
+    {
+        docsOnly = !docsOnly;
+        currentPage = 0;
+        ApplyFilterAndSort();
+        _ = _activityLog.LogAsync(companyId, "table.filter_docs", "table", datasetId, route: "/data/tables",
+            details: docsOnly ? "on" : "off");
     }
 
     private void ToggleSort()
@@ -1311,6 +1333,8 @@ else
         var query = tables?.AsEnumerable() ?? [];
         if (!string.IsNullOrWhiteSpace(searchTerm))
             query = query.Where(t => t.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
+        if (docsOnly)
+            query = query.Where(t => documentedTables.Contains(t));
         query = sortAsc ? query.OrderBy(t => t) : query.OrderByDescending(t => t);
         // Pinned tables float to the top (OrderByDescending is stable, so the name sort holds within groups).
         filteredItems = query.OrderByDescending(t => pinnedTables.Contains(t)).ToList();
@@ -1377,7 +1401,11 @@ else
     private void CloseContextMenu() => contextMenuTable = null;
 
     private void CreateTable() => _navigationManager.NavigateTo($"/data/tables/create?c={companyId}&d={datasetId}");
-    private void ViewTable(string tableName) => _navigationManager.NavigateTo($"/data/view?c={companyId}&DatasetId={datasetId}&TableName={tableName}");
+    // When viewing an external dataset's live source tables, carry &source=true so the viewer reads the
+    // live source rows (the DuckDB snapshot has no such table). Otherwise it opens the snapshot as usual.
+    private void ViewTable(string tableName) => _navigationManager.NavigateTo(
+        $"/data/view?c={companyId}&DatasetId={datasetId}&TableName={Uri.EscapeDataString(tableName)}" +
+        ((isExternal && !snapshotMode) ? "&source=true" : ""));
     private void QueryTable(string tableName) => _navigationManager.NavigateTo($"/data/query?c={companyId}&DatasetId={datasetId}&TableName={tableName}");
     private void EditTable(string tableName) => _navigationManager.NavigateTo($"/data/tables/edit?c={companyId}&d={datasetId}&t={tableName}");
     // Carry the current view mode so the docs page opens on the matching layer: Source (snapshot=false)

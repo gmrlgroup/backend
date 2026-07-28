@@ -44,6 +44,10 @@ else
                     @if (DatasetInfo != null && TableInfo != null)
                     {
                         <span>@DatasetInfo.Name@(TotalRows > 0 ? $" · {TotalRows:N0} rows" : "")</span>
+                        @if (sourceMode)
+                        {
+                            <span style="margin-left:0.5rem;font-size:0.6875rem;font-weight:600;letter-spacing:0.03em;padding:0.05rem 0.4rem;border-radius:9999px;background:#eef2ff;color:#4338ca;text-transform:uppercase">Live source · preview of first @SourcePreviewCap.ToString("N0")</span>
+                        }
                     }
                     else { <span>Loading table information…</span> }
                 </p>
@@ -62,10 +66,13 @@ else
                 </button>
                 <span class="dv-divider" style="width:1px;height:22px;background:#e4e4e7;margin:0 0.25rem"></span>
             }
-            <button class="btn btn-outline dv-btn-success" style="color:#16a34a;border-color:#16a34a" @onclick="DownloadCsv" disabled="@IsLoading" title="Download the full table as CSV">
-                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-                Download
-            </button>
+            @if (!sourceMode)
+            {
+                <button class="btn btn-outline dv-btn-success" style="color:#16a34a;border-color:#16a34a" @onclick="DownloadCsv" disabled="@IsLoading" title="Download the full table as CSV">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                    Download
+                </button>
+            }
             <button class="btn btn-outline" @onclick="RefreshData" disabled="@IsLoading">
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
                 Refresh
@@ -146,8 +153,19 @@ else
     [SupplyParameterFromQuery] public string? c { get; set; }
     [SupplyParameterFromQuery] public string? DatasetId { get; set; }
     [SupplyParameterFromQuery] public string? TableName { get; set; }
+    // When true (set by the tables list when viewing an external dataset's live source), read the rows from
+    // the live source database instead of the local DuckDB snapshot.
+    [SupplyParameterFromQuery] public bool? source { get; set; }
 
     private const string GridId = "data-view-grid";
+
+    // ---- Live-source preview mode (external datasets) ----
+    // Confirmed after the dataset loads (source flag AND the dataset really is External). The source is
+    // read-only and shown as a capped preview of the first rows, fetched once and served from this cache.
+    private bool sourceMode;
+    private const int SourcePreviewCap = 1000;
+    private List<Dictionary<string, object>>? sourceRows;
+    private bool sourceRowsLoaded;
 
     private bool ShowApiDocs = false;
 
@@ -195,9 +213,13 @@ else
         if (!canView || string.IsNullOrEmpty(DatasetId) || string.IsNullOrEmpty(TableName))
             return;
 
-        var key = $"{DatasetId}|{TableName}";
+        var key = $"{DatasetId}|{TableName}|{source}";
         if (key == loadedKey) return;
         loadedKey = key;
+
+        // New table/mode — drop any cached source preview.
+        sourceRows = null;
+        sourceRowsLoaded = false;
 
         // Navigated to a different table on the same component instance — tear the grid down first.
         if (gridInitialized)
@@ -231,10 +253,26 @@ else
         try
         {
             DatasetInfo = await HttpClient.GetFromJsonAsync<Dataset>($"api/Datasets/{DatasetId}");
-            TableInfo = await HttpClient.GetFromJsonAsync<Table>($"api/Datasets/{DatasetId}/tables/{TableName}");
-            TableColumns = TableInfo?.Columns;
+            // Only treat this as a live-source view if the caller asked for it AND the dataset really is
+            // external — otherwise fall through to the normal DuckDB snapshot path.
+            sourceMode = source == true && DatasetInfo?.SourceType == DatasetSourceType.External;
+
+            if (sourceMode)
+            {
+                // The source table has no DuckDB snapshot, so read its column shape from the live source
+                // (the columns endpoint falls back to the source schema) and synthesize the table info.
+                var cols = await HttpClient.GetFromJsonAsync<List<Column>>(
+                    $"api/Datasets/{DatasetId}/tables/{Uri.EscapeDataString(TableName!)}/columns") ?? new();
+                TableColumns = cols;
+                TableInfo = new Table { TableName = TableName!, DatasetId = DatasetId!, CompanyId = c ?? string.Empty, Columns = cols };
+            }
+            else
+            {
+                TableInfo = await HttpClient.GetFromJsonAsync<Table>($"api/Datasets/{DatasetId}/tables/{TableName}");
+                TableColumns = TableInfo?.Columns;
+            }
             await LoadCommentsCount();
-            _ = ActivityLog.LogAsync(c, "table.page_open", "table", DatasetId, TableName, "/data/view");
+            _ = ActivityLog.LogAsync(c, sourceMode ? "table.page_open_source" : "table.page_open", "table", DatasetId, TableName, "/data/view");
         }
         catch (Exception ex)
         {
@@ -266,6 +304,11 @@ else
         EnsureCompanyHeader();
         EnsureUserIdHeader();
 
+        // Live source: fetch a capped preview once, then serve pages from the cache. Sort/filter from the
+        // grid header aren't pushed to the live source (this is a read-only preview), so they're ignored.
+        if (sourceMode)
+            return await FetchSourceRows(startRow, endRow);
+
         var pageSize = Math.Max(1, endRow - startRow);
         var query = new TableDataQuery
         {
@@ -290,6 +333,42 @@ else
         TotalRows = result?.TotalRows ?? (startRow + rows.Count);
         await InvokeAsync(StateHasChanged); // refresh the row count in the header
         return new FetchRowsResult { Rows = rows, LastRow = TotalRows };
+    }
+
+    // Live-source preview: load up to SourcePreviewCap rows once from the source-data endpoint, cache them,
+    // and hand the grid the requested slice. LastRow = the cached count so the grid stops at the preview.
+    private async Task<FetchRowsResult> FetchSourceRows(int startRow, int endRow)
+    {
+        if (!sourceRowsLoaded)
+        {
+            try
+            {
+                var response = await HttpClient.GetAsync(
+                    $"api/Datasets/{DatasetId}/source-tables/{Uri.EscapeDataString(TableName!)}/data?maxRows={SourcePreviewCap}");
+                if (response.IsSuccessStatusCode)
+                {
+                    var result = await response.Content.ReadFromJsonAsync<TableDataResult>();
+                    sourceRows = result?.Data ?? new();
+                }
+                else
+                {
+                    ToastService.ShowError($"Failed to load source data: {await response.Content.ReadAsStringAsync()}");
+                    sourceRows = new();
+                }
+            }
+            catch (Exception ex)
+            {
+                ToastService.ShowError($"Error loading source data: {ex.Message}");
+                sourceRows = new();
+            }
+            sourceRowsLoaded = true;
+            TotalRows = sourceRows.Count;
+            await InvokeAsync(StateHasChanged); // refresh the row count in the header
+        }
+
+        var all = sourceRows ?? new();
+        var slice = all.Skip(startRow).Take(Math.Max(1, endRow - startRow)).ToList();
+        return new FetchRowsResult { Rows = slice, LastRow = all.Count };
     }
 
     [JSInvokable]

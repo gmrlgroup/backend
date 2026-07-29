@@ -644,6 +644,52 @@ public class DatasetsController : ControllerBase
         return Ok(names.ToList());
     }
 
+    // GET: api/Datasets/{datasetId}/source-tables/{tableName}/data — a read-only preview of a live source
+    // table's rows (External datasets only). Restricted to data administrators, like source-tables. Returns
+    // up to maxRows rows via a server-side row limit so a heavy source table isn't fully evaluated.
+    [HttpGet("{datasetId}/source-tables/{tableName}/data")]
+    public async Task<ActionResult<TableDataResult>> GetSourceTableData(
+        string datasetId, string tableName, [FromQuery] int maxRows = 1000, CancellationToken ct = default)
+    {
+        var userId = Request.Headers["UserId"].ToString();
+        if (string.IsNullOrWhiteSpace(userId))
+            return BadRequest("User ID is required in headers");
+
+        var companyId = Request.Headers["X-Company-ID"].FirstOrDefault() ?? "";
+        // Reading an external database's live source data is restricted to data administrators
+        // ({companyId}_DATA_ADMIN) and company admins (implicitly allowed by HasCompanyRole), same as
+        // listing the source tables.
+        if (!User.HasCompanyRole(companyId, "DATA_ADMIN"))
+            return Forbid();
+
+        if (string.IsNullOrWhiteSpace(tableName))
+            return BadRequest("Table name is required");
+
+        var dataset = await _datasetService.GetDatasetAsync(datasetId, userId);
+        if (dataset == null)
+            return NotFound($"Dataset with ID '{datasetId}' not found.");
+        if (dataset.SourceType != Application.Shared.Enums.DatasetSourceType.External || string.IsNullOrWhiteSpace(dataset.SourceEntityId))
+            return BadRequest("This dataset is not backed by an external database.");
+
+        // Honor per-user table scoping (null = all tables).
+        var allowed = await _datasetService.GetAccessibleTablesAsync(datasetId, userId);
+        if (allowed != null && !allowed.Contains(tableName))
+            return Forbid();
+
+        var sample = await _databaseTableService.GetTableSampleAsync(dataset.SourceEntityId!, companyId, tableName, maxRows, ct);
+        if (!string.IsNullOrEmpty(sample.Error))
+            return BadRequest(sample.Error);
+
+        return Ok(new TableDataResult
+        {
+            Data = sample.Rows.Select(r => r.ToDictionary(kv => kv.Key, kv => kv.Value!)).ToList(),
+            Columns = sample.Columns,
+            TotalRows = sample.RowsReturned,
+            Page = 1,
+            PageSize = sample.RowsReturned
+        });
+    }
+
     // GET: api/datasets/{datasetId}/documented-tables?snapshot=true — names of tables that already have
     // saved column docs for the given layer (snapshot = DuckDB, false = live source), so table lists can
     // badge which tables are documented. snapshot is ignored (treated as true) for Local datasets.

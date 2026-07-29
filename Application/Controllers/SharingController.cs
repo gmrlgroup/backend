@@ -3,6 +3,7 @@ using Application.Shared.Models;
 using Application.Shared.Services.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Application.Controllers;
 
@@ -11,10 +12,12 @@ namespace Application.Controllers;
 public class SharingController : ControllerBase
 {
     private readonly IDatasetSharingService _datasetSharingService;
+    private readonly ILogger<SharingController> _logger;
 
-    public SharingController(IDatasetSharingService datasetSharingService)
+    public SharingController(IDatasetSharingService datasetSharingService, ILogger<SharingController> logger)
     {
         _datasetSharingService = datasetSharingService;
+        _logger = logger;
     }
 
     // GET: api/datasets/{datasetId}/sharing
@@ -55,14 +58,21 @@ public class SharingController : ControllerBase
         try
         {
             var success = await _datasetSharingService.ShareDatasetAsync(request, userId);
-            
+
             if (!success)
                 return BadRequest("Failed to share dataset. User may not exist or dataset not found.");
 
             return Ok(new { message = "Dataset shared successfully" });
         }
+        catch (InvalidOperationException ex)
+        {
+            // Clear, actionable reason (e.g. user not found by email, dataset missing).
+            _logger.LogWarning(ex, "[Sharing] Share dataset {DatasetId} rejected: {Reason}", datasetId, ex.Message);
+            return BadRequest(ex.Message);
+        }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "[Sharing] Failed to share dataset {DatasetId} with {Email}.", datasetId, request?.Email);
             return BadRequest($"Error sharing dataset: {ex.Message}");
         }
     }
@@ -93,8 +103,15 @@ public class SharingController : ControllerBase
 
             return Ok(new { message = "Table shared successfully" });
         }
+        catch (InvalidOperationException ex)
+        {
+            // Clear, actionable reason (e.g. user not found by email, dataset missing).
+            _logger.LogWarning(ex, "[Sharing] Grant table on dataset {DatasetId} rejected: {Reason}", datasetId, ex.Message);
+            return BadRequest(ex.Message);
+        }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "[Sharing] Failed to grant table on dataset {DatasetId} to {Email}.", datasetId, request?.Email);
             return BadRequest($"Error sharing table: {ex.Message}");
         }
     }

@@ -179,15 +179,11 @@ else
     private bool showRemoveConfirm;
     private DatasetTablePicker? picker;
 
-    // A column counts as documented if it has any saved doc content (or the AI-generated flag). Undocumented
-    // tables have no docs to remove, so the Remove button only shows when at least one column is documented.
-    private IEnumerable<ColumnDocDto> DocumentedColumns => doc?.Columns.Where(c =>
-        c.IsAiGenerated || c.IsPii ||
-        !string.IsNullOrWhiteSpace(c.DisplayName) ||
-        !string.IsNullOrWhiteSpace(c.Description) ||
-        !string.IsNullOrWhiteSpace(c.SemanticType) ||
-        !string.IsNullOrWhiteSpace(c.Unit) ||
-        !string.IsNullOrWhiteSpace(c.PiiType)) ?? Enumerable.Empty<ColumnDocDto>();
+    // A column counts as documented when a row actually exists for it in dataset_column_doc (HasSavedDoc) —
+    // the same "a row exists" rule that drives the docs badge. Basing the Remove button/count on this (rather
+    // than on visible content) means it stays available to clear out saved rows even if they've been emptied.
+    private IEnumerable<ColumnDocDto> DocumentedColumns =>
+        doc?.Columns.Where(c => c.HasSavedDoc) ?? Enumerable.Empty<ColumnDocDto>();
     private int documentedCount => DocumentedColumns.Count();
     private bool HasAnyDocs => documentedCount > 0;
 

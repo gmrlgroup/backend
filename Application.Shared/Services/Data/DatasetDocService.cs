@@ -100,6 +100,7 @@ public class DatasetDocService : IDatasetDocService
                 IsPii = doc?.IsPii ?? false,
                 PiiType = doc?.PiiType,
                 IsAiGenerated = doc?.IsAiGenerated ?? false,
+                HasSavedDoc = doc is not null,
             });
         }
         return result;
@@ -218,6 +219,20 @@ public class DatasetDocService : IDatasetDocService
         {
             if (string.IsNullOrWhiteSpace(item.ColumnName)) continue;
 
+            // A doc with no content carries no information. Don't persist a blank row: remove any existing
+            // one and skip creating a new one. This keeps "documented" (a row exists) meaningful, so clearing
+            // a column's docs and saving actually removes the record instead of leaving an empty shell that
+            // still counts as documented.
+            if (IsEmptyDoc(item))
+            {
+                if (byName.TryGetValue(item.ColumnName, out var stale))
+                {
+                    _db.DatasetColumnDoc.Remove(stale);
+                    byName.Remove(item.ColumnName);
+                }
+                continue;
+            }
+
             if (!byName.TryGetValue(item.ColumnName, out var doc))
             {
                 doc = new DatasetColumnDoc
@@ -254,4 +269,14 @@ public class DatasetDocService : IDatasetDocService
         var v = value.Trim();
         return v.Length > max ? v.Substring(0, max) : v;
     }
+
+    // A column doc holds no information when every editable field is blank and it isn't flagged as PII.
+    // (is_ai_generated is a provenance flag we set ourselves, not user content, so it doesn't count.)
+    private static bool IsEmptyDoc(SaveColumnDocRequest i) =>
+        string.IsNullOrWhiteSpace(i.DisplayName) &&
+        string.IsNullOrWhiteSpace(i.Description) &&
+        string.IsNullOrWhiteSpace(i.SemanticType) &&
+        string.IsNullOrWhiteSpace(i.Unit) &&
+        string.IsNullOrWhiteSpace(i.PiiType) &&
+        !i.IsPii;
 }

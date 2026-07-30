@@ -109,6 +109,32 @@ public class DatasetDocsController : ControllerBase
         return Ok(await _docs.GetTableDocsAsync(companyId, datasetId, tableName, snapshotMode, HttpContext.RequestAborted));
     }
 
+    // DELETE: remove the entire saved documentation overlay for this table in the given layer. The table's
+    // live columns are untouched — only the docs are cleared. Returns the refreshed (now-undocumented) view.
+    [HttpDelete]
+    public async Task<ActionResult<TableDocDto>> Delete(string datasetId, string tableName, [FromQuery] bool snapshot = true)
+    {
+        var (companyId, userId, error) = ReadHeaders();
+        if (error != null) return BadRequest(error);
+        if (!User.HasCompanyRole(companyId, "DATA_ADMIN")) return Forbid();
+
+        var dataset = await _datasetService.GetDatasetAsync(datasetId, userId);
+        if (dataset == null) return NotFound($"Dataset '{datasetId}' not found.");
+        var snapshotMode = ResolveSnapshotMode(dataset, snapshot);
+
+        var sw = Stopwatch.StartNew();
+        var deleted = await _docs.DeleteTableDocsAsync(companyId, datasetId, tableName, snapshotMode, HttpContext.RequestAborted);
+        sw.Stop();
+
+        await _debug.LogAsync(companyId, DebugLevel.Info, "DataDocs",
+            $"Deleted docs for '{tableName}': {deleted} column doc(s) (snapshot={snapshotMode}).",
+            datasetId: datasetId, tableName: tableName, userId: userId,
+            durationMs: sw.ElapsedMilliseconds, context: new { deleted, snapshotMode },
+            ct: HttpContext.RequestAborted);
+
+        return Ok(await _docs.GetTableDocsAsync(companyId, datasetId, tableName, snapshotMode, HttpContext.RequestAborted));
+    }
+
     // PUT: save user edits to column docs.
     [HttpPut]
     public async Task<ActionResult<TableDocDto>> Save(string datasetId, string tableName, [FromBody] List<SaveColumnDocRequest> edits, [FromQuery] bool snapshot = true)

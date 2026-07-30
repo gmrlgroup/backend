@@ -29,6 +29,14 @@ else
         @if (canEdit && !string.IsNullOrEmpty(selectedTable))
         {
             <div class="dd-actions">
+                @if (HasAnyDocs)
+                {
+                    <button class="btn dd-btn-danger" @onclick="ConfirmRemove" disabled="@(saving || generating || removing || loadingDocs)"
+                            title="Delete all saved documentation for this table (does not affect the table's data)">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                        <span>Remove docs</span>
+                    </button>
+                }
                 <button class="btn btn-secondary" @onclick="Generate" disabled="@(generating || saving)">
                     @if (generating)
                     {
@@ -48,7 +56,8 @@ else
     </div>
 
     <div class="dd-pickers">
-        <DatasetTablePicker CompanyId="@(companyId ?? string.Empty)"
+        <DatasetTablePicker @ref="picker"
+                            CompanyId="@(companyId ?? string.Empty)"
                             UserId="@userId"
                             TableLabel="Table"
                             ShowDocsBadge="true"
@@ -114,6 +123,26 @@ else
         <div class="dd-empty">Pick a dataset and table to view and document its columns.</div>
     }
 </div>
+
+@if (showRemoveConfirm)
+{
+    <div class="dd-modal-overlay" @onclick="CancelRemove">
+        <div class="dd-modal" @onclick:stopPropagation="true">
+            <h2 class="dd-modal-title">Remove documentation?</h2>
+            <p class="dd-modal-body">
+                This deletes all saved documentation for <strong>@selectedTable</strong>
+                (@documentedCount column@(documentedCount == 1 ? "" : "s"))@(snapshotMode ? "" : " on the live source layer").
+                The table's data and columns are not affected. This can't be undone.
+            </p>
+            <div class="dd-modal-actions">
+                <button class="btn btn-secondary" @onclick="CancelRemove" disabled="@removing">Cancel</button>
+                <button class="btn dd-btn-danger" @onclick="RemoveDocs" disabled="@removing">
+                    @if (removing) { <span class="ds-spinner"></span> <span>Removing…</span> } else { <span>Remove docs</span> }
+                </button>
+            </div>
+        </div>
+    </div>
+}
 }
 
 @code {
@@ -146,7 +175,21 @@ else
     private string SnapshotFlag => snapshotMode ? "true" : "false";
 
     private TableDocDto? doc;
-    private bool loadingDocs, generating, saving;
+    private bool loadingDocs, generating, saving, removing;
+    private bool showRemoveConfirm;
+    private DatasetTablePicker? picker;
+
+    // A column counts as documented if it has any saved doc content (or the AI-generated flag). Undocumented
+    // tables have no docs to remove, so the Remove button only shows when at least one column is documented.
+    private IEnumerable<ColumnDocDto> DocumentedColumns => doc?.Columns.Where(c =>
+        c.IsAiGenerated || c.IsPii ||
+        !string.IsNullOrWhiteSpace(c.DisplayName) ||
+        !string.IsNullOrWhiteSpace(c.Description) ||
+        !string.IsNullOrWhiteSpace(c.SemanticType) ||
+        !string.IsNullOrWhiteSpace(c.Unit) ||
+        !string.IsNullOrWhiteSpace(c.PiiType)) ?? Enumerable.Empty<ColumnDocDto>();
+    private int documentedCount => DocumentedColumns.Count();
+    private bool HasAnyDocs => documentedCount > 0;
 
     protected override async Task OnInitializedAsync()
     {
@@ -229,6 +272,7 @@ else
             if (response.IsSuccessStatusCode)
             {
                 doc = await response.Content.ReadFromJsonAsync<TableDocDto>();
+                picker?.SetTableDocumented(selectedTable, true);
                 _toastService.ShowSuccess("AI documentation generated — review and save.");
             }
             else
@@ -266,6 +310,7 @@ else
             if (response.IsSuccessStatusCode)
             {
                 doc = await response.Content.ReadFromJsonAsync<TableDocDto>();
+                picker?.SetTableDocumented(selectedTable, HasAnyDocs);
                 _toastService.ShowSuccess("Documentation saved.");
             }
             else
@@ -279,6 +324,42 @@ else
         }
         finally { saving = false; StateHasChanged(); }
     }
+
+    private void ConfirmRemove()
+    {
+        if (!HasAnyDocs) return;
+        showRemoveConfirm = true;
+    }
+
+    private void CancelRemove() => showRemoveConfirm = false;
+
+    private async Task RemoveDocs()
+    {
+        if (string.IsNullOrEmpty(selectedTable)) return;
+        removing = true;
+        StateHasChanged();
+        try
+        {
+            var response = await _httpClient.DeleteAsync($"api/datasets/{selectedDatasetId}/tables/{Uri.EscapeDataString(selectedTable)}/docs?snapshot={SnapshotFlag}");
+            if (response.IsSuccessStatusCode)
+            {
+                doc = await response.Content.ReadFromJsonAsync<TableDocDto>();
+                showRemoveConfirm = false;
+                picker?.SetTableDocumented(selectedTable, false);
+                _toastService.ShowSuccess("Documentation removed.");
+            }
+            else
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                _toastService.ShowError($"Failed to remove documentation ({(int)response.StatusCode}): {body}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _toastService.ShowError($"Remove error: {ex.Message}");
+        }
+        finally { removing = false; StateHasChanged(); }
+    }
 }
 
 <style>
@@ -287,6 +368,16 @@ else
     .dd-title { margin:0; font-size:1.25rem; font-weight:700; color:#18181b; }
     .dd-subtitle { margin:0.2rem 0 0; font-size:0.85rem; color:#71717a; max-width:60ch; }
     .dd-actions { display:flex; gap:0.5rem; flex-shrink:0; }
+    .dd-btn-danger { color:#b91c1c; background:#fff; border:1px solid #fecaca; }
+    .dd-btn-danger:hover:not(:disabled) { background:#fef2f2; border-color:#fca5a5; }
+
+    /* ---- Remove-docs confirmation modal ---- */
+    .dd-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; z-index:1000; padding:1rem; }
+    .dd-modal { background:#fff; border-radius:12px; padding:1.25rem 1.5rem; max-width:440px; width:100%; box-shadow:0 20px 40px rgba(0,0,0,0.2); }
+    .dd-modal-title { margin:0 0 0.5rem; font-size:1.05rem; font-weight:700; color:#18181b; }
+    .dd-modal-body { margin:0 0 1.1rem; font-size:0.875rem; color:#52525b; line-height:1.5; }
+    .dd-modal-body strong { color:#18181b; }
+    .dd-modal-actions { display:flex; justify-content:flex-end; gap:0.5rem; }
     .dd-pickers { display:flex; gap:1rem; margin-bottom:1rem; flex-wrap:wrap; }
     .dd-field { display:flex; flex-direction:column; gap:0.25rem; min-width:240px; }
     .dd-label { font-size:0.75rem; font-weight:600; color:#52525b; }
@@ -322,4 +413,10 @@ else
     [data-theme="dark"] .dd-colname { color:#e6e9ef; }
     [data-theme="dark"] .dd-type { color:#9aa1ac; }
     [data-theme="dark"] .dd-badge { color:#a5b4fc; background:rgba(99,102,241,.15); }
+    [data-theme="dark"] .dd-btn-danger { color:#fca5a5; background:#181a20; border-color:#7f1d1d; }
+    [data-theme="dark"] .dd-btn-danger:hover:not(:disabled) { background:rgba(153,27,27,0.18); border-color:#b91c1c; }
+    [data-theme="dark"] .dd-modal { background:#181a20; box-shadow:0 20px 40px rgba(0,0,0,0.5); }
+    [data-theme="dark"] .dd-modal-title { color:#f3f4f6; }
+    [data-theme="dark"] .dd-modal-body { color:#9aa1ac; }
+    [data-theme="dark"] .dd-modal-body strong { color:#e6e9ef; }
 </style>

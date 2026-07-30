@@ -264,24 +264,30 @@ else
                             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></svg>
                             Share this table
                         </button>
-                        <button class="ctx-item" @onclick="() => { CloseContextMenu(); OpenConnect(t); }">
+                        <button class="ctx-item" @onclick="() => { CloseContextMenu(); _ = OpenConnect(t); }">
                             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                             Connect to a dashboard
                         </button>
-                        <button class="ctx-item" @onclick="() => { CloseContextMenu(); OpenMoveTable(t); }">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v4"/><path d="M3 5h4"/><path d="M6 17v4"/><path d="M4 19h4"/><path d="M13 3l8.5 8.5a2.12 2.12 0 0 1 0 3L13 23"/></svg>
-                            Move to another dataset
-                        </button>
+                        @if (!SourceMode)
+                        {
+                            <button class="ctx-item" @onclick="() => { CloseContextMenu(); _ = OpenMoveTable(t); }">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v4"/><path d="M3 5h4"/><path d="M6 17v4"/><path d="M4 19h4"/><path d="M13 3l8.5 8.5a2.12 2.12 0 0 1 0 3L13 23"/></svg>
+                                Move to another dataset
+                            </button>
+                        }
                     }
                     <div class="ctx-sep"></div>
                     <button class="ctx-item" @onclick="() => { CloseContextMenu(); EditTable(t); }">
                         <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                         Edit table structure
                     </button>
-                    <button class="ctx-item ctx-item-danger" @onclick="() => { CloseContextMenu(); _ = DeleteTable(t); }">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                        Delete table
-                    </button>
+                    @if (!SourceMode)
+                    {
+                        <button class="ctx-item ctx-item-danger" @onclick="() => { CloseContextMenu(); _ = DeleteTable(t); }">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                            Delete table
+                        </button>
+                    }
                 </div>
             }
 
@@ -976,6 +982,7 @@ else
 
     private async Task OpenMoveTable(string tableName)
     {
+        if (SourceMode) { _toastService.ShowWarning("Source tables of an external dataset are read-only and can't be moved. Switch to Snapshot to manage the local copy."); return; }
         moveTableName = tableName;
         moveTargetDatasetId = string.Empty;
         showMoveTable = true;
@@ -1102,6 +1109,10 @@ else
     private bool isExternal;
     private bool snapshotMode = true;
     private bool modeInitialized;
+    // True when we're showing an external dataset's live Source layer. These tables live in the external
+    // database (the delete endpoint only ever drops the local DuckDB snapshot), so structure-changing
+    // actions like Delete must not be offered here — the source is read-only from this app.
+    private bool SourceMode => isExternal && !snapshotMode;
     // Viewing an external dataset's live source tables is limited to data admins ({companyId}_DATA_ADMIN)
     // and company admins; everyone else only ever sees the local DuckDB snapshot.
     private bool canViewSource;
@@ -1453,6 +1464,7 @@ else
     private async Task DeleteTable(string tableName)
     {
         if (string.IsNullOrEmpty(tableName)) { _toastService.ShowError("Invalid table name"); return; }
+        if (SourceMode) { _toastService.ShowWarning("Source tables of an external dataset are read-only and can't be deleted. Switch to Snapshot to manage the local copy."); return; }
         try
         {
             var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();

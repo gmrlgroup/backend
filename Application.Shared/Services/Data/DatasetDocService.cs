@@ -31,6 +31,13 @@ public interface IDatasetDocService
     Task ApplyGeneratedDocsAsync(string companyId, string datasetId, string tableName, bool snapshotMode, List<SaveColumnDocRequest> generated, CancellationToken ct = default);
 
     /// <summary>
+    /// Deletes the entire saved documentation overlay for one table in the given layer
+    /// (<paramref name="snapshotMode"/> true = DuckDB snapshot; false = live source). The table's live
+    /// columns are untouched — only the docs are removed. Returns the number of column docs deleted.
+    /// </summary>
+    Task<int> DeleteTableDocsAsync(string companyId, string datasetId, string tableName, bool snapshotMode, CancellationToken ct = default);
+
+    /// <summary>
     /// The live columns (name + structural type) of a table, read from the dataset's DuckDB snapshot
     /// (<paramref name="snapshotMode"/> true) or from the External dataset's live source (false). Returns
     /// an empty list when the source can't be reached or the dataset isn't external in source mode.
@@ -135,6 +142,20 @@ public class DatasetDocService : IDatasetDocService
 
     public Task ApplyGeneratedDocsAsync(string companyId, string datasetId, string tableName, bool snapshotMode, List<SaveColumnDocRequest> generated, CancellationToken ct = default)
         => UpsertAsync(companyId, datasetId, tableName, snapshotMode, generated, aiGenerated: true, userId: null, ct);
+
+    public async Task<int> DeleteTableDocsAsync(string companyId, string datasetId, string tableName, bool snapshotMode, CancellationToken ct = default)
+    {
+        var deleted = await _db.DatasetColumnDoc
+            .Where(d => d.CompanyId == companyId && d.DatasetId == datasetId && d.TableName == tableName && d.IsSnapshot == snapshotMode)
+            .ExecuteDeleteAsync(ct);
+
+        await _debug.LogAsync(companyId, DebugLevel.Info, "DataDocs",
+            $"Removed documentation for '{tableName}': {deleted} column doc(s) deleted (snapshot={snapshotMode}).",
+            datasetId: datasetId, tableName: tableName,
+            context: new { deleted, snapshotMode }, ct: ct);
+
+        return deleted;
+    }
 
     public async Task<List<Column>> GetLiveColumnsAsync(string companyId, string datasetId, string tableName, bool snapshotMode, CancellationToken ct = default)
     {

@@ -426,6 +426,27 @@
         catch { return default; }
     }
 
+    /// <summary>
+    /// Reloads the current dataset's table list from the server — including the docs badges when
+    /// <see cref="ShowDocsBadge"/> is set. Call this after the docs overlay changes (generate/save/remove)
+    /// so the badges reflect the new state without needing a dataset or mode switch.
+    /// </summary>
+    public Task RefreshTablesAsync() => LoadTablesAsync();
+
+    /// <summary>
+    /// Updates the docs badge for a single already-loaded table in place — no server round-trip, so it's
+    /// immune to HTTP caching of the documented-tables list. Call right after the docs overlay for
+    /// <paramref name="tableName"/> changes (removed → false, saved/generated → true) so the badge reflects
+    /// it immediately. No-op if the table isn't in the current list.
+    /// </summary>
+    public void SetTableDocumented(string tableName, bool documented)
+    {
+        var idx = _tables.FindIndex(t => string.Equals(t.Name, tableName, StringComparison.OrdinalIgnoreCase));
+        if (idx < 0 || _tables[idx].Documented == documented) return;
+        _tables[idx] = _tables[idx] with { Documented = documented };
+        StateHasChanged();
+    }
+
     // ── Selection ───────────────────────────────────────────────────────────
     private async Task SelectDataset(string? id)
     {

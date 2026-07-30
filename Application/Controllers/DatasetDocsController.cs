@@ -40,6 +40,7 @@ public class DatasetDocsController : ControllerBase
     // GET: live columns merged with saved docs. snapshot=false (only honored for External datasets)
     // documents the live source table; snapshot=true documents the dataset's DuckDB snapshot.
     [HttpGet]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<ActionResult<TableDocDto>> Get(string datasetId, string tableName, [FromQuery] bool snapshot = true)
     {
         var (companyId, userId, error) = ReadHeaders();

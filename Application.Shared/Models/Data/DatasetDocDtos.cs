@@ -19,6 +19,12 @@ public class ColumnDocDto
     public string? PiiType { get; set; }
     /// <summary>True when the current values came from the AI generator and haven't been hand-edited.</summary>
     public bool IsAiGenerated { get; set; }
+    /// <summary>
+    /// True when a documentation row actually exists for this column in <c>dataset_column_doc</c> — i.e. it
+    /// has been saved/generated (even if later emptied). Distinguishes a persisted-but-blank doc from a
+    /// column that was never documented; drives whether there's anything to remove.
+    /// </summary>
+    public bool HasSavedDoc { get; set; }
 }
 
 /// <summary>Documentation for all columns of one dataset table.</summary>

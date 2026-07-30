@@ -693,7 +693,10 @@ public class DatasetsController : ControllerBase
     // GET: api/datasets/{datasetId}/documented-tables?snapshot=true — names of tables that already have
     // saved column docs for the given layer (snapshot = DuckDB, false = live source), so table lists can
     // badge which tables are documented. snapshot is ignored (treated as true) for Local datasets.
+    // no-store: the docs badge must reflect the live overlay. Without this the browser can serve a stale
+    // cached list after docs are added/removed, so a page refresh would show the wrong "docs" tags.
     [HttpGet("{datasetId}/documented-tables")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<ActionResult<IEnumerable<string>>> GetDocumentedTables(string datasetId, [FromQuery] bool snapshot = true)
     {
         var userId = Request.Headers["UserId"].ToString();

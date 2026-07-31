@@ -1,4 +1,6 @@
 @page "/admin/settings"
+@using Application.Shared.Models
+@using System.Globalization
 @inject DebugLogClientService _debugLogClient
 @inject AuthenticationStateProvider _authenticationStateProvider
 @inject IToastService _toastService
@@ -23,6 +25,31 @@
                                   @bind-Value:after="OnToggleAsync"
                                   Disabled="@(_loading || _saving)" />
                 </div>
+
+                <hr class="settings-sep" />
+
+                <div class="settings-row">
+                    <div class="settings-text">
+                        <div class="settings-title">Export date format</div>
+                        <div class="settings-desc">
+                            How dates are written into CSV downloads (for example the <strong>Download</strong>
+                            button on a table's data view). Values that carry a time keep it, appended as
+                            <code>HH:mm:ss</code>. The API-key export isn't affected — it always writes ISO 8601
+                            so machine consumers get a stable shape.
+                        </div>
+                    </div>
+                    <div class="settings-control">
+                        <select class="settings-select" @bind="_exportDateFormat"
+                                @bind:after="OnExportFormatChangedAsync"
+                                disabled="@(_loading || _saving)">
+                            @foreach (var format in ExportDateFormats.Allowed)
+                            {
+                                <option value="@format">@format@(format == ExportDateFormats.Default ? "  (default)" : "")</option>
+                            }
+                        </select>
+                        <div class="settings-preview">Example: @ExamplePreview</div>
+                    </div>
+                </div>
             </div>
         </div>
     </Authorized>
@@ -41,6 +68,13 @@
     private bool _loading = true;
     private bool _saving;
     private string? _userId;
+    private string _exportDateFormat = ExportDateFormats.Default;
+
+    // A deliberately unambiguous sample (day 31 can't be read as a month), so the difference between the
+    // day-first and month-first patterns is obvious. Formatted invariantly to match what the export writes.
+    private static readonly DateTime ExampleDate = new(2026, 3, 31);
+    private string ExamplePreview => ExampleDate.ToString(
+        ExportDateFormats.Resolve(_exportDateFormat), CultureInfo.InvariantCulture);
 
     protected override async Task OnInitializedAsync()
     {
@@ -51,6 +85,7 @@
         {
             var settings = await _debugLogClient.GetSettingsAsync(companyId);
             _debugEnabled = settings?.DebugLoggingEnabled ?? false;
+            _exportDateFormat = ExportDateFormats.Resolve(settings?.ExportDateFormat);
         }
         _loading = false;
     }
@@ -73,6 +108,35 @@
             _debugEnabled = !_debugEnabled; // revert the switch on failure
         }
     }
+
+    private async Task OnExportFormatChangedAsync()
+    {
+        if (string.IsNullOrWhiteSpace(companyId)) return;
+
+        var requested = _exportDateFormat;
+        _saving = true;
+        // Send the debug toggle's current value alongside it: the API applies DebugLoggingEnabled on every
+        // PUT, so omitting it here would silently turn debug logging off.
+        var saved = await _debugLogClient.SaveSettingsAsync(companyId, _userId, new CompanySettingsDto
+        {
+            DebugLoggingEnabled = _debugEnabled,
+            ExportDateFormat = requested,
+        });
+        _saving = false;
+
+        if (saved != null)
+        {
+            _exportDateFormat = ExportDateFormats.Resolve(saved.ExportDateFormat);
+            _toastService.ShowSuccess($"Exports will use {_exportDateFormat}.");
+        }
+        else
+        {
+            _toastService.ShowError("Couldn't update the export date format.");
+            // Re-read so the dropdown shows what's actually stored rather than the failed choice.
+            var current = await _debugLogClient.GetSettingsAsync(companyId);
+            _exportDateFormat = ExportDateFormats.Resolve(current?.ExportDateFormat);
+        }
+    }
 }
 
 <style>
@@ -85,8 +149,31 @@
     .settings-text { display: flex; flex-direction: column; gap: 0.25rem; }
     .settings-title { font-size: 0.9375rem; font-weight: 600; color: #18181b; }
     .settings-desc { font-size: 0.8125rem; color: #52525b; line-height: 1.45; max-width: 560px; }
+    .settings-desc code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem;
+        background: #f4f4f5; border-radius: 4px; padding: 0.05rem 0.25rem;
+    }
+    .settings-sep { border: none; border-top: 1px solid #e5e7eb; margin: 1rem 0; }
+    .settings-control { display: flex; flex-direction: column; align-items: flex-end; gap: 0.3rem; flex-shrink: 0; }
+    .settings-select {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8125rem;
+        padding: 0.4rem 0.55rem; border: 1px solid #e4e4e7; border-radius: 7px;
+        background: #fff; color: #18181b; cursor: pointer; min-width: 170px;
+    }
+    .settings-select:focus { outline: none; border-color: #18181b; box-shadow: 0 0 0 2px rgba(24,24,27,0.08); }
+    .settings-select:disabled { background: #fafafa; opacity: 0.65; cursor: not-allowed; }
+    .settings-preview {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.75rem; color: #71717a; font-variant-numeric: tabular-nums;
+    }
 
     [data-theme="dark"] .settings-card { background: #181a20; border-color: #2b303b; }
     [data-theme="dark"] .settings-title { color: #f3f4f6; }
     [data-theme="dark"] .settings-desc { color: #c5cad4; }
+    [data-theme="dark"] .settings-desc code { background: #23272f; }
+    [data-theme="dark"] .settings-sep { border-top-color: #2b303b; }
+    [data-theme="dark"] .settings-select { background: #12141a; border-color: #2b303b; color: #f3f4f6; }
+    [data-theme="dark"] .settings-select:focus { border-color: #818cf8; box-shadow: 0 0 0 2px rgba(129,140,248,0.2); }
+    [data-theme="dark"] .settings-select:disabled { background: #16181e; }
+    [data-theme="dark"] .settings-preview { color: #9aa1ac; }
 </style>

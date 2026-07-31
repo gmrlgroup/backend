@@ -32,6 +32,7 @@ public class DatasetsController : ControllerBase
     private readonly IDatasetTableMoveService _tableMoveService;
     private readonly Application.Shared.Services.Data.IUserDatasetPreferenceService _preferences;
     private readonly IDatasetDocService _docService;
+    private readonly Application.Shared.Services.ICompanySettingsService _companySettings;
 
     public DatasetsController(
         IDatasetService datasetService,
@@ -43,7 +44,8 @@ public class DatasetsController : ControllerBase
         IDatasetSharingService sharingService,
         IDatasetTableMoveService tableMoveService,
         Application.Shared.Services.Data.IUserDatasetPreferenceService preferences,
-        IDatasetDocService docService)
+        IDatasetDocService docService,
+        Application.Shared.Services.ICompanySettingsService companySettings)
     {
         _datasetService = datasetService;
         _duckdbService = duckdbService;
@@ -55,6 +57,7 @@ public class DatasetsController : ControllerBase
         _tableMoveService = tableMoveService;
         _preferences = preferences;
         _docService = docService;
+        _companySettings = companySettings;
     }
 
     // GET: api/Datasets/{companyId}
@@ -925,10 +928,12 @@ public class DatasetsController : ControllerBase
                 csvContent.AppendLine(headers);
             }
             
-            // Add data rows
+            // Add data rows. Dates use the company's configured export format (default dd/MM/yyyy) — a bare
+            // ToString() here would format with the server's culture and emit MM/dd/yyyy.
+            var dateFormat = await _companySettings.GetExportDateFormatAsync(companyId, HttpContext.RequestAborted);
             foreach (var row in tableDataResult.Data)
             {
-                var values = string.Join(",", row.Values.Select(v => $"\"{v?.ToString()?.Replace("\"", "\"\"") ?? ""}\""));
+                var values = string.Join(",", row.Values.Select(v => CsvExportFormatter.Field(v, dateFormat)));
                 csvContent.AppendLine(values);
             }
 
@@ -1008,13 +1013,15 @@ public class DatasetsController : ControllerBase
             var headers = string.Join(",", columnHeaders.Select(h => $"\"{h}\""));
             csvContent.AppendLine(headers);
             
-            // Add data rows - only include selected columns
+            // Add data rows - only include selected columns. Dates use the company's configured export
+            // format (default dd/MM/yyyy); see CsvExportFormatter for why a bare ToString() is wrong here.
+            var dateFormat = await _companySettings.GetExportDateFormatAsync(companyId, HttpContext.RequestAborted);
             foreach (var row in tableDataResult.Data)
             {
-                var values = columnHeaders.Select(col => 
+                var values = columnHeaders.Select(col =>
                 {
-                    var value = row.ContainsKey(col) ? row[col] : "";
-                    return $"\"{value?.ToString()?.Replace("\"", "\"\"") ?? ""}\"";
+                    var value = row.TryGetValue(col, out var cell) ? cell : "";
+                    return CsvExportFormatter.Field(value, dateFormat);
                 });
                 csvContent.AppendLine(string.Join(",", values));
             }

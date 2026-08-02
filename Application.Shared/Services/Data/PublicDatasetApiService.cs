@@ -16,6 +16,15 @@ namespace Application.Shared.Services.Data;
 public interface IPublicDatasetApiService
 {
     Task<List<PublicDatasetDto>> GetUserDatasetsAsync(string companyId, string userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Creates the acting user's personal ("user") dataset and returns it ready to open. Always inserts a
+    /// new row — callers that want at-most-one should check <see cref="GetUserDatasetAsync"/> first.
+    /// </summary>
+    Task<PublicDatasetDto> CreateUserDatasetAsync(string companyId, string userId, CreateUserDatasetRequest request, CancellationToken ct = default);
+
+    /// <summary>The acting user's personal dataset, or null when they don't have one yet.</summary>
+    Task<PublicDatasetDto?> GetUserDatasetAsync(string companyId, string userId, CancellationToken ct = default);
     Task<DataCatalogDto?> GetDataCatalogAsync(string companyId, string userId, string datasetId, CancellationToken ct = default);
     Task<List<UserTableAccessDto>> GetUserTableAccessAsync(string companyId, string userId, string datasetId, CancellationToken ct = default);
     Task<List<UserColumnAccessDto>> GetUserColumnAccessAsync(string companyId, string userId, string datasetId, CancellationToken ct = default);
@@ -91,6 +100,91 @@ public class PublicDatasetApiService : IPublicDatasetApiService
             IsDeleted = false,
             // host/port/username/password/driver intentionally empty (sourced only when connecting).
         }).ToList();
+    }
+
+    // Fallbacks when the caller sends blanks, so a personal dataset is always openable.
+    private const string DefaultUserDatasetDescription = "this is your personal dataset";
+    private const string DefaultUserDatasetPath = "E://duckdb/chat";
+
+    public async Task<PublicDatasetDto> CreateUserDatasetAsync(string companyId, string userId, CreateUserDatasetRequest request, CancellationToken ct = default)
+    {
+        // Inserted straight through the DbContext rather than via DatasetService.CreateDatasetAsync on
+        // purpose: that path enforces the Dataset.Name regex (letters/digits/spaces only) and per-company
+        // name uniqueness, which would reject usernames containing '.' or '@' and refuse a second personal
+        // dataset. EF Core doesn't evaluate the model's validation attributes on save, so a direct insert
+        // accepts the username verbatim.
+        var now = DateTime.UtcNow;
+        var dataset = new Dataset
+        {
+            Id = Guid.NewGuid().ToString(),
+            CompanyId = companyId,
+            Name = request.Name.Trim(),
+            Description = string.IsNullOrWhiteSpace(request.Description)
+                ? DefaultUserDatasetDescription
+                : request.Description.Trim(),
+            SourceType = DatasetSourceType.Local,
+            SourceEntityId = null,
+            Path = string.IsNullOrWhiteSpace(request.Path) ? DefaultUserDatasetPath : request.Path.Trim(),
+            IsUserDataset = true,
+            CreatedBy = userId,
+            CreatedAt = now,
+            ModifiedAt = now
+            // The `type` column has no mapped property, so it takes its DB default of 0.
+        };
+
+        _db.Dataset.Add(dataset);
+        await _db.SaveChangesAsync(ct);
+
+        // DatasetService.CreateDatasetAsync would also create the DuckDB file here. Do it too, or the
+        // directory won't exist and the consumer's first open of Host fails (DuckDB creates a missing file
+        // but not a missing folder). Best-effort: the row is already committed, so a storage problem must
+        // not surface as a failed create — the caller would retry and duplicate the dataset.
+        // No DatasetUser row is needed: CreatedBy == userId already grants owner access in
+        // DatasetService.GetDatasetAsync/GetAccessibleTablesAsync, which the other public endpoints use.
+        try { await _duckdb.EnsureDatabaseAsync(dataset.Id!); } catch { /* surfaced on first use instead */ }
+
+        return ToUserDatasetDto(dataset);
+    }
+
+    public async Task<PublicDatasetDto?> GetUserDatasetAsync(string companyId, string userId, CancellationToken ct = default)
+    {
+        // Deliberately not GetUserDatasetsAsync: that filters to datasets with data docs, and a freshly
+        // provisioned personal dataset has none yet but must still be returned.
+        var dataset = await _db.Dataset.AsNoTracking()
+            .Where(d => d.CompanyId == companyId && d.CreatedBy == userId && d.IsUserDataset)
+            .OrderByDescending(d => d.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+
+        return dataset == null ? null : ToUserDatasetDto(dataset);
+    }
+
+    /// <summary>
+    /// Maps a personal dataset into the shape the chat app opens directly: the DuckDB file path goes in
+    /// <c>Host</c> and the engine is reported as DuckDB, because the consumer never re-fetches credentials
+    /// for it. Path construction mirrors <see cref="GetCredentialAsync"/>'s Local branch and DuckdbService's
+    /// own resolution, so this points at the same file the backend would open.
+    /// </summary>
+    private PublicDatasetDto ToUserDatasetDto(Dataset d)
+    {
+        var dir = string.IsNullOrWhiteSpace(d.Path) ? _duckdbOption.DuckdbFilePath : d.Path!;
+        return new PublicDatasetDto
+        {
+            Id = d.Id ?? string.Empty,
+            Name = d.Name ?? string.Empty,
+            Description = d.Description ?? string.Empty,
+            CompanyId = d.CompanyId ?? string.Empty,
+            Type = DuckDbType,
+            // Trim() as well as the separator: DuckdbService normalises a user-typed path the same way, and
+            // a trailing space would otherwise point Host at a file the backend never wrote.
+            Host = $"{(dir ?? string.Empty).Trim().TrimEnd('/', '\\')}/{d.Id}.duckdb",
+            Port = 0,
+            Username = string.Empty,
+            Password = string.Empty,
+            Driver = string.Empty,
+            IsDefault = false,
+            IsMessageDataset = true,
+            IsDeleted = false
+        };
     }
 
     private static int ResolveType(Dataset d, IReadOnlyDictionary<string, DataSourceType> engineByEntity)

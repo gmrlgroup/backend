@@ -122,12 +122,15 @@ public class ExternalDataController : ControllerBase
                 headers = data.Data.First().Keys.ToList();
 
             csv.AppendLine(string.Join(",", headers.Select(h => $"\"{h}\"")));
+            // Dates are written as fixed ISO 8601 here, NOT the company's display format: this is a
+            // machine-facing API-key export, so its shape must not shift when someone changes the export
+            // format in the settings UI. (A bare ToString() also made it server-culture dependent.)
             foreach (var row in data.Data)
             {
                 var values = headers.Select(h =>
                 {
                     var v = row.TryGetValue(h, out var cell) ? cell : null;
-                    return $"\"{v?.ToString()?.Replace("\"", "\"\"") ?? ""}\"";
+                    return CsvExportFormatter.Field(v, CsvExportFormatter.IsoDateFormat);
                 });
                 csv.AppendLine(string.Join(",", values));
             }

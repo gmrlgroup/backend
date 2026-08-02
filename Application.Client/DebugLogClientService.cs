@@ -5,8 +5,8 @@ using System.Net.Http.Json;
 namespace Application.Client.Services;
 
 /// <summary>
-/// Client wrapper for the per-company debug-logging feature: the ADMIN settings toggle
-/// (<c>api/company-settings</c>) and the debug-log reader (<c>api/data-log?source=debug</c>).
+/// Client wrapper for the per-company ADMIN settings (<c>api/company-settings</c> — debug-logging toggle and
+/// CSV export date format) and the debug-log reader (<c>api/data-log?source=debug</c>).
 /// Follows the app convention of setting the <c>X-Company-Id</c> header per call.
 /// </summary>
 public class DebugLogClientService
@@ -37,6 +37,25 @@ public class DebugLogClientService
         {
             SetCompanyHeader(companyId);
             var response = await _httpClient.GetAsync("api/company-settings");
+            return response.IsSuccessStatusCode
+                ? await response.Content.ReadFromJsonAsync<CompanySettingsDto>()
+                : null;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Saves the company's settings, returning the saved state (null on failure so the caller can revert).
+    /// Pass the current value of every field you aren't changing — a null <c>ExportDateFormat</c> is the
+    /// API's "leave unchanged" signal, but <c>DebugLoggingEnabled</c> is a bool and is always applied.
+    /// </summary>
+    public async Task<CompanySettingsDto?> SaveSettingsAsync(string companyId, string? userId, CompanySettingsDto settings)
+    {
+        try
+        {
+            SetCompanyHeader(companyId);
+            SetUserHeader(userId);
+            var response = await _httpClient.PutAsJsonAsync("api/company-settings", settings);
             return response.IsSuccessStatusCode
                 ? await response.Content.ReadFromJsonAsync<CompanySettingsDto>()
                 : null;

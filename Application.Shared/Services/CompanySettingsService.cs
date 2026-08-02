@@ -7,8 +7,15 @@ namespace Application.Shared.Services;
 
 public interface ICompanySettingsService
 {
-    /// <summary>The company's settings row, or a transient default (all flags off) when none is saved yet.</summary>
+    /// <summary>The company's settings row, or a transient default (debug off, default export format) when none is saved yet.</summary>
     Task<CompanySettings> GetAsync(string companyId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Upserts the company's settings and refreshes the cached values. A null
+    /// <see cref="CompanySettingsDto.ExportDateFormat"/> leaves the stored format alone, so a caller that
+    /// only means to toggle debug logging can't blank it.
+    /// </summary>
+    Task SaveAsync(string companyId, CompanySettingsDto settings, string? userId, CancellationToken ct = default);
 
     /// <summary>Upserts the debug-logging toggle for a company and refreshes the cached value.</summary>
     Task SetDebugLoggingAsync(string companyId, bool enabled, string? userId, CancellationToken ct = default);
@@ -18,6 +25,12 @@ public interface ICompanySettingsService
     /// Cached for a short window so per-request logging doesn't hit the database on every entry.
     /// </summary>
     Task<bool> IsDebugLoggingEnabledAsync(string companyId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Cached read for the CSV export path: the date pattern to write dates with, already resolved to a
+    /// supported value (falls back to <see cref="ExportDateFormats.Default"/>).
+    /// </summary>
+    Task<string> GetExportDateFormatAsync(string companyId, CancellationToken ct = default);
 }
 
 public class CompanySettingsService : ICompanySettingsService
@@ -32,25 +45,39 @@ public class CompanySettingsService : ICompanySettingsService
         _cache = cache;
     }
 
-    private static string CacheKey(string companyId) => $"company-settings:debug:{companyId}";
+    private static string DebugCacheKey(string companyId) => $"company-settings:debug:{companyId}";
+    private static string ExportFormatCacheKey(string companyId) => $"company-settings:export-date-format:{companyId}";
 
     public async Task<CompanySettings> GetAsync(string companyId, CancellationToken ct = default)
     {
         var row = await _db.CompanySettings.AsNoTracking()
             .FirstOrDefaultAsync(s => s.CompanyId == companyId, ct);
-        return row ?? new CompanySettings { CompanyId = companyId, DebugLoggingEnabled = false };
+        return row ?? new CompanySettings
+        {
+            CompanyId = companyId,
+            DebugLoggingEnabled = false,
+            ExportDateFormat = ExportDateFormats.Default,
+        };
     }
 
-    public async Task SetDebugLoggingAsync(string companyId, bool enabled, string? userId, CancellationToken ct = default)
+    public async Task SaveAsync(string companyId, CompanySettingsDto settings, string? userId, CancellationToken ct = default)
     {
         var row = await _db.CompanySettings.FirstOrDefaultAsync(s => s.CompanyId == companyId, ct);
         var now = DateTime.UtcNow;
+
+        // Null = "not being changed"; anything else is normalised so an unsupported pattern can never reach
+        // the export path (see ExportDateFormats.Resolve).
+        var format = settings.ExportDateFormat == null
+            ? row?.ExportDateFormat
+            : ExportDateFormats.Resolve(settings.ExportDateFormat);
+
         if (row == null)
         {
             row = new CompanySettings
             {
                 CompanyId = companyId,
-                DebugLoggingEnabled = enabled,
+                DebugLoggingEnabled = settings.DebugLoggingEnabled,
+                ExportDateFormat = format,
                 CreatedBy = userId,
                 CreatedOn = now,
                 ModifiedBy = userId,
@@ -60,19 +87,27 @@ public class CompanySettingsService : ICompanySettingsService
         }
         else
         {
-            row.DebugLoggingEnabled = enabled;
+            row.DebugLoggingEnabled = settings.DebugLoggingEnabled;
+            row.ExportDateFormat = format;
             row.ModifiedBy = userId;
             row.ModifiedOn = now;
         }
 
         await _db.SaveChangesAsync(ct);
-        _cache.Set(CacheKey(companyId), enabled, CacheTtl);
+
+        // Refresh both cached reads so a just-saved change takes effect on the next request rather than
+        // after the TTL lapses.
+        _cache.Set(DebugCacheKey(companyId), row.DebugLoggingEnabled, CacheTtl);
+        _cache.Set(ExportFormatCacheKey(companyId), ExportDateFormats.Resolve(row.ExportDateFormat), CacheTtl);
     }
+
+    public Task SetDebugLoggingAsync(string companyId, bool enabled, string? userId, CancellationToken ct = default)
+        => SaveAsync(companyId, new CompanySettingsDto { DebugLoggingEnabled = enabled }, userId, ct);
 
     public async Task<bool> IsDebugLoggingEnabledAsync(string companyId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(companyId)) return false;
-        if (_cache.TryGetValue(CacheKey(companyId), out bool cached))
+        if (_cache.TryGetValue(DebugCacheKey(companyId), out bool cached))
             return cached;
 
         var enabled = await _db.CompanySettings.AsNoTracking()
@@ -80,7 +115,23 @@ public class CompanySettingsService : ICompanySettingsService
             .Select(s => s.DebugLoggingEnabled)
             .FirstOrDefaultAsync(ct);
 
-        _cache.Set(CacheKey(companyId), enabled, CacheTtl);
+        _cache.Set(DebugCacheKey(companyId), enabled, CacheTtl);
         return enabled;
+    }
+
+    public async Task<string> GetExportDateFormatAsync(string companyId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(companyId)) return ExportDateFormats.Default;
+        if (_cache.TryGetValue(ExportFormatCacheKey(companyId), out string? cached) && cached != null)
+            return cached;
+
+        var stored = await _db.CompanySettings.AsNoTracking()
+            .Where(s => s.CompanyId == companyId)
+            .Select(s => s.ExportDateFormat)
+            .FirstOrDefaultAsync(ct);
+
+        var format = ExportDateFormats.Resolve(stored);
+        _cache.Set(ExportFormatCacheKey(companyId), format, CacheTtl);
+        return format;
     }
 }

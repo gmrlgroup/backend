@@ -31,7 +31,12 @@ public class CompanySettingsController : ControllerBase
             return Forbid();
 
         var settings = await _settings.GetAsync(companyId, cancellationToken);
-        return Ok(new CompanySettingsDto { DebugLoggingEnabled = settings.DebugLoggingEnabled });
+        return Ok(new CompanySettingsDto
+        {
+            DebugLoggingEnabled = settings.DebugLoggingEnabled,
+            // Resolved rather than raw, so the settings UI always has a concrete pattern to preselect.
+            ExportDateFormat = ExportDateFormats.Resolve(settings.ExportDateFormat),
+        });
     }
 
     [HttpPut]
@@ -47,8 +52,19 @@ public class CompanySettingsController : ControllerBase
         if (body == null)
             return BadRequest("Settings body is required");
 
+        // Reject an unknown pattern outright instead of silently substituting the default — otherwise a
+        // client bug would look like a saved setting that quietly doesn't apply. Null means "unchanged".
+        if (body.ExportDateFormat != null && !ExportDateFormats.IsAllowed(body.ExportDateFormat))
+            return BadRequest($"'{body.ExportDateFormat}' is not a supported export date format.");
+
         var userId = Request.Headers["UserId"].FirstOrDefault();
-        await _settings.SetDebugLoggingAsync(companyId, body.DebugLoggingEnabled, userId, cancellationToken);
-        return Ok(new CompanySettingsDto { DebugLoggingEnabled = body.DebugLoggingEnabled });
+        await _settings.SaveAsync(companyId, body, userId, cancellationToken);
+
+        var saved = await _settings.GetAsync(companyId, cancellationToken);
+        return Ok(new CompanySettingsDto
+        {
+            DebugLoggingEnabled = saved.DebugLoggingEnabled,
+            ExportDateFormat = ExportDateFormats.Resolve(saved.ExportDateFormat),
+        });
     }
 }

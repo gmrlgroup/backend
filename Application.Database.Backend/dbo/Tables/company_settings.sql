@@ -2,6 +2,9 @@ CREATE TABLE [dbo].[company_settings] (
     [id]                    INT            IDENTITY (1, 1) NOT NULL,
     [company_id]            NVARCHAR (10)  NULL,
     [debug_logging_enabled] BIT            DEFAULT ((0)) NOT NULL,
+    -- Date pattern used when writing dates into CSV exports (e.g. 'dd/MM/yyyy'). NULL means "not chosen
+    -- yet" and the app falls back to its dd/MM/yyyy default, so existing rows need no backfill.
+    [export_date_format]    NVARCHAR (20)  NULL,
     [created_on]            DATETIME2 (7)  NULL,
     [modified_on]           DATETIME2 (7)  NULL,
     [created_by]            NVARCHAR (MAX) NULL,

@@ -10,6 +10,20 @@ namespace Application.Shared.Models.Data;
 /// password/driver) are intentionally left empty here — they're sourced from credentials only when the
 /// consumer actually connects. <c>type</c> is the chat's DatasetType number (0=MSSQL,1=DUCKDB,2=CLICKHOUSE,
 /// 3=POSTGRESQL,4=MYSQL,…).</summary>
+/// <summary>
+/// Body of <c>POST api/dataset/user</c> — the chat app auto-provisioning the acting user's personal
+/// dataset. The tenant and owner are NOT in the body: company comes from the API key and the user from the
+/// <c>X-User-Id</c> header, so a caller can only ever create a dataset for itself.
+/// </summary>
+public class CreateUserDatasetRequest
+{
+    /// <summary>The user's username. Not name-validated like an app-created dataset — see the service.</summary>
+    public string Name { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    /// <summary>Directory for the dataset's DuckDB file, e.g. <c>E://duckdb/chat</c>.</summary>
+    public string Path { get; set; } = string.Empty;
+}
+
 public class PublicDatasetDto
 {
     public string Id { get; set; } = string.Empty;

@@ -15,7 +15,7 @@ namespace Application.Controllers;
 [Authorize(AuthenticationSchemes = ApiKeyAuthenticationDefaults.Scheme)]
 public abstract class PublicApiControllerBase : ControllerBase
 {
-    protected const string UserHeaderName = "X-User-Id";
+    protected const string UserHeaderName = "Userid"; //X-User-Id
 
     /// <summary>The API key resolved by the authentication handler for this request.</summary>
     protected ApiKey? CurrentKey =>

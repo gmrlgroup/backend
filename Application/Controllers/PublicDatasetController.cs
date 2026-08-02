@@ -23,6 +23,30 @@ public class PublicDatasetController : PublicApiControllerBase
         return Ok(await _api.GetUserDatasetsAsync(companyId, userId, ct));
     }
 
+    /// <summary>
+    /// Creates the acting user's personal dataset (the chat app auto-provisions it on first use). Always
+    /// inserts — the caller is expected to check <c>GET user-dataset</c> first, so two concurrent calls for
+    /// the same user would produce two datasets.
+    /// </summary>
+    [HttpPost("user")]
+    public async Task<ActionResult<PublicDatasetDto>> CreateUserDataset(
+        [FromBody] CreateUserDatasetRequest request, CancellationToken ct)
+    {
+        if (!TryGetContext(out var companyId, out var userId, out var error)) return error!;
+        if (request == null || string.IsNullOrWhiteSpace(request.Name))
+            return BadRequest("'name' is required.");
+
+        return Ok(await _api.CreateUserDatasetAsync(companyId, userId, request, ct));
+    }
+
+    /// <summary>The acting user's personal dataset, or a null body when they don't have one yet.</summary>
+    [HttpGet("user-dataset")]
+    public async Task<ActionResult<PublicDatasetDto?>> GetUserDataset(CancellationToken ct)
+    {
+        if (!TryGetContext(out var companyId, out var userId, out var error)) return error!;
+        return Ok(await _api.GetUserDatasetAsync(companyId, userId, ct));
+    }
+
     /// <summary>The user's table access (with nested per-column grants) for a dataset.</summary>
     [HttpGet("{datasetId}/table-access")]
     public async Task<ActionResult<List<UserTableAccessDto>>> GetTableAccess(string datasetId, CancellationToken ct)

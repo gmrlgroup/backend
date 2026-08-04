@@ -269,7 +269,13 @@ else
             {
                 doc = await response.Content.ReadFromJsonAsync<TableDocDto>();
                 picker?.SetTableDocumented(selectedTable, true);
-                _toastService.ShowSuccess("AI documentation generated — review and save.");
+                // A very wide table can run out of the request's time budget after documenting only part of
+                // it. That's still progress (it's already saved), so warn with what's left rather than
+                // claiming the whole table is done — running Generate again picks up the missing columns.
+                if (!string.IsNullOrWhiteSpace(doc?.GenerationNote))
+                    _toastService.ShowWarning(doc!.GenerationNote!);
+                else
+                    _toastService.ShowSuccess("AI documentation generated — review and save.");
             }
             else
             {

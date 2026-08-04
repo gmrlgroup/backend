@@ -33,6 +33,13 @@ public class TableDocDto
     public string DatasetId { get; set; } = string.Empty;
     public string TableName { get; set; } = string.Empty;
     public List<ColumnDocDto> Columns { get; set; } = new();
+
+    /// <summary>
+    /// Only set by the generate endpoint, and only when the run succeeded without covering every column
+    /// (a batch failed, or a very wide table hit the time budget). Null on a plain read and on a complete
+    /// generation. Surfacing this is what keeps a partial run from looking like a full one.
+    /// </summary>
+    public string? GenerationNote { get; set; }
 }
 
 /// <summary>A user's edit to one column's documentation (upserted).</summary>

@@ -1,0 +1,829 @@
+@page "/admin/databases"
+@using Application.Shared.Enums
+@using Application.Shared.Models
+@using Application.Client.Services
+@inject DatabaseAdminClientService AdminService
+@inject StateContainer StateContainer
+@inject IJSRuntime _js
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+@attribute [Authorize(Policy = PolicyNames.DatabaseAdmin)]
+
+<PageTitle>Database Management</PageTitle>
+
+<div class="ds-page dbadmin-scope">
+    <div class="ds-header">
+        <div>
+            <h1 class="ds-title">Database Management</h1>
+            <p class="ds-subtitle">Space usage and user accounts for the databases registered as entities.</p>
+        </div>
+        <button class="btn btn-outline" @onclick="LoadDatabases" disabled="@isLoadingList">
+            @(isLoadingList ? "Refreshing…" : "Refresh")
+        </button>
+    </div>
+
+    <div class="dbadmin-layout">
+        @* ---- Left: the databases ---- *@
+        <div class="ds-card dbadmin-list">
+            @if (isLoadingList)
+            {
+                <div class="ds-loading"><div class="ds-spinner"></div><span>Loading databases…</span></div>
+            }
+            else if (databases.Count == 0)
+            {
+                <div class="ds-empty">
+                    <p class="ds-empty-title">No databases</p>
+                    <p class="ds-empty-sub">Create an entity of type Database to manage it here.</p>
+                </div>
+            }
+            else
+            {
+                @foreach (var db in databases)
+                {
+                    <button class="dbadmin-item @(selected?.Id == db.Id ? "dbadmin-item-active" : "")"
+                            @onclick="() => SelectAsync(db)">
+                        <span class="dbadmin-item-name">@db.Name</span>
+                        <span class="dbadmin-item-meta">
+                            @EngineLabel(db.DatabaseType)
+                            @if (!string.IsNullOrEmpty(db.Host)) { <text> · @db.Host</text> }
+                        </span>
+                        <span class="dbadmin-badges">
+                            @if (!db.HasConnection)
+                            {
+                                <span class="dbadmin-badge dbadmin-badge-warn">No connection</span>
+                            }
+                            else if (db.HasAdminCredential)
+                            {
+                                <span class="dbadmin-badge dbadmin-badge-ok">Admin credential</span>
+                            }
+                            else
+                            {
+                                <span class="dbadmin-badge dbadmin-badge-muted">Read-only</span>
+                            }
+                        </span>
+                    </button>
+                }
+            }
+        </div>
+
+        @* ---- Right: the selected database ---- *@
+        <div class="dbadmin-detail">
+            @if (selected == null)
+            {
+                <div class="ds-card">
+                    <div class="ds-empty">
+                        <p class="ds-empty-title">Select a database</p>
+                        <p class="ds-empty-sub">Pick one from the list to see its size and manage its users.</p>
+                    </div>
+                </div>
+            }
+            else if (!selected.HasConnection)
+            {
+                <div class="ds-card">
+                    <div class="ds-empty">
+                        <p class="ds-empty-title">No connection configured</p>
+                        <p class="ds-empty-sub">
+                            Open this entity under Status → Entities and configure its database connection first.
+                            Everything on this page reads the host, port and catalog from there.
+                        </p>
+                    </div>
+                </div>
+            }
+            else
+            {
+                @* ---- Admin credential ---- *@
+                <div class="ds-card dbadmin-card">
+                    <div class="dbadmin-card-head">
+                        <div>
+                            <p class="ds-section-title" style="margin:0">Admin credential</p>
+                            <p class="dbadmin-hint">
+                                The stored connection is deliberately least-privilege, so user management needs its own
+                                account with rights to create logins and grant roles. Space checks don't use it.
+                            </p>
+                        </div>
+                        @if (credential?.HasSecret == true)
+                        {
+                            <span class="dbadmin-badge dbadmin-badge-ok">Configured</span>
+                        }
+                    </div>
+
+                    <div class="dbadmin-grid">
+                        <div class="ds-field">
+                            <label class="ds-label">Username</label>
+                            <input class="ds-input" @bind="credentialForm.Username" autocomplete="off" placeholder="e.g. sa, postgres, admin" />
+                        </div>
+                        <div class="ds-field">
+                            <label class="ds-label">Password</label>
+                            <input class="ds-input" type="password" @bind="credentialForm.Secret" autocomplete="new-password"
+                                   placeholder="@(credential?.HasSecret == true ? "Leave blank to keep current" : "Enter password")" />
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(credentialMessage))
+                    {
+                        <div class="dbadmin-alert @(credentialOk ? "dbadmin-alert-ok" : "dbadmin-alert-error")">@credentialMessage</div>
+                    }
+
+                    <div class="ds-step-nav">
+                        @if (credential != null)
+                        {
+                            <button class="btn btn-outline" @onclick="DeleteCredential" disabled="@isSavingCredential">Delete</button>
+                        }
+                        <button class="btn btn-default" @onclick="SaveCredential" disabled="@isSavingCredential">
+                            @(isSavingCredential ? "Saving…" : "Save credential")
+                        </button>
+                    </div>
+                </div>
+
+                @* ---- Size ---- *@
+                <div class="ds-card dbadmin-card">
+                    <div class="dbadmin-card-head">
+                        <div>
+                            <p class="ds-section-title" style="margin:0">Size</p>
+                            <p class="dbadmin-hint">Read with the entity's ordinary connection — no admin credential required.</p>
+                        </div>
+                        <button class="btn btn-outline" @onclick="LoadSize" disabled="@isLoadingSize">
+                            @(isLoadingSize ? "Checking…" : "Check size")
+                        </button>
+                    </div>
+
+                    @if (size?.Error != null)
+                    {
+                        <div class="dbadmin-alert dbadmin-alert-error">@size.Error</div>
+                    }
+                    else if (size != null)
+                    {
+                        <div class="dbadmin-tiles">
+                            <div class="dbadmin-tile">
+                                <span class="dbadmin-tile-label">Total</span>
+                                <span class="dbadmin-tile-value">@FormatBytes(size.TotalBytes)</span>
+                            </div>
+                            @if (size.LogBytes is > 0)
+                            {
+                                <div class="dbadmin-tile">
+                                    <span class="dbadmin-tile-label">Data</span>
+                                    <span class="dbadmin-tile-value">@FormatBytes(size.DataBytes)</span>
+                                </div>
+                                <div class="dbadmin-tile">
+                                    <span class="dbadmin-tile-label">Log</span>
+                                    <span class="dbadmin-tile-value">@FormatBytes(size.LogBytes)</span>
+                                </div>
+                                <div class="dbadmin-tile">
+                                    <span class="dbadmin-tile-label">Free</span>
+                                    <span class="dbadmin-tile-value">@FormatBytes(size.FreeBytes)</span>
+                                </div>
+                            }
+                            <div class="dbadmin-tile">
+                                <span class="dbadmin-tile-label">Tables</span>
+                                <span class="dbadmin-tile-value">@size.Tables.Count</span>
+                            </div>
+                        </div>
+
+                        @if (size.Tables.Count > 0)
+                        {
+                            <div class="ds-table-wrap" style="max-height:22rem;overflow-y:auto">
+                                <table class="ds-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="ds-th">Table</th>
+                                            <th class="ds-th" style="text-align:right">Rows</th>
+                                            <th class="ds-th" style="text-align:right">Size</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var t in size.Tables)
+                                        {
+                                            <tr class="ds-tr">
+                                                <td class="ds-td" style="font-family:ui-monospace,monospace;font-size:0.8125rem">@t.FullName</td>
+                                                <td class="ds-td" style="text-align:right">@(t.RowCount?.ToString("N0") ?? "—")</td>
+                                                <td class="ds-td" style="text-align:right">@(t.TotalBytes > 0 ? FormatBytes(t.TotalBytes) : "—")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <p class="dbadmin-hint">Click "Check size" to query this database.</p>
+                    }
+                </div>
+
+                @* ---- Users ---- *@
+                <div class="ds-card dbadmin-card">
+                    <div class="dbadmin-card-head">
+                        <div>
+                            <p class="ds-section-title" style="margin:0">Users</p>
+                            <p class="dbadmin-hint">Accounts on the database itself — not application users.</p>
+                        </div>
+                        @if (selected.Capabilities.CanListUsers)
+                        {
+                            <div style="display:flex;gap:0.5rem">
+                                <button class="btn btn-outline" @onclick="LoadUsers" disabled="@isLoadingUsers">
+                                    @(isLoadingUsers ? "Loading…" : "Refresh")
+                                </button>
+                                @if (selected.Capabilities.CanCreateUser)
+                                {
+                                    <button class="btn btn-default" @onclick="StartCreateUser" disabled="@(!selected.HasAdminCredential)">Add user</button>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    @if (!selected.Capabilities.CanListUsers)
+                    {
+                        <div class="dbadmin-alert dbadmin-alert-info">@selected.Capabilities.UnsupportedReason</div>
+                    }
+                    else if (!selected.HasAdminCredential)
+                    {
+                        <div class="dbadmin-alert dbadmin-alert-info">
+                            Save an admin credential above to list and manage this database's users.
+                        </div>
+                    }
+                    else
+                    {
+                        @if (!string.IsNullOrEmpty(createdPassword))
+                        {
+                            <div class="dbadmin-reveal">
+                                <p class="dbadmin-reveal-title">Copy this password now</p>
+                                <p class="dbadmin-reveal-sub">
+                                    This is the only time it is shown — it is not stored anywhere and cannot be retrieved again.
+                                </p>
+                                <div style="display:flex;gap:0.5rem;align-items:center">
+                                    <code class="dbadmin-reveal-code">@createdPassword</code>
+                                    <button class="btn btn-outline" @onclick="CopyPassword">Copy</button>
+                                    <button class="btn btn-ghost" @onclick="() => createdPassword = null">Dismiss</button>
+                                </div>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(userMessage))
+                        {
+                            <div class="dbadmin-alert @(userOk ? "dbadmin-alert-ok" : "dbadmin-alert-error")">@userMessage</div>
+                        }
+
+                        @if (users?.Error != null)
+                        {
+                            <div class="dbadmin-alert dbadmin-alert-error">@users.Error</div>
+                        }
+                        else if (users != null && users.Users.Count > 0)
+                        {
+                            <div class="ds-table-wrap" style="max-height:24rem;overflow-y:auto">
+                                <table class="ds-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="ds-th">Name</th>
+                                            <th class="ds-th">Type</th>
+                                            <th class="ds-th">Roles / privileges</th>
+                                            <th class="ds-th ds-th-actions">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var u in users.Users)
+                                        {
+                                            <tr class="ds-tr">
+                                                <td class="ds-td" style="font-family:ui-monospace,monospace;font-size:0.8125rem">
+                                                    @u.Name
+                                                    @if (u.IsDisabled)
+                                                    {
+                                                        <span class="dbadmin-badge dbadmin-badge-warn" style="margin-left:0.375rem">disabled</span>
+                                                    }
+                                                </td>
+                                                <td class="ds-td">@(string.IsNullOrEmpty(u.Type) ? "—" : u.Type)</td>
+                                                <td class="ds-td" style="font-size:0.8125rem">@(u.Roles.Count > 0 ? string.Join(", ", u.Roles) : "—")</td>
+                                                <td class="ds-td ds-td-actions-cell">
+                                                    <div class="ds-actions">
+                                                        @if (selected.Capabilities.CanResetPassword)
+                                                        {
+                                                            <button class="btn btn-ghost" @onclick="() => StartResetPassword(u.Name)">Reset password</button>
+                                                        }
+                                                        @if (selected.Capabilities.CanDropUser)
+                                                        {
+                                                            <button class="btn btn-ghost" style="color:#dc2626" @onclick="() => StartDropUser(u.Name)">Drop</button>
+                                                        }
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else if (users != null)
+                        {
+                            <p class="dbadmin-hint">No users found.</p>
+                        }
+                        else
+                        {
+                            <p class="dbadmin-hint">Click "Refresh" to list this database's users.</p>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@* ---- Create user dialog ---- *@
+@if (showCreateUser && selected != null)
+{
+    <div class="dbadmin-overlay" @onclick="CancelCreateUser">
+        <div class="dbadmin-modal" @onclick:stopPropagation="true">
+            <p class="ds-section-title">Add user to @selected.Name</p>
+
+            <div class="ds-field">
+                <label class="ds-label">Username</label>
+                <input class="ds-input" @bind="createForm.Username" autocomplete="off"
+                       placeholder="@(selected.DatabaseType == DataSourceType.MySQL ? "reporting or reporting@%" : "reporting")" />
+                <p class="ds-hint">
+                    Letters, digits and <code>_ $ . -</code> only, up to 63 characters.
+                    @if (selected.DatabaseType == DataSourceType.MySQL)
+                    {
+                        <text> MySQL accounts are <code>user@@host</code>; omit the host to use <code>%</code>.</text>
+                    }
+                </p>
+            </div>
+
+            <div class="ds-field">
+                <label class="ds-label">Access level</label>
+                <select class="ds-input" @bind="createForm.AccessLevel">
+                    <option value="@DatabaseAccessLevel.ReadOnly">Read-only — connect and SELECT</option>
+                    <option value="@DatabaseAccessLevel.ReadWrite">Read/write — SELECT, INSERT, UPDATE, DELETE</option>
+                    <option value="@DatabaseAccessLevel.Owner">Owner — full control</option>
+                </select>
+            </div>
+
+            <div class="ds-field">
+                <label class="ds-label">Password</label>
+                <input class="ds-input" type="password" @bind="createForm.Password" autocomplete="new-password"
+                       placeholder="Leave blank to generate a strong one" />
+                <p class="ds-hint">
+                    A generated password is shown once and never stored. Supplied passwords must be 12–128 characters
+                    and contain no quotes or backslashes.
+                </p>
+            </div>
+
+            @if (selected.DatabaseType == DataSourceType.SQLServer)
+            {
+                <div class="ds-field">
+                    <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem">
+                        <input type="checkbox" @bind="createForm.CreateServerLogin" />
+                        Also create the server-level login
+                    </label>
+                    <p class="ds-hint">Clear this when the login already exists and you only need a database user.</p>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(createError))
+            {
+                <div class="dbadmin-alert dbadmin-alert-error">@createError</div>
+            }
+
+            <div class="ds-step-nav">
+                <button class="btn btn-outline" @onclick="CancelCreateUser" disabled="@isWorking">Cancel</button>
+                <button class="btn btn-default" @onclick="CreateUser" disabled="@isWorking">
+                    @(isWorking ? "Creating…" : "Create user")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---- Reset password dialog ---- *@
+@if (resetTarget != null)
+{
+    <div class="dbadmin-overlay" @onclick="CancelReset">
+        <div class="dbadmin-modal" @onclick:stopPropagation="true">
+            <p class="ds-section-title">Reset password for @resetTarget</p>
+            <p class="dbadmin-hint">
+                The current password stops working immediately. Anything still using it — jobs, dashboards,
+                other applications — will fail until it is updated.
+            </p>
+
+            <div class="ds-field">
+                <label class="ds-label">New password</label>
+                <input class="ds-input" type="password" @bind="resetPassword" autocomplete="new-password"
+                       placeholder="Leave blank to generate a strong one" />
+            </div>
+
+            @if (!string.IsNullOrEmpty(createError))
+            {
+                <div class="dbadmin-alert dbadmin-alert-error">@createError</div>
+            }
+
+            <div class="ds-step-nav">
+                <button class="btn btn-outline" @onclick="CancelReset" disabled="@isWorking">Cancel</button>
+                <button class="btn btn-default" @onclick="ResetPassword" disabled="@isWorking">
+                    @(isWorking ? "Resetting…" : "Reset password")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---- Drop user dialog ---- *@
+@if (dropTarget != null && selected != null)
+{
+    <div class="dbadmin-overlay" @onclick="CancelDrop">
+        <div class="dbadmin-modal" @onclick:stopPropagation="true">
+            <p class="ds-section-title">Drop @dropTarget</p>
+            <div class="dbadmin-alert dbadmin-alert-error">
+                This permanently removes the account from @selected.Name. It cannot be undone.
+                @if (selected.DatabaseType == DataSourceType.PostgreSQL)
+                {
+                    <text> On PostgreSQL this also drops any objects the role owns in this database.</text>
+                }
+            </div>
+
+            <div class="ds-field">
+                <label class="ds-label">Type <code>@dropTarget</code> to confirm</label>
+                <input class="ds-input" @bind="dropConfirmation" @bind:event="oninput" autocomplete="off" />
+            </div>
+
+            @if (selected.DatabaseType == DataSourceType.SQLServer)
+            {
+                <div class="ds-field">
+                    <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem">
+                        <input type="checkbox" @bind="dropServerLogin" />
+                        Also drop the server-level login
+                    </label>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(createError))
+            {
+                <div class="dbadmin-alert dbadmin-alert-error">@createError</div>
+            }
+
+            <div class="ds-step-nav">
+                <button class="btn btn-outline" @onclick="CancelDrop" disabled="@isWorking">Cancel</button>
+                <button class="btn btn-destructive" @onclick="DropUser"
+                        disabled="@(isWorking || !string.Equals(dropConfirmation, dropTarget, StringComparison.Ordinal))">
+                    @(isWorking ? "Dropping…" : "Drop user")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .dbadmin-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 1rem; align-items: start; }
+    @@media (max-width: 900px) { .dbadmin-layout { grid-template-columns: 1fr; } }
+
+    .dbadmin-list { padding: 0.5rem; display: flex; flex-direction: column; gap: 0.25rem; max-height: 80vh; overflow-y: auto; }
+    .dbadmin-item { display: flex; flex-direction: column; gap: 0.125rem; align-items: flex-start; text-align: left;
+                    width: 100%; padding: 0.625rem 0.75rem; border: 1px solid transparent; border-radius: 8px;
+                    background: none; cursor: pointer; }
+    .dbadmin-item:hover { background: rgba(99, 102, 241, 0.06); }
+    .dbadmin-item-active { background: rgba(99, 102, 241, 0.1); border-color: rgba(99, 102, 241, 0.35); }
+    .dbadmin-item-name { font-weight: 600; font-size: 0.875rem; }
+    .dbadmin-item-meta { font-size: 0.75rem; opacity: 0.65; }
+    .dbadmin-badges { margin-top: 0.25rem; }
+
+    .dbadmin-detail { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+    .dbadmin-card { padding: 1.25rem; }
+    .dbadmin-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;
+                         flex-wrap: wrap; margin-bottom: 0.875rem; }
+    .dbadmin-hint { font-size: 0.75rem; opacity: 0.7; margin: 0.25rem 0 0; max-width: 60ch; }
+    .dbadmin-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+
+    .dbadmin-badge { display: inline-block; font-size: 0.6875rem; padding: 0.125rem 0.5rem; border-radius: 999px; font-weight: 500; }
+    .dbadmin-badge-ok { background: rgba(34, 197, 94, 0.15); color: #15803d; }
+    .dbadmin-badge-warn { background: rgba(245, 158, 11, 0.15); color: #b45309; }
+    .dbadmin-badge-muted { background: rgba(113, 113, 122, 0.15); color: #52525b; }
+
+    .dbadmin-alert { margin: 0.875rem 0 0; padding: 0.625rem 0.75rem; border-radius: 8px; font-size: 0.8125rem; border: 1px solid transparent; }
+    .dbadmin-alert-ok { background: rgba(34, 197, 94, 0.1); border-color: rgba(34, 197, 94, 0.3); color: #15803d; }
+    .dbadmin-alert-error { background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); color: #b91c1c; }
+    .dbadmin-alert-info { background: rgba(99, 102, 241, 0.08); border-color: rgba(99, 102, 241, 0.25); }
+
+    .dbadmin-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+    .dbadmin-tile { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.75rem;
+                    border: 1px solid rgba(113, 113, 122, 0.2); border-radius: 8px; }
+    .dbadmin-tile-label { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.6; }
+    .dbadmin-tile-value { font-size: 1.125rem; font-weight: 600; }
+
+    .dbadmin-reveal { margin-bottom: 0.875rem; padding: 0.875rem; border: 1px solid rgba(34, 197, 94, 0.4);
+                      border-radius: 8px; background: rgba(34, 197, 94, 0.08); }
+    .dbadmin-reveal-title { font-weight: 600; color: #15803d; margin: 0 0 0.25rem; }
+    .dbadmin-reveal-sub { font-size: 0.8125rem; opacity: 0.8; margin: 0 0 0.75rem; }
+    .dbadmin-reveal-code { flex: 1; padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.875rem;
+                           background: rgba(255, 255, 255, 0.7); border: 1px solid rgba(34, 197, 94, 0.3); word-break: break-all; }
+
+    .dbadmin-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: flex;
+                       align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
+    .dbadmin-modal { background: var(--neutral-layer-1, #fff); border-radius: 12px; padding: 1.5rem;
+                     width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto;
+                     box-shadow: 0 20px 45px rgba(0, 0, 0, 0.25); }
+
+    /* Dark theme: the badge/alert tints above are translucent so they carry over, but the flat
+       surfaces and hard-coded text colours need re-tinting. */
+    [data-theme="dark"] .dbadmin-modal { background: #181a20; color: #f3f4f6; }
+    [data-theme="dark"] .dbadmin-badge-ok, [data-theme="dark"] .dbadmin-alert-ok { color: #4ade80; }
+    [data-theme="dark"] .dbadmin-badge-warn { color: #fbbf24; }
+    [data-theme="dark"] .dbadmin-badge-muted { color: #d4d4d8; }
+    [data-theme="dark"] .dbadmin-alert-error { color: #f87171; }
+    [data-theme="dark"] .dbadmin-reveal-title { color: #4ade80; }
+    [data-theme="dark"] .dbadmin-reveal-code { background: rgba(0, 0, 0, 0.35); color: #f3f4f6; }
+    [data-theme="dark"] .dbadmin-tile { border-color: #2b303b; }
+</style>
+
+@code {
+    [SupplyParameterFromQuery(Name = "c")] private string? CompanyIdFromQuery { get; set; }
+
+    private string CompanyId => CompanyIdFromQuery ?? StateContainer.Company?.Id ?? string.Empty;
+
+    private List<DatabaseAdminEntityDto> databases = new();
+    private DatabaseAdminEntityDto? selected;
+    private bool isLoadingList;
+
+    // Admin credential
+    private DatabaseAdminCredentialDto? credential;
+    private DatabaseAdminCredentialRequest credentialForm = new();
+    private bool isSavingCredential;
+    private bool credentialOk;
+    private string? credentialMessage;
+
+    // Size
+    private DatabaseSizeDto? size;
+    private bool isLoadingSize;
+
+    // Users
+    private DatabaseUserListDto? users;
+    private bool isLoadingUsers;
+    private bool userOk;
+    private string? userMessage;
+    private string? createdPassword;
+
+    // Dialogs — one shared busy flag and error slot, since only one can be open at a time.
+    private bool showCreateUser;
+    private CreateDatabaseUserRequest createForm = new();
+    private string? resetTarget;
+    private string? resetPassword;
+    private string? dropTarget;
+    private string dropConfirmation = string.Empty;
+    private bool dropServerLogin = true;
+    private bool isWorking;
+    private string? createError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.IsNullOrEmpty(CompanyId)) return;
+        await LoadDatabases();
+    }
+
+    private async Task LoadDatabases()
+    {
+        isLoadingList = true;
+        try
+        {
+            databases = await AdminService.GetDatabasesAsync(CompanyId);
+            // Keep the current selection pointing at the refreshed instance, so badges stay accurate.
+            if (selected != null)
+                selected = databases.FirstOrDefault(d => d.Id == selected.Id);
+        }
+        finally
+        {
+            isLoadingList = false;
+        }
+    }
+
+    private async Task SelectAsync(DatabaseAdminEntityDto db)
+    {
+        selected = db;
+        // Everything below is per-database; clear it so nothing from the previous one leaks through.
+        size = null;
+        users = null;
+        credentialMessage = null;
+        userMessage = null;
+        createdPassword = null;
+        credentialForm = new DatabaseAdminCredentialRequest();
+
+        credential = await AdminService.GetCredentialAsync(CompanyId, db.Id);
+        if (credential != null)
+            credentialForm.Username = credential.Username;
+    }
+
+    // ---- Admin credential ----
+
+    private async Task SaveCredential()
+    {
+        if (selected == null) return;
+        isSavingCredential = true;
+        credentialMessage = null;
+        try
+        {
+            credential = await AdminService.SaveCredentialAsync(CompanyId, selected.Id, credentialForm);
+            credentialForm.Secret = null; // don't keep the plaintext around
+            credentialOk = true;
+            credentialMessage = "Admin credential saved.";
+            await LoadDatabases();
+        }
+        catch (Exception ex)
+        {
+            credentialOk = false;
+            credentialMessage = ex.Message;
+        }
+        finally
+        {
+            isSavingCredential = false;
+        }
+    }
+
+    private async Task DeleteCredential()
+    {
+        if (selected == null) return;
+        if (!await _js.InvokeAsync<bool>("confirm", "Remove the stored admin credential for this database?")) return;
+
+        if (await AdminService.DeleteCredentialAsync(CompanyId, selected.Id))
+        {
+            credential = null;
+            credentialForm = new DatabaseAdminCredentialRequest();
+            users = null;
+            credentialOk = true;
+            credentialMessage = "Admin credential removed.";
+            await LoadDatabases();
+        }
+    }
+
+    // ---- Size ----
+
+    private async Task LoadSize()
+    {
+        if (selected == null) return;
+        isLoadingSize = true;
+        try { size = await AdminService.GetSizeAsync(CompanyId, selected.Id); }
+        finally { isLoadingSize = false; }
+    }
+
+    // ---- Users ----
+
+    private async Task LoadUsers()
+    {
+        if (selected == null) return;
+        isLoadingUsers = true;
+        try { users = await AdminService.GetUsersAsync(CompanyId, selected.Id); }
+        finally { isLoadingUsers = false; }
+    }
+
+    private void StartCreateUser()
+    {
+        createForm = new CreateDatabaseUserRequest();
+        createError = null;
+        showCreateUser = true;
+    }
+
+    private void CancelCreateUser()
+    {
+        showCreateUser = false;
+        createForm = new CreateDatabaseUserRequest();
+        createError = null;
+    }
+
+    private async Task CreateUser()
+    {
+        if (selected == null) return;
+        isWorking = true;
+        createError = null;
+        try
+        {
+            var result = await AdminService.CreateUserAsync(CompanyId, selected.Id, createForm);
+            if (!result.Ok)
+            {
+                createError = result.Error;
+                return;
+            }
+
+            showCreateUser = false;
+            createForm = new CreateDatabaseUserRequest();
+            ApplyResult(result);
+            await LoadUsers();
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    private void StartResetPassword(string username)
+    {
+        resetTarget = username;
+        resetPassword = null;
+        createError = null;
+    }
+
+    private void CancelReset()
+    {
+        resetTarget = null;
+        resetPassword = null;
+        createError = null;
+    }
+
+    private async Task ResetPassword()
+    {
+        if (selected == null || resetTarget == null) return;
+        isWorking = true;
+        createError = null;
+        try
+        {
+            var result = await AdminService.ResetPasswordAsync(CompanyId, selected.Id,
+                new ResetDatabaseUserPasswordRequest { Username = resetTarget, Password = resetPassword });
+
+            if (!result.Ok)
+            {
+                createError = result.Error;
+                return;
+            }
+
+            resetTarget = null;
+            resetPassword = null;
+            ApplyResult(result);
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    private void StartDropUser(string username)
+    {
+        dropTarget = username;
+        dropConfirmation = string.Empty;
+        dropServerLogin = true;
+        createError = null;
+    }
+
+    private void CancelDrop()
+    {
+        dropTarget = null;
+        dropConfirmation = string.Empty;
+        createError = null;
+    }
+
+    private async Task DropUser()
+    {
+        if (selected == null || dropTarget == null) return;
+        isWorking = true;
+        createError = null;
+        try
+        {
+            var result = await AdminService.DropUserAsync(CompanyId, selected.Id,
+                new DropDatabaseUserRequest { Username = dropTarget, DropServerLogin = dropServerLogin });
+
+            if (!result.Ok)
+            {
+                createError = result.Error;
+                return;
+            }
+
+            dropTarget = null;
+            dropConfirmation = string.Empty;
+            ApplyResult(result);
+            await LoadUsers();
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    /// <summary>Surfaces the outcome banner and, when the server generated one, the one-time password.</summary>
+    private void ApplyResult(DatabaseUserOperationResult result)
+    {
+        userOk = result.Ok;
+        userMessage = result.Message ?? result.Error;
+        createdPassword = result.GeneratedPassword;
+    }
+
+    private async Task CopyPassword()
+    {
+        if (!string.IsNullOrEmpty(createdPassword))
+            await _js.InvokeVoidAsync("navigator.clipboard.writeText", createdPassword);
+    }
+
+    // ---- Helpers ----
+
+    private static string EngineLabel(DataSourceType t) => t switch
+    {
+        DataSourceType.SQLServer => "Microsoft SQL Server",
+        DataSourceType.PostgreSQL => "PostgreSQL",
+        DataSourceType.MySQL => "MySQL",
+        DataSourceType.ClickHouse => "ClickHouse",
+        DataSourceType.DuckDB => "DuckDB",
+        _ => t.ToString()
+    };
+
+    private static string FormatBytes(long? bytes)
+    {
+        if (bytes == null) return "—";
+        double value = bytes.Value;
+        string[] units = { "B", "KB", "MB", "GB", "TB", "PB" };
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+        return $"{value:0.##} {units[unit]}";
+    }
+}

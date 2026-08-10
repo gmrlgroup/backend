@@ -14,8 +14,20 @@ namespace Application.Controllers;
 
 /// <summary>
 /// SQL query workbench for a dataset's DuckDB tables: ad-hoc execution, write-back (save result as
-/// table/view), and saved-query CRUD. Read execution is open to VIEW_DATA; write/DDL needs EDIT_DATA.
+/// table/view), and saved-query CRUD.
 /// </summary>
+/// <remarks>
+/// Every action requires the company's <c>QUERY</c> role (plus the <c>QueryAccess</c> policy). Within
+/// <see cref="Run"/>, a data-modifying statement additionally requires <c>DATA_ADMIN</c>.
+/// <para>
+/// The previous summary here claimed "Read execution is open to VIEW_DATA; write/DDL needs EDIT_DATA".
+/// Neither role exists in <see cref="RoleSuffixes"/> — the summary described a model that was never
+/// implemented, which is how the <c>allowWrite</c> defect below went unnoticed. <see cref="SaveResult"/>
+/// still performs write-back (it materializes a table or view) behind <c>QUERY</c> alone; that is
+/// long-standing behaviour rather than a contradiction, but it is inconsistent with
+/// <see cref="Run"/> and worth a deliberate decision.
+/// </para>
+/// </remarks>
 [Route("api/datasets/{datasetId}")]
 [ApiController]
 [Authorize(Policy = PolicyNames.QueryAccess)]
@@ -26,19 +38,22 @@ public class QueryController : ControllerBase
     private readonly ISavedQueryService _savedQueryService;
     private readonly IDatabaseTableService _databaseTableService;
     private readonly IIngestionService _ingestionService;
+    private readonly ISqlTableResolver _tableResolver;
 
     public QueryController(
         IDuckdbService duckdbService,
         IDatasetService datasetService,
         ISavedQueryService savedQueryService,
         IDatabaseTableService databaseTableService,
-        IIngestionService ingestionService)
+        IIngestionService ingestionService,
+        ISqlTableResolver tableResolver)
     {
         _duckdbService = duckdbService;
         _datasetService = datasetService;
         _savedQueryService = savedQueryService;
         _databaseTableService = databaseTableService;
         _ingestionService = ingestionService;
+        _tableResolver = tableResolver;
     }
 
     // POST: api/datasets/{datasetId}/query/run
@@ -47,7 +62,7 @@ public class QueryController : ControllerBase
     {
         var (companyId, userId, error) = ReadHeaders();
         if (error != null) return BadRequest(error);
-        if (!User.HasCompanyRole(companyId, "QUERY")) return Forbid();
+        if (!User.HasCompanyRole(companyId, RoleSuffixes.Query)) return Forbid();
         if (string.IsNullOrWhiteSpace(request?.Sql)) return BadRequest("Query is required");
 
         var dataset = await _datasetService.GetDatasetAsync(datasetId, userId);
@@ -68,9 +83,20 @@ public class QueryController : ControllerBase
             return Ok(external);
         }
 
-        // VIEW_DATA → read-only; EDIT_DATA/ADMIN → writes allowed. The service classifies the
-        // statement and returns a clear error inline if a write is attempted without edit rights.
-        var hasEdit = User.HasCompanyRole(companyId, "QUERY");
+        // Writes/DDL require DATA_ADMIN (or {companyId}_ADMIN, which HasCompanyRole passes implicitly).
+        // The service classifies the statement and returns a clear error inline if a write is attempted
+        // without edit rights.
+        //
+        // This previously read HasCompanyRole(companyId, "QUERY") — the same predicate the guard at the
+        // top of this method already requires — so allowWrite was ALWAYS true for anyone who got here.
+        // QUERY is a module-visibility role, so it was enough to run DELETE/DROP against any dataset the
+        // user could open, contradicting both this comment and the class summary.
+        //
+        // DATA_ADMIN is the closest real role: RoleSuffixes has no EDIT_DATA or VIEW_DATA at all, so the
+        // roles the old comment named do not exist. Which role should authorize a write is a product
+        // decision — if plain QUERY users are expected to keep write-back through this endpoint, widen
+        // this line deliberately rather than by reverting it.
+        var hasEdit = User.HasCompanyRole(companyId, RoleSuffixes.DataAdmin);
         var result = await _duckdbService.ExecuteSqlAsync(
             datasetId, request.Sql, allowWrite: hasEdit, maxRows: request.MaxRows ?? 0, HttpContext.RequestAborted);
         return Ok(result);
@@ -82,7 +108,7 @@ public class QueryController : ControllerBase
     {
         var (companyId, userId, error) = ReadHeaders();
         if (error != null) return BadRequest(error);
-        if (!User.HasCompanyRole(companyId, "QUERY")) return Forbid();
+        if (!User.HasCompanyRole(companyId, RoleSuffixes.Query)) return Forbid();
         if (request == null || string.IsNullOrWhiteSpace(request.Sql) || string.IsNullOrWhiteSpace(request.ObjectName))
             return BadRequest("Query and object name are required");
 
@@ -120,7 +146,7 @@ public class QueryController : ControllerBase
     {
         var (companyId, userId, error) = ReadHeaders();
         if (error != null) return BadRequest(error);
-        if (!User.HasCompanyRole(companyId, "QUERY")) return Forbid();
+        if (!User.HasCompanyRole(companyId, RoleSuffixes.Query)) return Forbid();
 
         return Ok(await _savedQueryService.GetForDatasetAsync(companyId, datasetId, userId));
     }
@@ -131,7 +157,7 @@ public class QueryController : ControllerBase
     {
         var (companyId, userId, error) = ReadHeaders();
         if (error != null) return BadRequest(error);
-        if (!User.HasCompanyRole(companyId, "QUERY")) return Forbid();
+        if (!User.HasCompanyRole(companyId, RoleSuffixes.Query)) return Forbid();
         if (request == null || string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.QueryText))
             return BadRequest("Name and query text are required");
         if (!await DatasetAccessible(datasetId, userId))
@@ -146,11 +172,11 @@ public class QueryController : ControllerBase
     {
         var (companyId, userId, error) = ReadHeaders();
         if (error != null) return BadRequest(error);
-        if (!User.HasCompanyRole(companyId, "QUERY")) return Forbid();
+        if (!User.HasCompanyRole(companyId, RoleSuffixes.Query)) return Forbid();
         if (request == null || string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.QueryText))
             return BadRequest("Name and query text are required");
 
-        var isAdmin = User.HasCompanyRole(companyId, "ADMIN");
+        var isAdmin = User.HasCompanyRole(companyId, RoleSuffixes.Admin);
         var updated = await _savedQueryService.UpdateAsync(companyId, id, userId, isAdmin, request);
         if (updated == null) return NotFound("Query not found, or you don't have permission to edit it.");
         return Ok(updated);
@@ -162,27 +188,12 @@ public class QueryController : ControllerBase
     {
         var (companyId, userId, error) = ReadHeaders();
         if (error != null) return BadRequest(error);
-        if (!User.HasCompanyRole(companyId, "QUERY")) return Forbid();
+        if (!User.HasCompanyRole(companyId, RoleSuffixes.Query)) return Forbid();
 
-        var isAdmin = User.HasCompanyRole(companyId, "ADMIN");
+        var isAdmin = User.HasCompanyRole(companyId, RoleSuffixes.Admin);
         if (!await _savedQueryService.DeleteAsync(companyId, id, userId, isAdmin))
             return NotFound("Query not found, or you don't have permission to delete it.");
         return NoContent();
-    }
-
-    // Matches the identifier following FROM/JOIN (handles quotes/brackets/backticks and schema.table).
-    private static readonly System.Text.RegularExpressions.Regex TableRefRegex =
-        new(@"\b(?:from|join)\s+([A-Za-z0-9_\.""\[\]`]+)",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
-
-    private static IEnumerable<string> ExtractReferencedTables(string sql)
-    {
-        foreach (System.Text.RegularExpressions.Match m in TableRefRegex.Matches(sql ?? ""))
-        {
-            var cleaned = m.Groups[1].Value.Replace("\"", "").Replace("[", "").Replace("]", "").Replace("`", "");
-            if (!string.IsNullOrWhiteSpace(cleaned))
-                yield return cleaned;
-        }
     }
 
     /// <summary>
@@ -190,26 +201,15 @@ public class QueryController : ControllerBase
     /// NOT allowed to access, or null if the query is clear. Only blocks references that match a KNOWN
     /// dataset table outside the user's allow-list, so CTEs/aliases/functions are never false-flagged.
     /// </summary>
+    /// <remarks>
+    /// The extraction itself now lives in <see cref="ISqlTableResolver"/>, shared with the public query
+    /// endpoint, so there is one implementation of "what tables does this query touch". This method keeps
+    /// the workbench's permissive policy — see <see cref="SqlTableResolution.FirstDisallowedKnownTable"/>.
+    /// </remarks>
     private async Task<string?> FindDisallowedTableAsync(Dataset dataset, string userId, string companyId, string sql, bool snapshotMode, System.Threading.CancellationToken ct)
     {
-        var accessible = await _datasetService.GetAccessibleTablesAsync(dataset.Id!, userId);
-        if (accessible == null) return null; // full access — no guard needed
-
-        IEnumerable<string> allTables;
-        if (dataset.SourceType == DatasetSourceType.External && !snapshotMode && !string.IsNullOrWhiteSpace(dataset.SourceEntityId))
-        {
-            var discovery = await _databaseTableService.DiscoverTablesAsync(dataset.SourceEntityId, companyId, ct);
-            allTables = discovery.Tables.Select(t => t.FullName);
-        }
-        else
-        {
-            allTables = await _duckdbService.GetTablesAsync(dataset.Id!);
-        }
-
-        var disallowed = allTables.Where(t => !accessible.Contains(t)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (disallowed.Count == 0) return null;
-
-        return ExtractReferencedTables(sql).FirstOrDefault(r => disallowed.Contains(r));
+        var resolution = await _tableResolver.ResolveAsync(dataset, userId, companyId, sql, snapshotMode, ct);
+        return resolution.FirstDisallowedKnownTable;
     }
 
     private (string companyId, string userId, string? error) ReadHeaders()

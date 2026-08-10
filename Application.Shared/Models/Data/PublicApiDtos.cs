@@ -67,6 +67,33 @@ public class ColumnMetadataDto
     [JsonPropertyName("is_nullable")] public bool IsNullable { get; set; } = true;
     [JsonPropertyName("is_primary_key")] public bool IsPrimaryKey { get; set; }
     [JsonPropertyName("table_relations")] public List<TableRelationDto> TableRelations { get; set; } = new();
+
+    // The rest of the persisted semantic layer (dataset_column_doc), added for AI consumers writing SQL.
+    // GetSavedColumnDocsAsync already returned all of this and only Description was being read.
+    // Additive JSON — existing consumers ignore what they don't bind.
+
+    /// <summary>Business-friendly name, e.g. "Net Amount" for <c>net_amt_acy</c>.</summary>
+    [JsonPropertyName("display_name")] public string? DisplayName { get; set; }
+
+    /// <summary>
+    /// Semantic role (currency, percentage, identifier, quantity, date, category…). What stops a model
+    /// SUM-ing a percentage or averaging an id.
+    /// </summary>
+    [JsonPropertyName("semantic_type")] public string? SemanticType { get; set; }
+
+    /// <summary>Unit of measure, disambiguating otherwise identical numeric columns.</summary>
+    [JsonPropertyName("unit")] public string? Unit { get; set; }
+
+    /// <summary>
+    /// Whether the column is flagged as personal data. <b>Advisory only, never an access control</b> — see
+    /// <see cref="DatasetColumnDoc"/>, where the flag is documented as surfaced for human review and never
+    /// used to enforce access. A consumer may use it to avoid selecting the column; it must not present it
+    /// to anyone as a guarantee.
+    /// </summary>
+    [JsonPropertyName("is_pii")] public bool IsPii { get; set; }
+
+    /// <summary>The kind of personal data, when <see cref="IsPii"/> is set. Advisory, as above.</summary>
+    [JsonPropertyName("pii_type")] public string? PiiType { get; set; }
 }
 
 public class TableRelationDto

@@ -27,7 +27,9 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
+using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.FluentUI.AspNetCore.Components;
@@ -374,6 +376,10 @@ builder.Services.AddHttpClient(PowerBiService.HttpClientName, client =>
 // lists tables across MSSQL/PostgreSQL/MySQL/ClickHouse/DuckDB, materializes Table entities).
 builder.Services.AddScoped<IDatabaseTableService, DatabaseTableService>();
 
+// Database administration for the same entities (space usage, user provisioning). Uses a separate
+// elevated credential — the connection above is deliberately least-privilege and read-only.
+builder.Services.AddScoped<IDatabaseAdminService, DatabaseAdminService>();
+
 // AI-assisted schema (column data type) inference for data import
 builder.Services.AddScoped<ISchemaInferenceService, SchemaInferenceService>();
 
@@ -382,6 +388,74 @@ builder.Services.AddScoped<IApiKeyService, ApiKeyService>();
 
 // SQL query workbench — saved queries (ad-hoc execution lives on IDuckdbService).
 builder.Services.AddScoped<ISavedQueryService, SavedQueryService>();
+
+// Shared "what tables does this SQL touch, and may the user read them" resolution. Used by the
+// workbench (permissive policy) and the public query endpoint (strict policy).
+builder.Services.AddScoped<Application.Shared.Services.Data.ISqlTableResolver, Application.Shared.Services.Data.SqlTableResolver>();
+
+// Public API SQL execution (api/dataset/{id}/query/run). This service is the enforcement point for
+// column masking and row-level security — the consuming app cannot apply them.
+var publicApiOptions = new PublicApiOptions();
+builder.Configuration.Bind("PublicApi", publicApiOptions);
+builder.Services.AddSingleton(publicApiOptions);
+builder.Services.AddScoped<Application.Shared.Services.Data.IPublicSqlQueryService, Application.Shared.Services.Data.PublicSqlQueryService>();
+builder.Services.AddScoped<Application.Shared.Services.Data.IPublicApiUserAuthorizationService, Application.Shared.Services.Data.PublicApiUserAuthorizationService>();
+
+// Rate limiting, scoped to the public SQL endpoint only (nothing else in the app is affected).
+// This endpoint runs arbitrary model-generated SQL, so it needs limits the rest of the app does not.
+builder.Services.AddRateLimiter(rateLimiter =>
+{
+    rateLimiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    rateLimiter.AddPolicy(Application.Controllers.PublicQueryController.RateLimitPolicy, context =>
+    {
+        var apiKeyId = context.User.FindFirst("api_key_id")?.Value
+                       ?? context.Connection.RemoteIpAddress?.ToString()
+                       ?? "anonymous";
+        var actingUser = context.Request.Headers["X-User-Id"].FirstOrDefault()
+                         ?? context.Request.Headers["Userid"].FirstOrDefault()
+                         ?? "-";
+
+        // Partitioned per (key, acting user) so one runaway user cannot starve the whole integration.
+        // A caller varying X-User-Id multiplies its own budget, which is why the concurrency limiter
+        // below is partitioned on the key alone.
+        return RateLimitPartition.GetSlidingWindowLimiter($"{apiKeyId}|{actingUser}", _ =>
+            new SlidingWindowRateLimiterOptions
+            {
+                PermitLimit = publicApiOptions.EffectiveRequestsPerMinute,
+                Window = TimeSpan.FromMinutes(1),
+                SegmentsPerWindow = 6,
+                QueueLimit = 0
+            });
+    });
+
+    // Concurrency matters more than rate here: each DuckDB read opens a file handle against a local
+    // file, so a handful of simultaneous full scans exhausts I/O long before a per-minute counter trips.
+    // It also has to be partitioned on the key ALONE — the sliding window above is per (key, user), so a
+    // caller varying X-User-Id would otherwise multiply its own budget.
+    //
+    // A second AddPolicy would not work: [EnableRateLimiting] binds exactly one policy per endpoint, and
+    // the attribute above already spends it. The global limiter runs in ADDITION to the endpoint policy,
+    // so the concurrency limit goes there — returning a no-op partition for every request that is not
+    // headed for this endpoint, which leaves the rest of the app untouched.
+    rateLimiter.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+    {
+        var policy = context.GetEndpoint()?.Metadata
+            .GetMetadata<EnableRateLimitingAttribute>()?.PolicyName;
+        if (policy != Application.Controllers.PublicQueryController.RateLimitPolicy)
+            return RateLimitPartition.GetNoLimiter("unlimited");
+
+        var apiKeyId = context.User.FindFirst("api_key_id")?.Value
+                       ?? context.Connection.RemoteIpAddress?.ToString()
+                       ?? "anonymous";
+        return RateLimitPartition.GetConcurrencyLimiter($"concurrency|{apiKeyId}", _ =>
+            new ConcurrencyLimiterOptions
+            {
+                PermitLimit = publicApiOptions.EffectiveMaxConcurrent,
+                QueueLimit = publicApiOptions.EffectiveConcurrencyQueueLimit,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+            });
+    });
+});
 
 // Scheduled/automated ingestion — executor shared with the scheduler ("Run now" runs it inline here).
 builder.Services.AddScoped<IIngestionService, IngestionService>();
@@ -469,6 +543,9 @@ app.Use((context, next) =>
 });
 
 app.UseHttpsRedirection();
+
+// Must sit before MapControllers so the [EnableRateLimiting] metadata on PublicQueryController is seen.
+app.UseRateLimiter();
 
 app.MapControllers();
 

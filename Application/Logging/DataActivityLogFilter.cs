@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json;
 using Application.Shared.Models.Logging;
@@ -21,7 +22,7 @@ public class DataActivityLogFilter : IAsyncActionFilter
     public DataActivityLogFilter(IDataAppLogService log) => _log = log;
 
     private static readonly HashSet<string> TargetControllers =
-        new(StringComparer.OrdinalIgnoreCase) { "Datasets", "Ingestion", "Sharing", "Query", "QueryNotebooks", "Conversations" };
+        new(StringComparer.OrdinalIgnoreCase) { "Datasets", "Ingestion", "Sharing", "Query", "QueryNotebooks", "Conversations", "DatabaseAdmin" };
 
     // Action method name -> (area, action). Anything unmapped falls back to a derived name.
     private static readonly Dictionary<string, (string Area, string Action)> Map =
@@ -77,6 +78,15 @@ public class DataActivityLogFilter : IAsyncActionFilter
             ["UpdateUserAccess"] = ("sharing", "sharing.update_access"),
             ["RevokeTableAccess"] = ("sharing", "sharing.revoke_table"),
             ["RemoveUserAccess"] = ("sharing", "sharing.remove_user"),
+            // Database administration (DDL against external databases — audit these especially)
+            ["GetDatabases"] = ("database-admin", "database.list"),
+            ["GetSize"] = ("database-admin", "database.size"),
+            ["GetUsers"] = ("database-admin", "database.user.list"),
+            ["CreateUser"] = ("database-admin", "database.user.create"),
+            ["DropUser"] = ("database-admin", "database.user.drop"),
+            ["ResetPassword"] = ("database-admin", "database.user.reset_password"),
+            ["SaveCredential"] = ("database-admin", "database.admin_credential.save"),
+            ["DeleteCredential"] = ("database-admin", "database.admin_credential.delete"),
             // Query workbench
             ["Run"] = ("table", "table.query_run"),
             ["SaveResult"] = ("table", "table.query_save_result"),
@@ -111,6 +121,18 @@ public class DataActivityLogFilter : IAsyncActionFilter
 
     // Property names on a request body that carry the user's SQL / query text.
     private static readonly string[] SqlProps = { "Sql", "Query", "QueryText" };
+
+    /// <summary>
+    /// Request-body property names whose values must never reach the log. The database-admin endpoints
+    /// post plaintext passwords, which <see cref="SerializeArguments"/> would otherwise write verbatim
+    /// into <c>data_app_log.details</c>.
+    /// </summary>
+    private static readonly HashSet<string> SensitiveProps =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Password", "NewPassword", "GeneratedPassword", "Secret", "ClientSecret",
+            "ApiKey", "Token", "AccessToken", "RefreshToken", "ConnectionString"
+        };
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
@@ -248,7 +270,7 @@ public class DataActivityLogFilter : IAsyncActionFilter
                     case CancellationToken:
                         break;
                     default:
-                        clean[key] = value;
+                        clean[key] = Redact(value);
                         break;
                 }
             }
@@ -259,6 +281,36 @@ public class DataActivityLogFilter : IAsyncActionFilter
         {
             return string.Empty;
         }
+    }
+
+    /// <summary>
+    /// Projects a request-body object to a dictionary with credential-bearing properties replaced by a
+    /// placeholder. Shallow by design — the bodies this filter sees are flat DTOs, and walking arbitrary
+    /// object graphs here would cost more than it protects.
+    /// </summary>
+    private static object? Redact(object value)
+    {
+        var type = value.GetType();
+        if (type.IsPrimitive || value is string or decimal or DateTime or DateTimeOffset or Guid || type.IsEnum)
+            return value;
+
+        var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.CanRead && p.GetIndexParameters().Length == 0)
+            .ToList();
+        if (props.Count == 0) return value;
+
+        var result = new Dictionary<string, object?>(props.Count);
+        foreach (var p in props)
+        {
+            if (SensitiveProps.Contains(p.Name))
+            {
+                result[p.Name] = "[redacted]";
+                continue;
+            }
+            try { result[p.Name] = p.GetValue(value); }
+            catch { result[p.Name] = null; }
+        }
+        return result;
     }
 
     private static object? Arg(IDictionary<string, object?> args, string key)

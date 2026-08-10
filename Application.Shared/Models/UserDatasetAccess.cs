@@ -5,9 +5,18 @@ using Microsoft.EntityFrameworkCore;
 namespace Application.Shared.Models;
 
 // Per-user dataset access, row-level security, and personal pins/default. All company-scoped and keyed
-// per user (composite [PrimaryKey], matching the DatasetUserTable pattern). Column/RLS grants are stored
-// here and served to the chat app via the public API; this backend does not itself enforce them at query
-// time (the consuming query engine applies them).
+// per user (composite [PrimaryKey], matching the DatasetUserTable pattern).
+//
+// Where these grants ARE enforced, which differs by path — do not assume:
+//   * api/dataset/{id}/query/run (PublicSqlQueryService) ENFORCES column masking and RLS, by rewriting
+//     every referenced table into a secured relation. It is the only row-returning path that does.
+//   * The catalog endpoints (PublicDatasetApiService) apply column grants when TRIMMING metadata, and
+//     serve RLS filters verbatim for a consumer to read.
+//   * QueryController, the table-data endpoints and api/external/* apply TABLE grants only. Within an
+//     allowed table they return every column and every row.
+// Column/RLS grants are also served to the chat app via the public API. A consumer cannot enforce RLS
+// even if it wants to: UserRlsFilter carries no table name, so only this side — which can read the
+// schema — can resolve which tables a filter applies to.
 
 /// <summary>
 /// Grants a user access to a specific column of a dataset table. A (user, dataset, table) with NO rows

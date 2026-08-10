@@ -99,6 +99,9 @@ public class StatusDbContext(DbContextOptions<StatusDbContext> options) : DbCont
     // DATABASE TABLE DISCOVERY
     public DbSet<DatabaseConnection> DatabaseConnections { get; set; }
 
+    // DATABASE ADMINISTRATION (elevated credential, separate from the read-only connection above)
+    public DbSet<DatabaseAdminCredential> DatabaseAdminCredentials { get; set; }
+
     // TABLE FRESHNESS CHECKS
     public DbSet<TableCheck> TableChecks { get; set; }
 

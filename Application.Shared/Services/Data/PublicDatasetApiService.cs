@@ -257,7 +257,16 @@ public class PublicDatasetApiService : IPublicDatasetApiService
                         MaxLength = null,                       // not captured by the current schema reads
                         IsNullable = c.IsNullable,              // real for DuckDB/local; defaults true for live external
                         IsPrimaryKey = c.IsPrimaryKey ?? false, // real for DuckDB/local; false for live external
-                        TableRelations = new()                  // no FK/relationship catalog in this backend yet
+                        TableRelations = new(),                 // no FK/relationship catalog in this backend yet
+                        // The rest of the semantic layer. Already loaded above — only Description used to
+                        // be read. SemanticType/Unit are what keep an AI consumer from aggregating a
+                        // percentage or an identifier; IsPii is advisory and must not be treated as access
+                        // control (see the ColumnMetadataDto remarks).
+                        DisplayName = doc?.DisplayName,
+                        SemanticType = doc?.SemanticType,
+                        Unit = doc?.Unit,
+                        IsPii = doc?.IsPii ?? false,
+                        PiiType = doc?.PiiType
                     };
                 }).ToList()
             });

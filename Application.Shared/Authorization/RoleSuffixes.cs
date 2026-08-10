@@ -25,6 +25,11 @@ public static class RoleSuffixes
     /// (ADMIN also passes).</summary>
     public const string DataAdmin = "DATA_ADMIN";
 
+    /// <summary>Grants access to the Database Management page — space checks and provisioning accounts
+    /// on the registered external databases (ADMIN also passes). Deliberately its own role: these
+    /// actions issue DDL against customer databases.</summary>
+    public const string DatabaseAdmin = "DB_ADMIN";
+
     /// <summary>Builds the full, company-prefixed role name (e.g. <c>ACME_METRICS_READ</c>).</summary>
     public static string Role(string companyId, string suffix) => $"{companyId}_{suffix}";
 }

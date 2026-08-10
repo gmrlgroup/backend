@@ -252,6 +252,17 @@ if (ownsSalesQueue)
         queue: "sales" // Pin the recurring definition's queue; in Hangfire 1.8 this overrides the [Queue] attribute.
     );
 
+    // Extra 11:55 run of the same job. A recurring job holds a single cron expression, and one
+    // expression can't say "every 15 min, plus :55 in hour 11 only" — putting 55 in the minute list
+    // would fire it every hour. So this is a second definition (own id) calling the same method.
+    RecurringJob.AddOrUpdate<SalesJob>(
+        recurringJobId: $"sales-grouped-by-store-hour_FO-1155",
+        methodCall: job => job.RunNokNokFoAsync(null, CancellationToken.None),
+        cronExpression: "57 11 * * *",
+        timeZone: tz,
+        queue: "sales"
+    );
+
     RecurringJob.AddOrUpdate<SalesSnapshotEmailJob>(
         recurringJobId: "sales-snapshot-email",
         methodCall: job => job.RunAsync(CancellationToken.None),

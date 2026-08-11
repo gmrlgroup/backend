@@ -258,7 +258,7 @@ if (ownsSalesQueue)
     RecurringJob.AddOrUpdate<SalesJob>(
         recurringJobId: $"sales-grouped-by-store-hour_FO-1155",
         methodCall: job => job.RunNokNokFoAsync(null, CancellationToken.None),
-        cronExpression: "57 11 * * *",
+        cronExpression: "57 23 * * *",
         timeZone: tz,
         queue: "sales"
     );

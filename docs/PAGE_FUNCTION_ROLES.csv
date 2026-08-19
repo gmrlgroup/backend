@@ -103,3 +103,5 @@ Admin,Roles,(Admin pages),List roles,GET,GMRL_VIEW_ADMIN,
 Chat,AI Chat,(global component),Send message / history / search,POST/GET,GMRL_VIEW_DATA,Requires authentication + VIEW_DATA
 Auth,Auth,/auth,View auth landing,GET,(any authenticated),No company role required
 Auth,Auth Details,/auth/details,View auth/claims details,GET,(any authenticated),Sections gated by specific roles
+Admin,Database Management,/admin/databases,View page / list databases / check size / list users,GET,GMRL_DB_ADMIN,Page + read API via DatabaseAdmin policy (ADMIN auto-allowed)
+Admin,Database Management,/admin/databases,Save/delete admin credential; create/drop user; reset password,PUT/POST/DELETE,GMRL_DB_ADMIN,Write API via DatabaseAdminWrite policy - issues DDL on the target database

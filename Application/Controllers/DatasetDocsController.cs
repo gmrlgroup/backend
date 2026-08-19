@@ -102,12 +102,18 @@ public class DatasetDocsController : ControllerBase
         }
 
         await _debug.LogAsync(companyId, DebugLevel.Info, "DataDocs",
-            $"Generated docs for '{tableName}': {result.ColumnsDocumented} column(s) documented.",
+            $"Generated docs for '{tableName}': {result.ColumnsDocumented} of {result.ColumnsTotal} column(s) documented." +
+            (result.Note == null ? "" : $" {result.Note}"),
             datasetId: datasetId, tableName: tableName, userId: userId,
-            durationMs: sw.ElapsedMilliseconds, context: new { result.ColumnsDocumented },
+            durationMs: sw.ElapsedMilliseconds,
+            context: new { result.ColumnsDocumented, result.ColumnsTotal, result.Note },
             ct: HttpContext.RequestAborted);
 
-        return Ok(await _docs.GetTableDocsAsync(companyId, datasetId, tableName, snapshotMode, HttpContext.RequestAborted));
+        var docs = await _docs.GetTableDocsAsync(companyId, datasetId, tableName, snapshotMode, HttpContext.RequestAborted);
+        // A partial run is a success — the columns it did document are saved — so it comes back 200 with the
+        // shortfall in the payload rather than as an error that hides the work already done.
+        docs.GenerationNote = result.Note;
+        return Ok(docs);
     }
 
     // DELETE: remove the entire saved documentation overlay for this table in the given layer. The table's

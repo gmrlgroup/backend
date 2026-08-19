@@ -23,4 +23,11 @@ public static class PolicyNames
     public const string InventoryRead = "InventoryRead";
     public const string DashboardsRead = "DashboardsRead";
     public const string DataLogRead = "DataLogRead";
+
+    /// <summary>Database Management page/API access — view databases, sizes and users (DB_ADMIN role, ADMIN always).</summary>
+    public const string DatabaseAdmin = "DatabaseAdmin";
+
+    /// <summary>Mutating database administration — creating, dropping and re-crediting database users.
+    /// Same roles as <see cref="DatabaseAdmin"/>, kept separate so the two can diverge without touching callers.</summary>
+    public const string DatabaseAdminWrite = "DatabaseAdminWrite";
 }

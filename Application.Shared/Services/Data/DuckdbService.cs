@@ -993,8 +993,20 @@ public class DuckdbService : IDuckdbService
             // Reads use a read-only handle: multiple readers can coexist (no single-writer lock) and
             // a VIEW_DATA user physically cannot mutate, even via a crafted WITH. Writes need a
             // read-write handle (one writer per file, like imports).
+            //
+            // Reads additionally disable DuckDB's external access. ACCESS_MODE=READ_ONLY stops writes to
+            // the database but does NOT stop reads of the host: `SELECT * FROM read_csv('C:/…/appsettings.json')`
+            // is a pure SELECT, and with httpfs it can post data outward. Verified against DuckDB 1.3 that
+            // this one setting refuses read_csv / read_parquet / read_text / read_blob / glob / COPY TO /
+            // ATTACH / INSTALL / LOAD and http(s) reads, and that it cannot be switched back on for the
+            // life of the connection ("Cannot change enable_external_access setting while database is
+            // running"). Ad-hoc SQL here can be model-generated, so this is the boundary that matters —
+            // the caller-side function denylist is only there to produce a clearer error.
+            //
+            // Deliberately NOT applied to the write handle: imports and write-back legitimately read
+            // files, and they run through separate methods with their own connections.
             var connectionString = kind == SqlKind.Read
-                ? $"DataSource={duckdbFilePath};ACCESS_MODE=READ_ONLY"
+                ? $"DataSource={duckdbFilePath};ACCESS_MODE=READ_ONLY;enable_external_access=false"
                 : $"DataSource={duckdbFilePath}";
 
             using var connection = new DuckDBConnection(connectionString);

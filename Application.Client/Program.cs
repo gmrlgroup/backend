@@ -35,5 +35,6 @@ builder.Services.AddScoped<Application.Client.Services.EntityAudienceClientServi
 builder.Services.AddScoped<Application.Client.Services.PowerBiClientService>();
 builder.Services.AddScoped<Application.Client.Services.StatusOverviewClientService>();
 builder.Services.AddScoped<Application.Client.Services.DatabaseTableClientService>();
+builder.Services.AddScoped<Application.Client.Services.DatabaseAdminClientService>();
 
 await builder.Build().RunAsync();

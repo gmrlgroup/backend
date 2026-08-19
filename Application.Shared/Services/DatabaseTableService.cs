@@ -8,12 +8,8 @@ using Application.Shared.Data;
 using Application.Shared.Enums;
 using Application.Shared.Models;
 using Application.Shared.Models.Data;
-using DuckDB.NET.Data;
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using MySqlConnector;
-using Npgsql;
 
 namespace Application.Shared.Services;
 
@@ -1079,23 +1075,16 @@ public class DatabaseTableService : IDatabaseTableService
         return await QueryTablesAsync(CreateAdoConnection(c), sql, ct, ReadOnlySetupFor(c.DatabaseType));
     }
 
-    /// <summary>Builds an unopened ADO.NET connection for an engine. ClickHouse is HTTP-only (no ADO).</summary>
-    private static DbConnection CreateAdoConnection(DatabaseConnection c) => c.DatabaseType switch
-    {
-        DataSourceType.SQLServer => new SqlConnection(BuildSqlServerConnectionString(c)),
-        DataSourceType.PostgreSQL => new NpgsqlConnection(BuildPostgresConnectionString(c)),
-        DataSourceType.MySQL => new MySqlConnection(BuildMySqlConnectionString(c)),
-        DataSourceType.DuckDB => new DuckDBConnection(BuildDuckDbConnectionString(c)),
-        _ => throw new NotSupportedException($"No ADO.NET driver for database type: {c.DatabaseType}.")
-    };
+    // Connection building and identifier quoting live in ExternalConnectionFactory so the admin service
+    // (which needs the same dialect rules without read-only intent) shares one copy. Everything this
+    // service does is read-only, so it always passes readOnly: true.
+
+    /// <summary>Builds an unopened, read-only ADO.NET connection. ClickHouse is HTTP-only (no ADO).</summary>
+    private static DbConnection CreateAdoConnection(DatabaseConnection c) =>
+        ExternalConnectionFactory.Create(c, readOnly: true);
 
     /// <summary>Command to put the session into read-only mode before querying, where the engine supports it.</summary>
-    private static string? ReadOnlySetupFor(DataSourceType type) => type switch
-    {
-        DataSourceType.PostgreSQL => "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY",
-        DataSourceType.MySQL => "SET SESSION TRANSACTION READ ONLY",
-        _ => null
-    };
+    private static string? ReadOnlySetupFor(DataSourceType type) => ExternalConnectionFactory.ReadOnlySetupFor(type);
 
     /// <summary>Opens an ADO.NET connection, runs a two-column (schema, name) query, and returns the rows.
     /// <paramref name="readOnlySetup"/>, when set, runs first to put the session into read-only mode.</summary>
@@ -1270,24 +1259,12 @@ public class DatabaseTableService : IDatabaseTableService
     }
 
     /// <summary>Quotes a possibly-qualified "{schema}.{table}" name, splitting on the first dot.</summary>
-    private static string QuoteQualified(DataSourceType type, string fullName)
-    {
-        var idx = fullName.IndexOf('.');
-        if (idx <= 0 || idx == fullName.Length - 1)
-            return QuoteIdentifier(type, fullName);
-        return $"{QuoteIdentifier(type, fullName[..idx])}.{QuoteIdentifier(type, fullName[(idx + 1)..])}";
-    }
+    private static string QuoteQualified(DataSourceType type, string fullName) =>
+        ExternalConnectionFactory.QuoteQualified(type, fullName);
 
     /// <summary>Quotes a single identifier for the engine, escaping the quote char (neutralizes injection).</summary>
-    private static string QuoteIdentifier(DataSourceType type, string id) => type switch
-    {
-        DataSourceType.SQLServer => $"[{id.Replace("]", "]]")}]",
-        DataSourceType.PostgreSQL => $"\"{id.Replace("\"", "\"\"")}\"",
-        DataSourceType.DuckDB => $"\"{id.Replace("\"", "\"\"")}\"",
-        DataSourceType.MySQL => $"`{id.Replace("`", "``")}`",
-        DataSourceType.ClickHouse => $"`{id.Replace("`", "``")}`",
-        _ => id
-    };
+    private static string QuoteIdentifier(DataSourceType type, string id) =>
+        ExternalConnectionFactory.QuoteIdentifier(type, id);
 
     /// <summary>Best-effort coercion of a MAX(timestamp) value to UTC. Timestamps are assumed to be UTC.</summary>
     private static DateTime? CoerceToUtc(object? value)
@@ -1310,37 +1287,9 @@ public class DatabaseTableService : IDatabaseTableService
 
     private static string Truncate(string s) => string.IsNullOrEmpty(s) || s.Length <= 300 ? s : s[..300];
 
-    private static string BuildSqlServerConnectionString(DatabaseConnection c)
-    {
-        var server = c.Port > 0 ? $"{c.Host},{c.Port}" : c.Host;
-        // ApplicationIntent=ReadOnly signals read-only intent (and routes to a readable secondary on AlwaysOn);
-        // combined with SELECT-only queries the feature never writes. Harmless/ignored on standalone servers.
-        return $"Server={server};Initial Catalog={c.DatabaseName};User ID={c.Username};Password={c.SecretEncrypted};" +
-               $"Encrypt={(c.UseSsl ? "True" : "False")};TrustServerCertificate=True;ApplicationIntent=ReadOnly;Connection Timeout=15;";
-    }
+    private static string EscapeLiteral(string? value) => ExternalConnectionFactory.EscapeLiteral(value);
 
-    private static string BuildPostgresConnectionString(DatabaseConnection c) =>
-        $"Host={c.Host};Port={(c.Port > 0 ? c.Port : 5432)};Database={c.DatabaseName};Username={c.Username};Password={c.SecretEncrypted};" +
-        $"SSL Mode={(c.UseSsl ? "Require" : "Prefer")};Trust Server Certificate=true;Timeout=15;";
-
-    private static string BuildMySqlConnectionString(DatabaseConnection c) =>
-        $"Server={c.Host};Port={(c.Port > 0 ? c.Port : 3306)};Database={c.DatabaseName};User ID={c.Username};Password={c.SecretEncrypted};" +
-        $"SslMode={(c.UseSsl ? "Required" : "Preferred")};Connection Timeout=15;";
-
-    private static string BuildDuckDbConnectionString(DatabaseConnection c) =>
-        // READ_ONLY opens the file without taking a write lock and rejects any modification.
-        $"DataSource={c.FilePath};ACCESS_MODE=READ_ONLY";
-
-    private static string EscapeLiteral(string? value) => (value ?? string.Empty).Replace("'", "''");
-
-    private static int DefaultPort(DataSourceType type) => type switch
-    {
-        DataSourceType.SQLServer => 1433,
-        DataSourceType.PostgreSQL => 5432,
-        DataSourceType.MySQL => 3306,
-        DataSourceType.ClickHouse => 8123,
-        _ => 0
-    };
+    private static int DefaultPort(DataSourceType type) => ExternalConnectionFactory.DefaultPort(type);
 
     private static DatabaseConnectionDto ToDto(DatabaseConnection c) => new()
     {
